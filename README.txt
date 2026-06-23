@@ -15,7 +15,12 @@ oceanografía costera y previsión meteorológica (AEMET / Open-Meteo).
     notificaciones.py
   dashboard/
     _bootstrap.py   imports compartidos
-    app.py          interfaz web
+    app.py          interfaz Dash (layout + gráficos)
+    theme.py        paleta de colores
+    components.py   tarjetas y bloques UI
+    assets/
+      sira.css      estilos responsive
+      logo_sira_2.png
   r_analysis/       gráficos R (opcional)
 
 Uso
