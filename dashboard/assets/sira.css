@@ -74,9 +74,10 @@ body {
 
 .sira-logo {
   display: block;
-  width: 100%;
-  max-width: 520px;
+  width: auto;
   height: auto;
+  max-height: 88px;
+  max-width: min(320px, 100%);
   object-fit: contain;
   filter: drop-shadow(0 6px 20px rgba(6, 182, 212, 0.25));
 }
@@ -273,7 +274,8 @@ body {
   }
 
   .sira-logo {
-    max-width: 280px;
+    max-height: 64px;
+    max-width: min(200px, 100%);
   }
 
   .sira-cards {
@@ -340,7 +342,8 @@ body {
 
 @media (max-width: 400px) {
   .sira-logo {
-    max-width: 200px;
+    max-height: 56px;
+    max-width: min(160px, 100%);
   }
 
   .sira-graph--map {
@@ -356,7 +359,8 @@ body {
 
 @media (min-width: 641px) and (max-width: 900px) {
   .sira-logo {
-    max-width: 400px;
+    max-height: 80px;
+    max-width: min(280px, 100%);
   }
 
   .sira-cards {
@@ -378,6 +382,7 @@ body {
 
 @media (min-width: 901px) {
   .sira-logo {
-    max-width: 560px;
+    max-height: 96px;
+    max-width: min(320px, 100%);
   }
 }

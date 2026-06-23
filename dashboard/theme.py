@@ -1,6 +1,6 @@
 """Paleta y estilos Plotly del dashboard SIRA."""
 
-# Colores de marca (logo_sira_2.png)
+# Colores de marca (logo-sira.png)
 C_NAVY = "#0a1628"
 C_NAVY_MID = "#0f2847"
 C_BORDER = "#1e4976"

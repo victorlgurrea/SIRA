@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import _bootstrap  # noqa: F401
 
-import math
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -21,7 +20,6 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
-    MAP_PULSE_MS,
     MAPA,
     ZONA,
 )
@@ -51,7 +49,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="icon" href="/assets/logo_sira_2.png?v=2" type="image/png">
+        <link rel="icon" href="/assets/logo-sira.png?v=3" type="image/png">
     </head>
     <body>
         {%app_entry%}
@@ -64,7 +62,7 @@ app.index_string = """
 </html>
 """
 
-_LOGO = app.get_asset_url("logo_sira_2.png") + "?v=2"
+_LOGO = app.get_asset_url("logo-sira.png") + "?v=3"
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
@@ -82,14 +80,13 @@ app.layout = html.Div(className="sira-page", children=[
         html.Div(id="cards", className="sira-cards"),
         html.Div(className="sira-content", children=[
             html.Div(className="sira-toolbar", children=[
-            html.Div(className="sira-ts-wrap", children=[
-                html.Span(id="ts", className="sira-ts"),
-                html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
-            ]),
+                html.Div(className="sira-ts-wrap", children=[
+                    html.Span(id="ts", className="sira-ts"),
+                    html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
+                ]),
                 html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
             ]),
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
-            dcc.Interval(id="pulse", interval=MAP_PULSE_MS, n_intervals=0, disabled=True),
             dcc.Store(id="sismos-store"),
             html.Div(className="sira-charts", children=[
                 bloque(
@@ -127,10 +124,6 @@ def _es_sismo_hoy(ts) -> bool:
         return False
 
 
-def _pulse_scale(tick: int) -> float:
-    return 1.0 + 0.35 * (0.5 + 0.5 * math.sin(tick * 0.45))
-
-
 def _fmt_sismo_fecha(ts) -> str:
     try:
         return pd.to_datetime(ts, utc=True).strftime("%d/%m/%Y %H:%M UTC")
@@ -138,10 +131,11 @@ def _fmt_sismo_fecha(ts) -> str:
         return "—"
 
 
-def _fig_mapa(sismos: list, pulse: float = 1.0) -> go.Figure:
+def _fig_mapa(sismos: list) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
+    hoy_scale = 1.35
 
     for nivel, color in COLORES.items():
         sub = df[df["nivel_alerta"] == nivel] if not df.empty else pd.DataFrame()
@@ -151,7 +145,7 @@ def _fig_mapa(sismos: list, pulse: float = 1.0) -> go.Figure:
         fechas = [_fmt_sismo_fecha(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else ["—"] * len(sub)
         hoy_mask = [_es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
         base = sub["magnitud"] * 2 + 5
-        sizes = [b * pulse if h else b for b, h in zip(base, hoy_mask)]
+        sizes = [b * hoy_scale if h else b for b, h in zip(base, hoy_mask)]
         borders = [("#f87171", 2.5) if h else ("white", 0.5) for h in hoy_mask]
         fig.add_trace(go.Scattergeo(
             lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
@@ -177,7 +171,7 @@ def _fig_mapa(sismos: list, pulse: float = 1.0) -> go.Figure:
         fig.add_trace(go.Scattergeo(
             lat=hoy_df["lat"], lon=hoy_df["lon"], mode="markers", name="Hoy",
             marker=dict(
-                size=[s * pulse * 2.4 for s in halo],
+                size=[s * hoy_scale * 2.4 for s in halo],
                 color="rgba(248, 113, 113, 0.35)",
                 line=dict(width=1.5, color="#f87171"),
             ),
@@ -257,7 +251,7 @@ def _fig_lluvia(serie: list) -> go.Figure:
 
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("sismos-store", "data"),
-    Output("riesgo", "figure"), Output("lluvia", "figure"),
+    Output("mapa", "figure"), Output("riesgo", "figure"), Output("lluvia", "figure"),
     Output("sst", "figure"), Output("corrientes", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
 )
@@ -325,29 +319,11 @@ def refresh(_, clicks):
 
     return (
         cards, f"Actualizado: {ts}", sismos,
+        _fig_mapa(sismos),
         _fig_riesgo(sismos), _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce.get("serie_horaria", []), "sst_c", C_CYAN, "°C"),
         _fig_linea(oce.get("serie_horaria", []), "corriente_vel_ms", C_GREEN, "m/s"),
     )
-
-
-@callback(
-    Output("pulse", "disabled"),
-    Input("sismos-store", "data"),
-)
-def toggle_map_pulse(sismos):
-    if not sismos:
-        return True
-    return not any(_es_sismo_hoy(s.get("timestamp")) for s in sismos)
-
-
-@callback(
-    Output("mapa", "figure"),
-    Input("sismos-store", "data"),
-    Input("pulse", "n_intervals"),
-)
-def update_mapa(sismos, pulse_n):
-    return _fig_mapa(sismos or [], pulse=_pulse_scale(pulse_n or 0))
 
 
 if __name__ == "__main__":
