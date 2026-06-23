@@ -57,7 +57,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=9">
+        <link rel="stylesheet" href="/assets/sira.css?v=11">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -107,14 +107,22 @@ app.layout = html.Div(className="sira-page", children=[
                 dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
                 dcc.Store(id="data-ts-store"),
                 html.Div(className="sira-charts", children=[
-                    bloque(
-                        "mapa", "Mapa sísmico — España",
-                        f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
-                        full=True, accent=C_ORANGE,
-                    ),
-                    bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent=C_TEAL),
-                    bloque("sst", "SST — Mar Mediterráneo", f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.", accent=C_CYAN),
-                    bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent=C_GREEN),
+                    html.Div(className="sira-charts-row", children=[
+                        bloque(
+                            "mapa", "Mapa sísmico — España",
+                            f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
+                            map_chart=True, accent=C_ORANGE,
+                        ),
+                        bloque(
+                            "sst", "SST — Mar Mediterráneo",
+                            f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.",
+                            accent=C_CYAN,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row", children=[
+                        bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent=C_TEAL),
+                        bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent=C_GREEN),
+                    ]),
                 ]),
             ]),
         ]),
@@ -149,13 +157,22 @@ def _fmt_sismo_fecha(ts) -> str:
         return "—"
 
 
-def _nivel_mag_max(sismos: list, mag_max: float) -> str | None:
+def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
     if not sismos:
         return None
     candidatos = [s for s in sismos if s.get("magnitud") == mag_max]
     if not candidatos:
         candidatos = sismos
-    return max(candidatos, key=lambda s: (s.get("score_total", 0), s.get("magnitud", 0))).get("nivel_alerta")
+    return max(candidatos, key=lambda s: (s.get("score_total", 0), s.get("magnitud", 0)))
+
+
+def _detalle_sismo(sismo: dict | None) -> html.Div | str:
+    if not sismo:
+        return "Sin eventos en el periodo"
+    return html.Div(className="sira-evento-info", children=[
+        html.Div(_fmt_sismo_fecha(sismo.get("timestamp")), className="sira-evento-fecha"),
+        html.Div(sismo.get("lugar") or "—", className="sira-evento-lugar"),
+    ])
 
 
 def _fig_mapa(sismos: list) -> go.Figure:
@@ -295,7 +312,8 @@ def refresh(n_intervals, clicks, last_ts):
     reg = st.get("por_region", {})
 
     mag_max = float(st.get("mag_max", 0) or 0)
-    nivel_max = _nivel_mag_max(sismos, mag_max)
+    sismo_max = _sismo_mag_max(sismos, mag_max)
+    nivel_max = sismo_max.get("nivel_alerta") if sismo_max else None
 
     cards = [
         card(
@@ -307,9 +325,8 @@ def refresh(n_intervals, clicks, last_ts):
         card(
             "Magnitud máx.",
             mag_con_riesgo(mag_max, nivel_max),
-            f"Score {st.get('score_max', 0)} · {st.get('n_alto_critico', 0)} en nivel Alto o Crítico",
-            "El score combina magnitud, profundidad, distancia a Valencia y zona submarina (0–100+). "
-            "Alto/Crítico: eventos con score ≥ 55.",
+            _detalle_sismo(sismo_max),
+            "Eventos críticos con score ≥ 55.",
             accent="#ef4444",
         ),
         card(

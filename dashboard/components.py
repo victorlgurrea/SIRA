@@ -30,16 +30,17 @@ def mag_con_riesgo(mag: float, nivel: str | None) -> html.Div:
 
 
 def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
-    return html.Div(
-        className="sira-card",
-        style={"borderLeftColor": accent},
-        children=[
-            html.Div(titulo, className="sira-card-title"),
-            html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,
-            html.Div(detalle, className="sira-card-detail") if isinstance(detalle, str) else detalle,
-            html.P(ayuda, className="sira-card-help"),
-        ],
-    )
+    children: list = [
+        html.Div(titulo, className="sira-card-title"),
+        html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,
+    ]
+    if isinstance(detalle, str) and detalle:
+        children.append(html.Div(detalle, className="sira-card-detail"))
+    elif detalle is not None and not isinstance(detalle, str):
+        children.append(detalle)
+    if ayuda:
+        children.append(html.P(ayuda, className="sira-card-help"))
+    return html.Div(className="sira-card", style={"borderLeftColor": accent}, children=children)
 
 
 def regiones(reg: dict) -> html.Div:
@@ -56,9 +57,15 @@ def regiones(reg: dict) -> html.Div:
     ])
 
 
-def bloque(gid: str, titulo: str, ayuda: str | None = None, *, full: bool = False, accent: str = C_CYAN) -> html.Div:
-    clases = "sira-bloque sira-bloque--full" if full else "sira-bloque"
-    graph_wrap = "sira-graph-wrap sira-graph-wrap--map" if full else "sira-graph-wrap"
+def bloque(
+    gid: str,
+    titulo: str,
+    ayuda: str | None = None,
+    *,
+    map_chart: bool = False,
+    accent: str = C_CYAN,
+) -> html.Div:
+    graph_wrap = "sira-graph-wrap sira-graph-wrap--map" if map_chart else "sira-graph-wrap"
     children: list = [html.H4(titulo, className="sira-bloque-title")]
     if ayuda:
         children.append(html.P(ayuda, className="sira-bloque-help"))
@@ -69,7 +76,7 @@ def bloque(gid: str, titulo: str, ayuda: str | None = None, *, full: bool = Fals
             style={"height": "100%", "width": "100%"},
         ),
     ]))
-    return html.Div(className=clases, style={"borderTopColor": accent}, children=children)
+    return html.Div(className="sira-bloque", style={"borderTopColor": accent}, children=children)
 
 
 def dir_compass(grados) -> str:

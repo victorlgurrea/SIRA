@@ -201,6 +201,26 @@ body {
   text-transform: capitalize;
 }
 
+.sira-evento-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+}
+
+.sira-evento-fecha {
+  color: var(--sira-detail);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sira-evento-lugar {
+  color: var(--sira-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .sira-card-detail {
   color: var(--sira-detail);
   font-size: 0.82rem;
