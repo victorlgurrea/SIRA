@@ -36,11 +36,11 @@ MAPA = {
     "lat_centro": _f("MAPA_LAT_CENTRO", "40.4168"),
     "lon_centro": _f("MAPA_LON_CENTRO", "-3.7038"),
     "ciudad_centro": os.getenv("MAPA_CIUDAD_CENTRO", "Madrid"),
-    "lat_min": _f("MAPA_LAT_MIN", "34.0"),
-    "lat_max": _f("MAPA_LAT_MAX", "44.0"),
-    "lon_min": _f("MAPA_LON_MIN", "-10.0"),
-    "lon_max": _f("MAPA_LON_MAX", "6.0"),
-    "projection_scale": _f("MAPA_PROJECTION_SCALE", "2.2"),
+    "lat_min": _f("MAPA_LAT_MIN", "32.0"),
+    "lat_max": _f("MAPA_LAT_MAX", "46.0"),
+    "lon_min": _f("MAPA_LON_MIN", "-12.0"),
+    "lon_max": _f("MAPA_LON_MAX", "8.0"),
+    "projection_scale": _f("MAPA_PROJECTION_SCALE", "1.5"),
 }
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")

@@ -16,46 +16,149 @@ from core import read_dashboard  # noqa: E402
 
 COLORES = {"MÍNIMO": "#2ECC71", "BAJO": "#F1C40F", "MODERADO": "#E67E22", "ALTO": "#E74C3C", "CRÍTICO": "#8B0000"}
 BG = dict(paper_bgcolor="#1e293b", plot_bgcolor="#1e293b", font=dict(color="#e2e8f0"))
-PANEL = dict(background="#1e293b", borderRadius="8px", padding="1rem")
-HELP = dict(color="#94a3b8", fontSize="0.78rem", margin="0.5rem 0 0")
+PANEL = dict(
+    background="linear-gradient(145deg, #1e293b 0%, #172033 100%)",
+    borderRadius="12px",
+    padding="1.25rem",
+    border="1px solid #334155",
+    boxShadow="0 4px 16px rgba(0, 0, 0, 0.25)",
+)
+CARD = dict(
+    **PANEL,
+    display="flex",
+    flexDirection="column",
+    gap="0.35rem",
+    transition="border-color 0.2s ease",
+)
+CARD_TITLE = dict(color="#94a3b8", fontSize="0.8rem", fontWeight="600", textTransform="uppercase", letterSpacing="0.06em")
+CARD_VALUE = dict(fontSize="1.75rem", fontWeight="700", color="#f1f5f9", lineHeight="1.1")
+CARD_DETAIL = dict(color="#cbd5e1", fontSize="0.82rem", lineHeight="1.45")
+HELP = dict(color="#64748b", fontSize="0.75rem", margin="0.35rem 0 0", lineHeight="1.4")
+BLOQUE = dict(**PANEL, borderTop="3px solid #38bdf8")
+TOOLBAR = dict(
+    display="flex", alignItems="center", flexWrap="wrap", gap="0.75rem",
+    padding="0.75rem 1.25rem",
+    marginTop="1rem", marginBottom="1.25rem",
+    background="#1e293b", borderRadius="10px", border="1px solid #334155",
+)
+CONTENT = dict(maxWidth="1400px", margin="0 auto", padding="0 2rem", width="100%", boxSizing="border-box")
+HEADER = dict(
+    background="linear-gradient(135deg, #0c4a6e 0%, #1e40af 35%, #0f172a 100%)",
+    padding="2rem 2.5rem",
+    borderBottom="3px solid #38bdf8",
+    boxShadow="0 4px 24px rgba(56, 189, 248, 0.15)",
+)
+FOOTER = dict(
+    background="linear-gradient(180deg, #0f172a 0%, #020617 100%)",
+    borderTop="1px solid #334155",
+    padding="1.25rem 2rem",
+    textAlign="center",
+    color="#64748b",
+    fontSize="0.85rem",
+    marginTop="auto",
+)
 
 app = Dash(__name__, title="SIRA — Sistema Ibérico de Riesgos y Alerta")
 
 
-def _card(t, v, d, h):
-    return html.Div(style={**PANEL, "border": "1px solid #334155"}, children=[
-        html.Div(t, style={"color": "#94a3b8", "fontSize": "0.85rem"}),
-        html.Div(v, style={"fontSize": "1.5rem", "fontWeight": "bold"}),
-        html.Div(d, style={"color": "#64748b", "fontSize": "0.8rem"}),
+def _card(t, v, d, h, accent="#38bdf8"):
+    return html.Div(style={**CARD, "borderLeft": f"4px solid {accent}"}, children=[
+        html.Div(t, style=CARD_TITLE),
+        html.Div(v, style=CARD_VALUE),
+        html.Div(d, style=CARD_DETAIL) if isinstance(d, str) else d,
         html.P(h, style=HELP),
     ])
 
 
-def _bloque(gid, titulo, ayuda, full=False):
-    st = {**PANEL, **({"gridColumn": "1 / -1"} if full else {})}
-    return html.Div(style=st, children=[
-        html.H4(titulo, style={"margin": 0}), html.P(ayuda, style=HELP),
-        dcc.Graph(id=gid, style={"height": "380px" if full else "320px"}),
+def _dir_compass(grados) -> str:
+    if grados is None or grados == "—":
+        return "—"
+    g = float(grados) % 360
+    puntos = ("N", "NE", "E", "SE", "S", "SO", "O", "NO")
+    cardinal = puntos[int((g + 22.5) / 45) % 8]
+    return f"{g:.0f}° ({cardinal})"
+
+
+def _regiones(reg: dict) -> html.Div:
+    items = [
+        ("Mediterráneo", reg.get("MEDITERRÁNEO", 0), "#f97316"),
+        ("Cantábrico", reg.get("CANTÁBRICO", 0), "#38bdf8"),
+        ("Atlántico", reg.get("ATLÁNTICO", 0), "#2dd4bf"),
+    ]
+    return html.Div(style={"display": "flex", "flexDirection": "column", "gap": "0.2rem"}, children=[
+        html.Div([
+            html.Span(n, style={"color": c, "fontWeight": "600"}),
+            html.Span(f": {v}", style={"color": "#cbd5e1"}),
+        ]) for n, v, c in items
     ])
 
 
-app.layout = html.Div(style={"background": "#0f172a", "minHeight": "100vh", "color": "#e2e8f0", "fontFamily": "Segoe UI"}, children=[
-    html.Header(style={"padding": "1.5rem 2rem", "borderBottom": "3px solid #38bdf8"}, children=[
-        html.H1("SIRA", style={"margin": 0, "color": "#7dd3fc"}),
-        html.P("Sistema Ibérico de Riesgos y Alerta · sismos · Cantábrico · Atlántico · oceanografía · meteorología",
-               style={"color": "#94a3b8", "margin": "0.5rem 0 0"}),
+def _bloque(gid, titulo, ayuda=None, full=False, accent="#38bdf8"):
+    st = {**BLOQUE, "borderTopColor": accent, **({"gridColumn": "1 / -1"} if full else {})}
+    children = [html.H4(titulo, style={"margin": 0, "color": "#f1f5f9", "fontSize": "1rem", "fontWeight": "600"})]
+    if ayuda:
+        children.append(html.P(ayuda, style=HELP))
+    children.append(dcc.Graph(id=gid, style={"height": "380px" if full else "320px"}, config={"displayModeBar": False}))
+    return html.Div(style=st, children=children)
+
+
+app.layout = html.Div(style={
+    "background": "#0f172a", "minHeight": "100vh", "color": "#e2e8f0",
+    "fontFamily": "Segoe UI, system-ui, sans-serif",
+    "display": "flex", "flexDirection": "column",
+}, children=[
+    html.Header(style=HEADER, children=[
+        html.Div(style={"maxWidth": "1400px", "margin": "0 auto"}, children=[
+            html.H1("SIRA", style={
+                "margin": 0,
+                "fontSize": "2.5rem",
+                "fontWeight": "700",
+                "letterSpacing": "0.12em",
+                "background": "linear-gradient(90deg, #7dd3fc, #38bdf8, #a5f3fc)",
+                "WebkitBackgroundClip": "text",
+                "WebkitTextFillColor": "transparent",
+            }),
+            html.P(
+                "Sistema Ibérico de Riesgos y Alerta",
+                style={"color": "#e2e8f0", "margin": "0.35rem 0 0", "fontSize": "1.05rem", "fontWeight": "500"},
+            ),
+            html.P(
+                "Sismos · Cantábrico · Atlántico · Oceanografía · Meteorología",
+                style={"color": "#94a3b8", "margin": "0.4rem 0 0", "fontSize": "0.9rem"},
+            ),
+        ]),
     ]),
-    html.Div(id="cards", style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(200px, 1fr))", "gap": "1rem", "padding": "1rem 2rem 0"}),
-    html.Div(style={"padding": "0.5rem 2rem"}, children=[
-        html.Span(id="ts"), html.Button("Actualizar", id="btn", n_clicks=0, style={"marginLeft": "1rem"}),
+    html.Main(style={"flex": "1"}, children=[
+        html.Div(id="cards", style={
+            "display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(200px, 1fr))",
+            "gap": "1rem", "padding": "1rem 2rem 0.5rem", "maxWidth": "1400px", "margin": "0 auto",
+        }),
+        html.Div(style=CONTENT, children=[
+            html.Div(style=TOOLBAR, children=[
+                html.Span(id="ts", style={"color": "#94a3b8", "fontSize": "0.9rem", "flex": "1"}),
+                html.Button("Actualizar", id="btn", n_clicks=0, style={
+                    "padding": "0.45rem 1.1rem",
+                    "background": "linear-gradient(135deg, #0284c7, #0ea5e9)",
+                    "color": "#fff", "border": "none", "borderRadius": "8px",
+                    "cursor": "pointer", "fontWeight": "600", "fontSize": "0.9rem",
+                    "boxShadow": "0 2px 8px rgba(14, 165, 233, 0.35)",
+                }),
+            ]),
+            dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS),
+            html.Div(style={
+                "display": "grid", "gridTemplateColumns": "1fr 1fr",
+                "gap": "1rem", "paddingBottom": "2rem",
+            }, children=[
+                _bloque("mapa", "Mapa sísmico — España", full=True, accent="#f97316"),
+                _bloque("riesgo", "Riesgo diario", "Score máximo (barras) y medio (línea) por día.", accent="#f97316"),
+                _bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent="#60a5fa"),
+                _bloque("sst", "SST — Mar Mediterráneo", f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.", accent="#38bdf8"),
+                _bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent="#2dd4bf"),
+            ]),
+        ]),
     ]),
-    dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS),
-    html.Div(style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "1rem", "padding": "0 2rem 2rem"}, children=[
-        _bloque("mapa", "Mapa sísmico — España", "Color = alerta. Estrellas = Madrid y Valencia.", full=True),
-        _bloque("riesgo", "Riesgo diario", "Score máximo (barras) y medio (línea) por día."),
-        _bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo."),
-        _bloque("sst", f"SST — {ZONA['ciudad_ref']}", "Temperatura superficial del mar."),
-        _bloque("corrientes", "Corrientes", "Velocidad en m/s."),
+    html.Footer(style=FOOTER, children=[
+        html.P("© 2026 SIRA — Sistema Ibérico de Riesgos y Alerta. Todos los derechos reservados.", style={"margin": 0}),
     ]),
 ])
 
@@ -132,13 +235,22 @@ def _fig_linea(serie: list, campo: str, color: str, unidad: str) -> go.Figure:
 
 def _fig_lluvia(serie: list) -> go.Figure:
     fig = go.Figure()
+    yaxis = dict(title="mm", rangemode="tozero")
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        fig.add_trace(go.Bar(x=s["timestamp"], y=s["precip_mm"], name="mm", marker_color="#60a5fa"))
+        precip = s["precip_mm"].fillna(0)
+        fig.add_trace(go.Bar(x=s["timestamp"], y=precip, name="mm", marker_color="#60a5fa"))
         if s["prob_precip_pct"].notna().any():
             fig.add_trace(go.Scatter(x=s["timestamp"], y=s["prob_precip_pct"], name="%", yaxis="y2", line=dict(color="#a78bfa")))
-    fig.update_layout(margin=dict(t=10, b=0), yaxis2=dict(overlaying="y", side="right", range=[0, 100]), **BG)
+        max_precip = float(precip.max())
+        yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
+    fig.update_layout(
+        margin=dict(t=10, b=0),
+        yaxis=yaxis,
+        yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%"),
+        **BG,
+    )
     return fig
 
 
@@ -162,11 +274,43 @@ def refresh(_, clicks):
     reg = st.get("por_region", {})
 
     cards = [
-        _card("Sismos", str(st.get("n_sismos", 0)), f"Med:{reg.get('MEDITERRÁNEO', 0)} Cant:{reg.get('CANTÁBRICO', 0)} Atl:{reg.get('ATLÁNTICO', 0)}", f"M≥{ZONA['magnitud_min']}, {ZONA['dias_atras']} días USGS"),
-        _card("Magnitud máx.", f"{st.get('mag_max', 0):.1f}", f"Score {st.get('score_max', 0)} · Alto/Crítico {st.get('n_alto_critico', 0)}", f"Referencia {ZONA['ciudad_ref']}"),
-        _card("Lluvia 24h", f"{res_met.get('precip_prox_24h_mm', '—')} mm", f"Prob. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}", met.get("municipio", ZONA["ciudad_ref"])),
-        _card("SST", f"{res_oce.get('sst_actual_c', '—')} °C", f"Anomalía {res_oce.get('anomalia_c', '—')} °C", "Open-Meteo marine"),
-        _card("Corriente", f"{res_oce.get('corriente_vel_ms', '—')} m/s", f"{res_oce.get('corriente_dir_grados', '—')}°", "Costa valenciana"),
+        _card(
+            "Sismos", str(st.get("n_sismos", 0)),
+            _regiones(reg),
+            f"M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días · fuente USGS",
+            accent="#f97316",
+        ),
+        _card(
+            "Magnitud máx.", f"{st.get('mag_max', 0):.1f}",
+            f"Score {st.get('score_max', 0)} · {st.get('n_alto_critico', 0)} en nivel Alto o Crítico",
+            "El score combina magnitud, profundidad, distancia a Valencia y zona submarina (0–100+). "
+            "Alto/Crítico: eventos con score ≥ 55.",
+            accent="#ef4444",
+        ),
+        _card(
+            "Lluvia 24h", f"{res_met.get('precip_prox_24h_mm', '—')} mm",
+            f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
+            met.get("municipio", ZONA["ciudad_ref"]),
+            accent="#60a5fa",
+        ),
+        _card(
+            "SST — Mar Mediterráneo", f"{res_oce.get('sst_actual_c', '—')} °C",
+            f"Temperatura superficial del mar · anomalía {res_oce.get('anomalia_c', '—')} °C",
+            f"Punto de referencia: {ZONA['ciudad_ref']} · Open-Meteo marine",
+            accent="#38bdf8",
+        ),
+        _card(
+            "Corriente marina", f"{res_oce.get('corriente_vel_ms', '—')} m/s",
+            html.Div([
+                html.Span("Dirección: ", style={"color": "#94a3b8"}),
+                html.Span(
+                    _dir_compass(res_oce.get("corriente_dir_grados")),
+                    style={"color": "#2dd4bf", "fontWeight": "600"},
+                ),
+            ]),
+            f"Rumbo de la corriente en el Mediterráneo occidental · {ZONA['ciudad_ref']}",
+            accent="#2dd4bf",
+        ),
     ]
     ts = d.get("generado_en", "—")
     try:
