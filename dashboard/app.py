@@ -119,6 +119,27 @@ body { margin: 0; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
 }
 """
 
+app.index_string = f"""
+<!DOCTYPE html>
+<html>
+    <head>
+        {{%metas%}}
+        <title>{{%title%}}</title>
+        {{%favicon%}}
+        {{%css%}}
+        <style>{MOBILE_CSS}</style>
+    </head>
+    <body>
+        {{%app_entry%}}
+        <footer>
+            {{%config%}}
+            {{%scripts%}}
+            {{%renderer%}}
+        </footer>
+    </body>
+</html>
+"""
+
 
 def _card(t, v, d, h, accent="#38bdf8"):
     return html.Div(className="sira-card", style={**CARD, "borderLeft": f"4px solid {accent}"}, children=[
@@ -171,7 +192,6 @@ app.layout = html.Div(style={
     "fontFamily": "Segoe UI, system-ui, sans-serif",
     "display": "flex", "flexDirection": "column", "overflowX": "hidden",
 }, children=[
-    html.Style(MOBILE_CSS),
     html.Header(className="sira-header", style=HEADER, children=[
         html.Div(className="sira-header-inner", style={"maxWidth": "1400px", "margin": "0 auto", "width": "100%"}, children=[
             html.H1("SIRA", className="sira-title", style={
@@ -215,7 +235,7 @@ app.layout = html.Div(style={
             }, children=[
                 _bloque(
                     "mapa", "Mapa sísmico — España",
-                    f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']} · los de hoy pulsan en rojo.",
+                    f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
                     full=True, accent="#f97316",
                 ),
                 _bloque("riesgo", "Riesgo diario", "Score máximo (barras) y medio (línea) por día.", accent="#f97316"),
