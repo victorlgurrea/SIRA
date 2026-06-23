@@ -76,13 +76,54 @@ FOOTER = dict(
     marginTop="auto",
 )
 
-app = Dash(__name__, title="SIRA — Sistema Ibérico de Riesgos y Alerta")
+app = Dash(
+    __name__,
+    title="SIRA — Sistema Ibérico de Riesgos y Alerta",
+    meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
+)
+
+MOBILE_CSS = """
+body { margin: 0; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+#react-entry-point, #react-entry-point > div { min-height: 100vh; }
+
+@media (max-width: 640px) {
+  .sira-header { padding: 1.25rem 1rem !important; }
+  .sira-header-inner { width: 100% !important; }
+  .sira-title { font-size: 1.75rem !important; letter-spacing: 0.08em !important; }
+  .sira-subtitle { font-size: 0.95rem !important; }
+  .sira-tags { font-size: 0.78rem !important; line-height: 1.45 !important; }
+  #cards { grid-template-columns: 1fr !important; padding: 0.75rem 1rem 0.5rem !important; gap: 0.75rem !important; }
+  .sira-content { padding: 0 1rem !important; }
+  .sira-toolbar { flex-direction: column !important; align-items: stretch !important; gap: 0.5rem !important; }
+  .sira-toolbar #ts { font-size: 0.82rem !important; width: 100%; }
+  .sira-toolbar #btn { width: 100%; min-height: 44px; }
+  .sira-charts { grid-template-columns: 1fr !important; gap: 0.75rem !important; padding-bottom: 1.5rem !important; }
+  .sira-bloque { padding: 1rem !important; }
+  .sira-graph { height: 260px !important; }
+  .sira-graph--map { height: 300px !important; }
+  .sira-footer { padding: 1rem !important; font-size: 0.78rem !important; }
+  .sira-card-value { font-size: 1.45rem !important; }
+  .sira-card { padding: 1rem !important; }
+}
+
+@media (max-width: 400px) {
+  .sira-title { font-size: 1.5rem !important; }
+  .sira-graph--map { height: 260px !important; }
+  .sira-graph { height: 230px !important; }
+}
+
+@media (min-width: 641px) and (max-width: 900px) {
+  #cards { grid-template-columns: repeat(2, 1fr) !important; padding-left: 1.25rem !important; padding-right: 1.25rem !important; }
+  .sira-charts { grid-template-columns: 1fr !important; }
+  .sira-content { padding: 0 1.25rem !important; }
+}
+"""
 
 
 def _card(t, v, d, h, accent="#38bdf8"):
-    return html.Div(style={**CARD, "borderLeft": f"4px solid {accent}"}, children=[
+    return html.Div(className="sira-card", style={**CARD, "borderLeft": f"4px solid {accent}"}, children=[
         html.Div(t, style=CARD_TITLE),
-        html.Div(v, style=CARD_VALUE),
+        html.Div(v, className="sira-card-value", style=CARD_VALUE),
         html.Div(d, style=CARD_DETAIL) if isinstance(d, str) else d,
         html.P(h, style=HELP),
     ])
@@ -116,18 +157,24 @@ def _bloque(gid, titulo, ayuda=None, full=False, accent="#38bdf8"):
     children = [html.H4(titulo, style={"margin": 0, "color": "#f1f5f9", "fontSize": "1rem", "fontWeight": "600"})]
     if ayuda:
         children.append(html.P(ayuda, style=HELP))
-    children.append(dcc.Graph(id=gid, style={"height": "380px" if full else "320px"}, config={"displayModeBar": False}))
-    return html.Div(style=st, children=children)
+    graph_cls = "sira-graph sira-graph--map" if full else "sira-graph"
+    children.append(dcc.Graph(
+        id=gid, className=graph_cls,
+        style={"height": "380px" if full else "320px", "width": "100%"},
+        config={"displayModeBar": False, "responsive": True},
+    ))
+    return html.Div(className="sira-bloque", style=st, children=children)
 
 
 app.layout = html.Div(style={
     "background": "#0f172a", "minHeight": "100vh", "color": "#e2e8f0",
     "fontFamily": "Segoe UI, system-ui, sans-serif",
-    "display": "flex", "flexDirection": "column",
+    "display": "flex", "flexDirection": "column", "overflowX": "hidden",
 }, children=[
-    html.Header(style=HEADER, children=[
-        html.Div(style={"maxWidth": "1400px", "margin": "0 auto"}, children=[
-            html.H1("SIRA", style={
+    html.Style(MOBILE_CSS),
+    html.Header(className="sira-header", style=HEADER, children=[
+        html.Div(className="sira-header-inner", style={"maxWidth": "1400px", "margin": "0 auto", "width": "100%"}, children=[
+            html.H1("SIRA", className="sira-title", style={
                 "margin": 0,
                 "fontSize": "2.5rem",
                 "fontWeight": "700",
@@ -138,30 +185,33 @@ app.layout = html.Div(style={
             }),
             html.P(
                 "Sistema Ibérico de Riesgos y Alerta",
+                className="sira-subtitle",
                 style={"color": "#e2e8f0", "margin": "0.35rem 0 0", "fontSize": "1.05rem", "fontWeight": "500"},
             ),
             html.P(
                 "Sismos · Cantábrico · Atlántico · Oceanografía · Meteorología",
+                className="sira-tags",
                 style={"color": "#94a3b8", "margin": "0.4rem 0 0", "fontSize": "0.9rem"},
             ),
         ]),
     ]),
-    html.Main(style={"flex": "1"}, children=[
+    html.Main(style={"flex": "1", "width": "100%"}, children=[
         html.Div(id="cards", style={
-            "display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(200px, 1fr))",
-            "gap": "1rem", "padding": "1rem 2rem 0.5rem", "maxWidth": "1400px", "margin": "0 auto",
+            "display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(220px, 1fr))",
+            "gap": "1rem", "padding": "1rem 2rem 0.5rem", "maxWidth": "1400px", "margin": "0 auto", "width": "100%",
+            "boxSizing": "border-box",
         }),
-        html.Div(style=CONTENT, children=[
-            html.Div(style=TOOLBAR, children=[
-                html.Span(id="ts", style={"color": "#94a3b8", "fontSize": "0.9rem", "flex": "1"}),
+        html.Div(className="sira-content", style=CONTENT, children=[
+            html.Div(className="sira-toolbar", style=TOOLBAR, children=[
+                html.Span(id="ts", style={"color": "#94a3b8", "fontSize": "0.9rem", "flex": "1", "minWidth": 0}),
                 html.Button("Actualizar", id="btn", n_clicks=0, style=BTN_REFRESH),
             ]),
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS),
             dcc.Interval(id="pulse", interval=500, n_intervals=0),
             dcc.Store(id="sismos-store"),
-            html.Div(style={
+            html.Div(className="sira-charts", style={
                 "display": "grid", "gridTemplateColumns": "1fr 1fr",
-                "gap": "1rem", "paddingBottom": "2rem",
+                "gap": "1rem", "paddingBottom": "2rem", "width": "100%",
             }, children=[
                 _bloque(
                     "mapa", "Mapa sísmico — España",
@@ -175,7 +225,7 @@ app.layout = html.Div(style={
             ]),
         ]),
     ]),
-    html.Footer(style=FOOTER, children=[
+    html.Footer(className="sira-footer", style=FOOTER, children=[
         html.P("© 2026 SIRA — Sistema Ibérico de Riesgos y Alerta. Todos los derechos reservados.", style={"margin": 0}),
     ]),
 ])
@@ -273,7 +323,12 @@ def _fig_mapa(sismos: list, pulse: float = 1.0) -> go.Figure:
         showocean=True, oceancolor="#e2e8f0",
         showcountries=True, countrycolor="#64748b", coastlinecolor="#94a3b8",
     )
-    fig.update_layout(margin=dict(t=10, b=0), legend=dict(title="Alerta"), **BG)
+    fig.update_layout(
+        margin=dict(t=10, b=0, l=0, r=0),
+        legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0),
+        autosize=True,
+        **BG,
+    )
     return fig
 
 
@@ -285,7 +340,7 @@ def _fig_riesgo(sismos: list) -> go.Figure:
         g = dd.groupby("fecha").agg(mx=("score_total", "max"), md=("score_total", "mean")).reset_index()
         fig.add_trace(go.Bar(x=g["fecha"], y=g["mx"], name="Máx.", marker_color="#f97316"))
         fig.add_trace(go.Scatter(x=g["fecha"], y=g["md"], name="Medio", line=dict(color="#38bdf8")))
-    fig.update_layout(margin=dict(t=10, b=0), yaxis_title="Score", **BG)
+    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title="Score", **BG)
     return fig
 
 
@@ -295,7 +350,7 @@ def _fig_linea(serie: list, campo: str, color: str, unidad: str) -> go.Figure:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
         fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
-    fig.update_layout(margin=dict(t=10, b=0), yaxis_title=unidad, **BG)
+    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, **BG)
     return fig
 
 
@@ -312,7 +367,8 @@ def _fig_lluvia(serie: list) -> go.Figure:
         max_precip = float(precip.max())
         yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
     fig.update_layout(
-        margin=dict(t=10, b=0),
+        margin=dict(t=10, b=0, l=0, r=0),
+        autosize=True,
         yaxis=yaxis,
         yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%"),
         **BG,
