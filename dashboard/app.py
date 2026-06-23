@@ -75,7 +75,6 @@ app.layout = html.Div(className="sira-page", children=[
                 src=_LOGO,
                 className="sira-logo",
                 alt="SIRA — Sistema Ibérico de Riesgos y Alerta",
-                loading="eager",
             ),
         ]),
     ]),
