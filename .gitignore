@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+data/processed/dashboard_data.json
+data/processed/alertas_estado.json
+.Rhistory
+.RData
