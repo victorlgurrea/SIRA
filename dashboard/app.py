@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import _bootstrap  # noqa: F401
 
-from datetime import datetime
+import math
+from datetime import datetime, timezone
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -156,11 +157,17 @@ app.layout = html.Div(style={
                 html.Button("Actualizar", id="btn", n_clicks=0, style=BTN_REFRESH),
             ]),
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS),
+            dcc.Interval(id="pulse", interval=500, n_intervals=0),
+            dcc.Store(id="sismos-store"),
             html.Div(style={
                 "display": "grid", "gridTemplateColumns": "1fr 1fr",
                 "gap": "1rem", "paddingBottom": "2rem",
             }, children=[
-                _bloque("mapa", "Mapa sísmico — España", full=True, accent="#f97316"),
+                _bloque(
+                    "mapa", "Mapa sísmico — España",
+                    f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']} · los de hoy pulsan en rojo.",
+                    full=True, accent="#f97316",
+                ),
                 _bloque("riesgo", "Riesgo diario", "Score máximo (barras) y medio (línea) por día.", accent="#f97316"),
                 _bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent="#60a5fa"),
                 _bloque("sst", "SST — Mar Mediterráneo", f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.", accent="#38bdf8"),
@@ -184,20 +191,68 @@ def _load() -> dict:
     return read_dashboard()
 
 
-def _fig_mapa(sismos: list) -> go.Figure:
+def _es_sismo_hoy(ts) -> bool:
+    try:
+        return pd.to_datetime(ts, utc=True).date() == datetime.now(timezone.utc).date()
+    except (ValueError, TypeError):
+        return False
+
+
+def _pulse_scale(tick: int) -> float:
+    return 1.0 + 0.35 * (0.5 + 0.5 * math.sin(tick * 0.45))
+
+
+def _fmt_sismo_fecha(ts) -> str:
+    try:
+        return pd.to_datetime(ts, utc=True).strftime("%d/%m/%Y %H:%M UTC")
+    except (ValueError, TypeError):
+        return "—"
+
+
+def _fig_mapa(sismos: list, pulse: float = 1.0) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
+    hoy_df = pd.DataFrame()
+
     for nivel, color in COLORES.items():
         sub = df[df["nivel_alerta"] == nivel] if not df.empty else pd.DataFrame()
         if sub.empty:
             continue
         reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
+        fechas = [_fmt_sismo_fecha(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else ["—"] * len(sub)
+        hoy_mask = [_es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
+        base = sub["magnitud"] * 2 + 5
+        sizes = [b * pulse if h else b for b, h in zip(base, hoy_mask)]
+        borders = [("#f87171", 2.5) if h else ("white", 0.5) for h in hoy_mask]
         fig.add_trace(go.Scattergeo(
             lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
-            marker=dict(size=sub["magnitud"] * 2 + 5, color=color, line=dict(width=0.5, color="white")),
+            marker=dict(
+                size=sizes, color=color,
+                line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
+            ),
             text=sub["lugar"],
-            customdata=list(zip(sub["magnitud"], sub["score_total"], reg_col)),
-            hovertemplate="%{text}<br>Mag %{customdata[0]} · Score %{customdata[1]} · %{customdata[2]}<extra></extra>",
+            customdata=list(zip(sub["magnitud"], sub["score_total"], reg_col, fechas)),
+            hovertemplate=(
+                "%{text}<br>"
+                "Fecha: %{customdata[3]}<br>"
+                "Mag %{customdata[0]} · Score %{customdata[1]} · %{customdata[2]}"
+                "<extra></extra>"
+            ),
+        ))
+
+    if not df.empty and "timestamp" in df.columns:
+        hoy_df = df[df["timestamp"].map(_es_sismo_hoy)]
+
+    if not hoy_df.empty:
+        halo = hoy_df["magnitud"] * 2 + 5
+        fig.add_trace(go.Scattergeo(
+            lat=hoy_df["lat"], lon=hoy_df["lon"], mode="markers", name="Hoy",
+            marker=dict(
+                size=[s * pulse * 2.4 for s in halo],
+                color="rgba(248, 113, 113, 0.35)",
+                line=dict(width=1.5, color="#f87171"),
+            ),
+            hoverinfo="skip", legendgroup="hoy",
         ))
     for lat, lon, name, color in (
         (MAPA["lat_centro"], MAPA["lon_centro"], MAPA["ciudad_centro"], "gold"),
@@ -266,8 +321,8 @@ def _fig_lluvia(serie: list) -> go.Figure:
 
 
 @callback(
-    Output("cards", "children"), Output("ts", "children"),
-    Output("mapa", "figure"), Output("riesgo", "figure"), Output("lluvia", "figure"),
+    Output("cards", "children"), Output("ts", "children"), Output("sismos-store", "data"),
+    Output("riesgo", "figure"), Output("lluvia", "figure"),
     Output("sst", "figure"), Output("corrientes", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
 )
@@ -334,11 +389,20 @@ def refresh(_, clicks):
         pass
 
     return (
-        cards, f"Actualizado: {ts}",
-        _fig_mapa(sismos), _fig_riesgo(sismos), _fig_lluvia(met.get("serie_horaria", [])),
+        cards, f"Actualizado: {ts}", sismos,
+        _fig_riesgo(sismos), _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce.get("serie_horaria", []), "sst_c", "#38bdf8", "°C"),
         _fig_linea(oce.get("serie_horaria", []), "corriente_vel_ms", "#2dd4bf", "m/s"),
     )
+
+
+@callback(
+    Output("mapa", "figure"),
+    Input("sismos-store", "data"),
+    Input("pulse", "n_intervals"),
+)
+def update_mapa(sismos, pulse_n):
+    return _fig_mapa(sismos or [], pulse=_pulse_scale(pulse_n or 0))
 
 
 if __name__ == "__main__":
