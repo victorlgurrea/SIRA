@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from config import ALLOWED_HOSTS, DATA_FILE, HTTP_TIMEOUT
+from config import ALLOWED_HOSTS, DATA_DIR, DATA_FILE, HTTP_TIMEOUT
 
 log = logging.getLogger(__name__)
 AEMET_BASE = "https://opendata.aemet.es/opendata/api"
@@ -53,7 +53,16 @@ def post_json(url: str, body: dict) -> dict:
     return data
 
 
+def _safe_data_path(path: Path) -> Path:
+    resolved = path.resolve()
+    root = DATA_DIR.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Ruta fuera de data/processed: {path}")
+    return resolved
+
+
 def read_json_file(path: Path) -> dict:
+    path = _safe_data_path(path)
     if not path.is_file():
         return {}
     try:
@@ -69,13 +78,14 @@ def read_dashboard() -> dict:
 
 
 def write_dashboard(payload: dict) -> Path:
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=DATA_FILE.parent, suffix=".tmp")
+    path = _safe_data_path(DATA_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with open(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False, indent=2))
-        Path(tmp).replace(DATA_FILE)
+        Path(tmp).replace(path)
     except OSError:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return DATA_FILE
+    return path

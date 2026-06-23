@@ -7,23 +7,32 @@ oceanografía costera y previsión meteorológica (AEMET / Open-Meteo).
   .env              configuración
   startup.bat       arranque automático
   python/
-    config.py       carga .env
-    core.py         HTTP seguro + JSON
+    config.py       carga .env y constantes
+    core.py         HTTP saliente + JSON
     ingesta.py      descarga datos
-    api_server.py   API local
-    scheduler.py    ingesta periódica
+    api_server.py   API local (solo consulta por defecto)
+    scheduler.py    ingesta periódica (manual)
     notificaciones.py
-  dashboard/app.py  interfaz web
-  r_analysis/       gráficos R
+  dashboard/
+    _bootstrap.py   imports compartidos
+    app.py          interfaz web
+  r_analysis/       gráficos R (opcional)
 
 Uso
 ───
   startup.bat
   py startup.py
-  cd python && py ingesta.py
+  cd python && py ingesta.py          # actualización manual
+  cd python && py scheduler.py        # ingesta periódica
 
-Seguridad
-─────────
-  API_KEY en .env       protege POST /api/actualizar
-  API_HOST=127.0.0.1    solo red local por defecto
-  .env en .gitignore    no subir credenciales
+Seguridad (modo consulta)
+─────────────────────────
+  ALLOW_DATA_REFRESH=false   solo lectura en dashboard y API (por defecto)
+  API_KEY en .env            obligatoria para POST /api/actualizar
+  ENABLE_API_DOCS=false      oculta Swagger en producción (por defecto)
+  API_HOST=127.0.0.1         solo red local por defecto
+  HTTP saliente              whitelist de hosts en config.py
+  .env en .gitignore         no subir credenciales
+
+Para habilitar actualización desde el dashboard:
+  ALLOW_DATA_REFRESH=true en .env

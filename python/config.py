@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-DATA_FILE = ROOT / "data" / "processed" / "dashboard_data.json"
-ALERTAS_STATE_FILE = ROOT / "data" / "processed" / "alertas_estado.json"
+DATA_DIR = ROOT / "data" / "processed"
+DATA_FILE = DATA_DIR / "dashboard_data.json"
+ALERTAS_STATE_FILE = DATA_DIR / "alertas_estado.json"
 
 
 def _f(key: str, default: str) -> float:
@@ -60,8 +61,17 @@ DASHBOARD_REFRESH_MS = _i("DASHBOARD_REFRESH_MS", "300000")
 FORECAST_DAYS = _i("OPEN_METEO_FORECAST_DAYS", "7")
 HTTP_TIMEOUT = _i("HTTP_TIMEOUT", "30")
 RATE_LIMIT_SEC = _i("RATE_LIMIT_SEC", "60")
-ENABLE_API_DOCS = os.getenv("ENABLE_API_DOCS", "true").lower() in ("1", "true", "yes")
+ENABLE_API_DOCS = os.getenv("ENABLE_API_DOCS", "false").lower() in ("1", "true", "yes")
+ALLOW_DATA_REFRESH = os.getenv("ALLOW_DATA_REFRESH", "false").lower() in ("1", "true", "yes")
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://127.0.0.1:8050,http://localhost:8050").split(",") if o.strip()]
+
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = _i("SMTP_PORT", "587")
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 ALLOWED_HOSTS = frozenset({
     "earthquake.usgs.gov", "marine-api.open-meteo.com", "api.open-meteo.com",

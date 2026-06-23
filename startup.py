@@ -84,8 +84,15 @@ def main() -> None:
     ensure_deps()
 
     sys.path.insert(0, str(PYTHON_DIR))
-    from config import API_HOST, API_PORT, DASHBOARD_HOST, DASHBOARD_PORT, DATA_FILE, ENABLE_API_DOCS
+    from config import ALLOW_DATA_REFRESH, API_HOST, API_PORT, DASHBOARD_HOST, DASHBOARD_PORT, DATA_FILE, ENABLE_API_DOCS
     from ingesta import ejecutar_ingesta
+
+    if API_HOST in ("0.0.0.0", "::"):
+        say(False, "API_HOST expuesto a todas las interfaces — usa 127.0.0.1 si solo es consulta local")
+    if DASHBOARD_HOST in ("0.0.0.0", "::"):
+        say(False, "DASHBOARD_HOST expuesto a todas las interfaces — usa 127.0.0.1 si solo es consulta local")
+    if not ALLOW_DATA_REFRESH:
+        say(True, "Modo solo consulta (ALLOW_DATA_REFRESH=false)")
 
     if not DATA_FILE.exists():
         say(False, "Ingesta inicial...")

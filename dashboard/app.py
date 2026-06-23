@@ -1,17 +1,26 @@
 """Dashboard SIRA."""
 from __future__ import annotations
 
-import sys
+import _bootstrap  # noqa: F401
+
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 from dash import Dash, Input, Output, callback, ctx, dcc, html
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
-from config import API_BASE_URL, API_KEY, DASHBOARD_HOST, DASHBOARD_PORT, DASHBOARD_REFRESH_MS, DATA_FILE, MAPA, ZONA  # noqa: E402
+from config import (  # noqa: E402
+    ALLOW_DATA_REFRESH,
+    API_BASE_URL,
+    API_KEY,
+    DASHBOARD_HOST,
+    DASHBOARD_PORT,
+    DASHBOARD_REFRESH_MS,
+    DATA_FILE,
+    MAPA,
+    ZONA,
+)
 from core import read_dashboard  # noqa: E402
 
 COLORES = {"MÍNIMO": "#2ECC71", "BAJO": "#F1C40F", "MODERADO": "#E67E22", "ALTO": "#E74C3C", "CRÍTICO": "#8B0000"}
@@ -42,6 +51,14 @@ TOOLBAR = dict(
     background="#1e293b", borderRadius="10px", border="1px solid #334155",
 )
 CONTENT = dict(maxWidth="1400px", margin="0 auto", padding="0 2rem", width="100%", boxSizing="border-box")
+BTN_REFRESH = {
+    "padding": "0.45rem 1.1rem",
+    "background": "linear-gradient(135deg, #0284c7, #0ea5e9)",
+    "color": "#fff", "border": "none", "borderRadius": "8px",
+    "cursor": "pointer", "fontWeight": "600", "fontSize": "0.9rem",
+    "boxShadow": "0 2px 8px rgba(14, 165, 233, 0.35)",
+    **({} if ALLOW_DATA_REFRESH else {"display": "none"}),
+}
 HEADER = dict(
     background="linear-gradient(135deg, #0c4a6e 0%, #1e40af 35%, #0f172a 100%)",
     padding="2rem 2.5rem",
@@ -136,13 +153,7 @@ app.layout = html.Div(style={
         html.Div(style=CONTENT, children=[
             html.Div(style=TOOLBAR, children=[
                 html.Span(id="ts", style={"color": "#94a3b8", "fontSize": "0.9rem", "flex": "1"}),
-                html.Button("Actualizar", id="btn", n_clicks=0, style={
-                    "padding": "0.45rem 1.1rem",
-                    "background": "linear-gradient(135deg, #0284c7, #0ea5e9)",
-                    "color": "#fff", "border": "none", "borderRadius": "8px",
-                    "cursor": "pointer", "fontWeight": "600", "fontSize": "0.9rem",
-                    "boxShadow": "0 2px 8px rgba(14, 165, 233, 0.35)",
-                }),
+                html.Button("Actualizar", id="btn", n_clicks=0, style=BTN_REFRESH),
             ]),
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS),
             html.Div(style={
@@ -261,9 +272,13 @@ def _fig_lluvia(serie: list) -> go.Figure:
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
 )
 def refresh(_, clicks):
-    if ctx.triggered_id == "btn" and clicks:
+    if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:
-            requests.post(f"{API_BASE_URL}/api/actualizar", headers={"X-API-Key": API_KEY} if API_KEY else {}, timeout=120)
+            requests.post(
+                f"{API_BASE_URL}/api/actualizar",
+                headers={"X-API-Key": API_KEY},
+                timeout=120,
+            )
         except requests.RequestException:
             pass
 
@@ -328,6 +343,5 @@ def refresh(_, clicks):
 
 if __name__ == "__main__":
     if not DATA_FILE.exists():
-        from ingesta import ejecutar_ingesta
-        ejecutar_ingesta()
+        raise SystemExit("Sin datos. Ejecuta startup.py para generar la ingesta inicial.")
     app.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, debug=False)

@@ -19,8 +19,8 @@ num <- function(k, default) as.numeric(get(k, default))
 
 ZONA <- list(
   nombre = get("ZONA_NOMBRE", "Mediterráneo Occidental - Costa Valenciana"),
-  lat_min = num("MAPA_LAT_MIN", 35), lat_max = num("MAPA_LAT_MAX", 44.5),
-  lon_min = num("MAPA_LON_MIN", -10), lon_max = num("MAPA_LON_MAX", 5),
+  lat_min = num("MAPA_LAT_MIN", 32), lat_max = num("MAPA_LAT_MAX", 46),
+  lon_min = num("MAPA_LON_MIN", -12), lon_max = num("MAPA_LON_MAX", 8),
   lat_ref = num("LAT_REF", 39.47), lon_ref = num("LON_REF", -0.38),
   ciudad_ref = get("CIUDAD_REF", "Valencia")
 )
