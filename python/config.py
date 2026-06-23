@@ -28,7 +28,7 @@ ZONA = {
     "lon_ref": _f("LON_REF", "-0.38"),
     "ciudad_ref": os.getenv("CIUDAD_REF", "Valencia"),
     "magnitud_min": _f("MAGNITUD_MIN", "3.0"),
-    "dias_atras": _i("DIAS_ATRAS", "365"),
+    "dias_atras": _i("DIAS_ATRAS", "30"),
     "umbral_score_alerta": _i("UMBRAL_SCORE_ALERTA", "55"),
     "anomalia_sst_umbral": _f("ANOMALIA_SST_UMBRAL", "0.8"),
 }

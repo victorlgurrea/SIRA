@@ -13,6 +13,12 @@
   --sira-detail: #cbd5e1;
   --sira-help: #64748b;
   --sira-max-w: 1400px;
+  --sira-radius: 14px;
+  --sira-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(34, 211, 238, 0.06);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 /* --- Base --- */
@@ -23,25 +29,32 @@ body {
   -webkit-text-size-adjust: 100%;
   background: var(--sira-navy);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--sira-text);
 }
 
 #react-entry-point,
-#react-entry-point > div {
+#react-entry-point > div,
+.sira-page {
   min-height: 100vh;
 }
 
 .sira-page {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
   overflow-x: hidden;
-  color: var(--sira-text);
   background: linear-gradient(180deg, #050a12 0%, var(--sira-navy) 40%, #0f2847 100%);
 }
 
 .sira-main {
   flex: 1;
   width: 100%;
+}
+
+.sira-container {
+  max-width: var(--sira-max-w);
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 2rem;
 }
 
 /* --- Header --- */
@@ -65,21 +78,55 @@ body {
 
 .sira-header-inner {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
+  gap: 1.5rem;
   max-width: var(--sira-max-w);
   margin: 0 auto;
   width: 100%;
 }
 
+.sira-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sira-title {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--sira-cyan);
+  background: linear-gradient(90deg, #7dd3fc, var(--sira-cyan), #a5f3fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.sira-subtitle {
+  margin: 0.35rem 0 0;
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  font-weight: 500;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+
+.sira-tags {
+  margin: 0.4rem 0 0;
+  font-size: clamp(0.82rem, 1.8vw, 0.9rem);
+  color: var(--sira-muted);
+  line-height: 1.45;
+}
+
 .sira-logo {
+  flex-shrink: 0;
   display: block;
   width: auto;
   height: auto;
-  max-height: 88px;
-  max-width: min(320px, 100%);
+  max-height: 96px;
+  max-width: min(280px, 32vw);
   object-fit: contain;
-  filter: drop-shadow(0 6px 20px rgba(6, 182, 212, 0.25));
+  filter: drop-shadow(0 4px 16px rgba(6, 182, 212, 0.35));
 }
 
 /* --- Tarjetas KPI --- */
@@ -88,11 +135,8 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
-  padding: 1rem 2rem 0.5rem;
-  max-width: var(--sira-max-w);
-  margin: 0 auto;
+  padding: 1rem 0 0.5rem;
   width: 100%;
-  box-sizing: border-box;
 }
 
 .sira-card {
@@ -100,12 +144,12 @@ body {
   flex-direction: column;
   gap: 0.35rem;
   padding: 1.25rem;
-  border-radius: 14px;
+  border-radius: var(--sira-radius);
   border: 1px solid var(--sira-border);
   border-left-width: 4px;
   background: linear-gradient(145deg, var(--sira-navy-mid) 0%, var(--sira-navy) 100%);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(34, 211, 238, 0.06);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: var(--sira-shadow);
+  transition: box-shadow 0.2s ease;
 }
 
 .sira-card:hover {
@@ -125,6 +169,36 @@ body {
   font-weight: 700;
   color: var(--sira-text);
   line-height: 1.1;
+}
+
+.sira-mag-riesgo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+
+.sira-card-value-num {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--sira-text);
+  line-height: 1.1;
+}
+
+.sira-riesgo-badge {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.sira-riesgo-label {
+  color: var(--sira-muted);
+  font-weight: 500;
+}
+
+.sira-riesgo-val {
+  font-weight: 700;
+  text-transform: capitalize;
 }
 
 .sira-card-detail {
@@ -153,11 +227,8 @@ body {
 /* --- Contenido y toolbar --- */
 
 .sira-content {
-  max-width: var(--sira-max-w);
-  margin: 0 auto;
-  padding: 0 2rem;
   width: 100%;
-  box-sizing: border-box;
+  padding-bottom: 0.5rem;
 }
 
 .sira-toolbar {
@@ -184,7 +255,7 @@ body {
 }
 
 .sira-ts-hint {
-  color: #64748b;
+  color: var(--sira-help);
   font-size: 0.82rem;
 }
 
@@ -198,10 +269,15 @@ body {
   font-weight: 600;
   font-size: 0.9rem;
   box-shadow: 0 2px 12px rgba(249, 115, 22, 0.4);
+  white-space: nowrap;
+}
+
+.sira-btn-refresh:hover {
+  filter: brightness(1.05);
 }
 
 .sira-btn-refresh--hidden {
-  display: none;
+  display: none !important;
 }
 
 /* --- Bloques de gráficos --- */
@@ -216,11 +292,12 @@ body {
 
 .sira-bloque {
   padding: 1.25rem;
-  border-radius: 14px;
+  border-radius: var(--sira-radius);
   border: 1px solid var(--sira-border);
   border-top-width: 3px;
   background: linear-gradient(145deg, var(--sira-navy-mid) 0%, var(--sira-navy) 100%);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(34, 211, 238, 0.06);
+  box-shadow: var(--sira-shadow);
+  min-width: 0;
 }
 
 .sira-bloque--full {
@@ -237,17 +314,31 @@ body {
 .sira-bloque-help {
   color: var(--sira-help);
   font-size: 0.75rem;
-  margin: 0.35rem 0 0;
+  margin: 0.35rem 0 0.5rem;
   line-height: 1.4;
 }
 
-.sira-graph {
+.sira-graph-wrap {
   height: 320px;
   width: 100%;
+  margin-top: 0.5rem;
+  position: relative;
+  overflow: hidden;
 }
 
-.sira-graph--map {
-  height: 380px;
+.sira-graph-wrap--map {
+  height: 400px;
+}
+
+.sira-graph-wrap .dash-graph,
+.sira-graph-wrap .js-plotly-plot,
+.sira-graph-wrap .plot-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.sira-graph-wrap .svg-container {
+  height: 100% !important;
 }
 
 /* --- Footer --- */
@@ -273,25 +364,44 @@ body {
     padding: 1rem;
   }
 
+  .sira-container {
+    padding: 0 1rem;
+  }
+
+  .sira-header-inner {
+    gap: 0.75rem;
+  }
+
+  .sira-title {
+    font-size: 1.5rem;
+    letter-spacing: 0.08em;
+  }
+
+  .sira-subtitle {
+    font-size: 0.85rem;
+  }
+
+  .sira-tags {
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
   .sira-logo {
-    max-height: 64px;
-    max-width: min(200px, 100%);
+    max-height: 68px;
+    max-width: min(180px, 36vw);
   }
 
   .sira-cards {
     grid-template-columns: 1fr;
-    padding: 0.75rem 1rem 0.5rem;
     gap: 0.75rem;
-  }
-
-  .sira-content {
-    padding: 0 1rem;
+    padding-top: 0.75rem;
   }
 
   .sira-toolbar {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
+    margin-top: 0.75rem;
   }
 
   .sira-ts-wrap {
@@ -318,11 +428,11 @@ body {
     padding: 1rem;
   }
 
-  .sira-graph {
+  .sira-graph-wrap {
     height: 260px;
   }
 
-  .sira-graph--map {
+  .sira-graph-wrap--map {
     height: 300px;
   }
 
@@ -335,22 +445,36 @@ body {
     font-size: 1.45rem;
   }
 
+  .sira-card-value-num {
+    font-size: 1.45rem;
+  }
+
+  .sira-riesgo-badge {
+    font-size: 0.9rem;
+  }
+
   .sira-card {
     padding: 1rem;
   }
 }
 
 @media (max-width: 400px) {
-  .sira-logo {
-    max-height: 56px;
-    max-width: min(160px, 100%);
+  .sira-header-inner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .sira-graph--map {
+  .sira-logo {
+    align-self: flex-end;
+    max-height: 56px;
+    max-width: min(150px, 42vw);
+  }
+
+  .sira-graph-wrap--map {
     height: 260px;
   }
 
-  .sira-graph {
+  .sira-graph-wrap {
     height: 230px;
   }
 }
@@ -358,23 +482,21 @@ body {
 /* --- Responsive: tablet --- */
 
 @media (min-width: 641px) and (max-width: 900px) {
+  .sira-container {
+    padding: 0 1.25rem;
+  }
+
   .sira-logo {
-    max-height: 80px;
-    max-width: min(280px, 100%);
+    max-height: 84px;
+    max-width: min(220px, 28vw);
   }
 
   .sira-cards {
     grid-template-columns: repeat(2, 1fr);
-    padding-left: 1.25rem;
-    padding-right: 1.25rem;
   }
 
   .sira-charts {
     grid-template-columns: 1fr;
-  }
-
-  .sira-content {
-    padding: 0 1.25rem;
   }
 }
 
@@ -382,7 +504,7 @@ body {
 
 @media (min-width: 901px) {
   .sira-logo {
-    max-height: 96px;
-    max-width: min(320px, 100%);
+    max-height: 100px;
+    max-width: min(300px, 26vw);
   }
 }

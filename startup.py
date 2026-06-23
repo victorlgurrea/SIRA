@@ -64,6 +64,42 @@ def _importable(mod: str) -> bool:
         return False
 
 
+def kill_port(port: int) -> None:
+    """Cierra procesos que ocupan un puerto (evita instancias zombie del dashboard/API)."""
+    if sys.platform == "win32":
+        try:
+            out = subprocess.check_output(["netstat", "-ano"], text=True, errors="replace")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return
+        pids: set[str] = set()
+        for line in out.splitlines():
+            if f":{port}" not in line or "LISTENING" not in line:
+                continue
+            parts = line.split()
+            if parts and parts[-1].isdigit() and parts[-1] != "0":
+                pids.add(parts[-1])
+        for pid in pids:
+            subprocess.run(
+                ["taskkill", "/F", "/PID", pid],
+                capture_output=True,
+                text=True,
+                errors="replace",
+            )
+        if pids:
+            say(True, f"Puerto :{port} liberado ({len(pids)} proceso(s))")
+        return
+
+    try:
+        out = subprocess.check_output(["lsof", "-ti", f":{port}"], text=True, errors="replace")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return
+    pids = [p.strip() for p in out.splitlines() if p.strip().isdigit()]
+    for pid in pids:
+        subprocess.run(["kill", "-9", pid], capture_output=True)
+    if pids:
+        say(True, f"Puerto :{port} liberado ({len(pids)} proceso(s))")
+
+
 def wait_port(host: str, port: int, name: str) -> None:
     for _ in range(45):
         try:
@@ -101,6 +137,9 @@ def main() -> None:
 
     api_h = "127.0.0.1" if API_HOST in ("0.0.0.0", "") else API_HOST
     dash_h = "127.0.0.1" if DASHBOARD_HOST in ("0.0.0.0", "") else DASHBOARD_HOST
+    kill_port(API_PORT)
+    kill_port(DASHBOARD_PORT)
+    time.sleep(0.5)
     kw = {"creationflags": subprocess.CREATE_NEW_CONSOLE} if sys.platform == "win32" else {}
     api = subprocess.Popen([sys.executable, "-m", "uvicorn", "api_server:app", "--host", API_HOST, "--port", str(API_PORT)], cwd=PYTHON_DIR, **kw)
     dash = subprocess.Popen([sys.executable, "app.py"], cwd=DASHBOARD_DIR, **kw)

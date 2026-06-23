@@ -4,13 +4,15 @@ from __future__ import annotations
 import _bootstrap  # noqa: F401
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
 import requests
-from dash import Dash, Input, Output, callback, ctx, dcc, html
+from dash import Dash, Input, Output, State, callback, ctx, dcc, html
+from dash.exceptions import PreventUpdate
 
-from components import bloque, card, dir_compass, regiones
+from components import bloque, card, dir_compass, mag_con_riesgo, regiones
 from config import (  # noqa: E402
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
@@ -35,9 +37,15 @@ from theme import (
     PLOTLY_BG,
 )
 
+_ASSETS = Path(__file__).resolve().parent / "assets"
+_LOGO_FILE = _ASSETS / "logo_sira_3.png"
+if not _LOGO_FILE.is_file():
+    raise SystemExit(f"Falta el logo: {_LOGO_FILE}")
+
 app = Dash(
     __name__,
     title="SIRA — Sistema Ibérico de Riesgos y Alerta",
+    assets_folder=str(_ASSETS),
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
@@ -49,7 +57,8 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="icon" href="/assets/logo-sira.png?v=3" type="image/png">
+        <link rel="stylesheet" href="/assets/sira.css?v=9">
+        <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
         {%app_entry%}
@@ -62,13 +71,21 @@ app.index_string = """
 </html>
 """
 
-_LOGO = app.get_asset_url("logo-sira.png") + "?v=3"
+_LOGO = app.get_asset_url("logo_sira_3.png") + "?v=8"
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
 app.layout = html.Div(className="sira-page", children=[
     html.Header(className="sira-header", children=[
         html.Div(className="sira-header-inner", children=[
+            html.Div(className="sira-header-text", children=[
+                html.H1("SIRA", className="sira-title"),
+                html.P("Sistema Ibérico de Riesgos y Alerta", className="sira-subtitle"),
+                html.P(
+                    "Sismos · Cantábrico · Atlántico · Oceanografía · Meteorología",
+                    className="sira-tags",
+                ),
+            ]),
             html.Img(
                 src=_LOGO,
                 className="sira-logo",
@@ -77,27 +94,28 @@ app.layout = html.Div(className="sira-page", children=[
         ]),
     ]),
     html.Main(className="sira-main", children=[
-        html.Div(id="cards", className="sira-cards"),
-        html.Div(className="sira-content", children=[
-            html.Div(className="sira-toolbar", children=[
-                html.Div(className="sira-ts-wrap", children=[
-                    html.Span(id="ts", className="sira-ts"),
-                    html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
+        html.Div(className="sira-container", children=[
+            html.Div(id="cards", className="sira-cards"),
+            html.Div(className="sira-content", children=[
+                html.Div(className="sira-toolbar", children=[
+                    html.Div(className="sira-ts-wrap", children=[
+                        html.Span(id="ts", className="sira-ts"),
+                        html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
+                    ]),
+                    html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
                 ]),
-                html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
-            ]),
-            dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
-            dcc.Store(id="sismos-store"),
-            html.Div(className="sira-charts", children=[
-                bloque(
-                    "mapa", "Mapa sísmico — España",
-                    f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
-                    full=True, accent=C_ORANGE,
-                ),
-                bloque("riesgo", "Riesgo diario", "Score máximo (barras) y medio (línea) por día.", accent=C_ORANGE),
-                bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent=C_TEAL),
-                bloque("sst", "SST — Mar Mediterráneo", f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.", accent=C_CYAN),
-                bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent=C_GREEN),
+                dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
+                dcc.Store(id="data-ts-store"),
+                html.Div(className="sira-charts", children=[
+                    bloque(
+                        "mapa", "Mapa sísmico — España",
+                        f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
+                        full=True, accent=C_ORANGE,
+                    ),
+                    bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent=C_TEAL),
+                    bloque("sst", "SST — Mar Mediterráneo", f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.", accent=C_CYAN),
+                    bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent=C_GREEN),
+                ]),
             ]),
         ]),
     ]),
@@ -129,6 +147,15 @@ def _fmt_sismo_fecha(ts) -> str:
         return pd.to_datetime(ts, utc=True).strftime("%d/%m/%Y %H:%M UTC")
     except (ValueError, TypeError):
         return "—"
+
+
+def _nivel_mag_max(sismos: list, mag_max: float) -> str | None:
+    if not sismos:
+        return None
+    candidatos = [s for s in sismos if s.get("magnitud") == mag_max]
+    if not candidatos:
+        candidatos = sismos
+    return max(candidatos, key=lambda s: (s.get("score_total", 0), s.get("magnitud", 0))).get("nivel_alerta")
 
 
 def _fig_mapa(sismos: list) -> go.Figure:
@@ -200,20 +227,9 @@ def _fig_mapa(sismos: list) -> go.Figure:
         margin=dict(t=10, b=0, l=0, r=0),
         legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0),
         autosize=True,
+        uirevision="sira-mapa",
         **PLOTLY_BG,
     )
-    return fig
-
-
-def _fig_riesgo(sismos: list) -> go.Figure:
-    fig = go.Figure()
-    if sismos:
-        dd = pd.DataFrame(sismos)
-        dd["fecha"] = pd.to_datetime(dd["timestamp"]).dt.date
-        g = dd.groupby("fecha").agg(mx=("score_total", "max"), md=("score_total", "mean")).reset_index()
-        fig.add_trace(go.Bar(x=g["fecha"], y=g["mx"], name="Máx.", marker_color=C_ORANGE))
-        fig.add_trace(go.Scatter(x=g["fecha"], y=g["md"], name="Medio", line=dict(color=C_CYAN)))
-    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title="Score", **PLOTLY_BG)
     return fig
 
 
@@ -223,7 +239,7 @@ def _fig_linea(serie: list, campo: str, color: str, unidad: str) -> go.Figure:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
         fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
-    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, **PLOTLY_BG)
+    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, uirevision=f"sira-{campo}", **PLOTLY_BG)
     return fig
 
 
@@ -244,18 +260,20 @@ def _fig_lluvia(serie: list) -> go.Figure:
         autosize=True,
         yaxis=yaxis,
         yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%"),
+        uirevision="sira-lluvia",
         **PLOTLY_BG,
     )
     return fig
 
 
 @callback(
-    Output("cards", "children"), Output("ts", "children"), Output("sismos-store", "data"),
-    Output("mapa", "figure"), Output("riesgo", "figure"), Output("lluvia", "figure"),
+    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
+    Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst", "figure"), Output("corrientes", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
+    State("data-ts-store", "data"),
 )
-def refresh(_, clicks):
+def refresh(n_intervals, clicks, last_ts):
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:
             requests.post(
@@ -267,10 +285,17 @@ def refresh(_, clicks):
             pass
 
     d = _load()
+    ts_raw = d.get("generado_en", "—")
+    if ctx.triggered_id == "tick" and n_intervals and last_ts == ts_raw:
+        raise PreventUpdate
+
     sismos, st = d.get("sismos", []), d.get("estadisticas", {})
     oce, met = d.get("oceanografia", {}), d.get("meteorologia", {})
     res_oce, res_met = oce.get("resumen", {}), met.get("resumen", {})
     reg = st.get("por_region", {})
+
+    mag_max = float(st.get("mag_max", 0) or 0)
+    nivel_max = _nivel_mag_max(sismos, mag_max)
 
     cards = [
         card(
@@ -280,7 +305,8 @@ def refresh(_, clicks):
             accent=C_ORANGE,
         ),
         card(
-            "Magnitud máx.", f"{st.get('mag_max', 0):.1f}",
+            "Magnitud máx.",
+            mag_con_riesgo(mag_max, nivel_max),
             f"Score {st.get('score_max', 0)} · {st.get('n_alto_critico', 0)} en nivel Alto o Crítico",
             "El score combina magnitud, profundidad, distancia a Valencia y zona submarina (0–100+). "
             "Alto/Crítico: eventos con score ≥ 55.",
@@ -318,9 +344,9 @@ def refresh(_, clicks):
         pass
 
     return (
-        cards, f"Actualizado: {ts}", sismos,
+        cards, f"Actualizado: {ts}", ts_raw,
         _fig_mapa(sismos),
-        _fig_riesgo(sismos), _fig_lluvia(met.get("serie_horaria", [])),
+        _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce.get("serie_horaria", []), "sst_c", C_CYAN, "°C"),
         _fig_linea(oce.get("serie_horaria", []), "corriente_vel_ms", C_GREEN, "m/s"),
     )
