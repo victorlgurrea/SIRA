@@ -585,8 +585,8 @@ body {
   }
 
   .sira-logo {
-    max-height: 68px;
-    max-width: min(180px, 36vw);
+    max-height: 92px;
+    max-width: min(240px, 58vw);
   }
 
   .sira-cards {
@@ -673,8 +673,8 @@ body {
 
   .sira-logo {
     align-self: flex-end;
-    max-height: 56px;
-    max-width: min(150px, 42vw);
+    max-height: 84px;
+    max-width: min(220px, 68vw);
   }
 
   .sira-graph-wrap--map {
