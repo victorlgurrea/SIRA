@@ -245,6 +245,61 @@ body {
   line-height: 1.4;
 }
 
+.sira-meteo-ahora {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+}
+
+.sira-meteo-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+}
+
+.sira-meteo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.sira-meteo-estado {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.2;
+}
+
+.sira-meteo-temp {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--sira-cyan);
+  line-height: 1.2;
+}
+
+.sira-meteo-viento {
+  font-size: 0.82rem;
+  color: var(--sira-detail);
+  line-height: 1.35;
+}
+
+.sira-meteo-viento-label {
+  color: var(--sira-muted);
+}
+
+.sira-meteo-viento-val {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.sira-meteo-viento-dir {
+  color: var(--sira-green);
+  font-weight: 600;
+}
+
 .sira-regiones {
   display: flex;
   flex-direction: column;

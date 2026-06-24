@@ -12,7 +12,7 @@ import requests
 from dash import Dash, Input, Output, State, callback, ctx, dcc, html
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, dir_compass, mag_con_riesgo, regiones
+from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones
 from config import (  # noqa: E402
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
@@ -23,6 +23,7 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
+    INGESTA_INTERVAL_MIN,
     MARES,
     MAPA,
     ZONA,
@@ -63,7 +64,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=15">
+        <link rel="stylesheet" href="/assets/sira.css?v=16">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -109,7 +110,10 @@ app.layout = html.Div(className="sira-page", children=[
             html.Div(className="sira-toolbar", children=[
                 html.Div(className="sira-ts-wrap", children=[
                     html.Span(id="ts", className="sira-ts"),
-                    html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
+                        html.Span(
+                            f" · pantalla cada {DASHBOARD_REFRESH_MIN} min · datos cada {INGESTA_INTERVAL_MIN} min",
+                            className="sira-ts-hint",
+                        ),
                 ]),
                 html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
             ]),
@@ -495,6 +499,13 @@ def refresh(n_intervals, clicks, geo, last_ts):
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
             loc_label,
             accent=C_TEAL,
+        ),
+        card(
+            "Tiempo ahora",
+            meteo_ahora(res_met),
+            f"Según {met.get('fuente', '—')} · {loc_label}",
+            "Estado del cielo, temperatura y viento en la localidad seleccionada.",
+            accent=C_CYAN,
         ),
     ]
     ts = d.get("generado_en", "—")

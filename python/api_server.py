@@ -16,6 +16,7 @@ from config import (
     API_KEY,
     API_PORT,
     CORS_ORIGINS,
+    CRON_SECRET,
     ENABLE_API_DOCS,
     RATE_LIMIT_SEC,
 )
@@ -68,6 +69,17 @@ def actualizar(request: Request, x_api_key: str | None = Header(default=None)):
     if time.monotonic() - _last_post[client] < RATE_LIMIT_SEC:
         raise HTTPException(429, f"Espera {RATE_LIMIT_SEC}s")
     _last_post[client] = time.monotonic()
+    ejecutar_ingesta()
+    return {"ok": True, "generado_en": read_dashboard().get("generado_en")}
+
+
+@app.post("/api/cron/ingesta")
+def cron_ingesta(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
+    """Ingesta programada (GitHub Actions u otro cron). Requiere CRON_SECRET en el servidor."""
+    if not CRON_SECRET:
+        raise HTTPException(503, "CRON_SECRET no configurado")
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
+        raise HTTPException(401, "No autorizado")
     ejecutar_ingesta()
     return {"ok": True, "generado_en": read_dashboard().get("generado_en")}
 

@@ -101,6 +101,8 @@ RATE_LIMIT_SEC = _i("RATE_LIMIT_SEC", "60")
 ENABLE_API_DOCS = os.getenv("ENABLE_API_DOCS", "false").lower() in ("1", "true", "yes")
 ALLOW_DATA_REFRESH = os.getenv("ALLOW_DATA_REFRESH", "false").lower() in ("1", "true", "yes")
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://127.0.0.1:8050,http://localhost:8050").split(",") if o.strip()]
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+INGESTA_INTERVAL_MIN = _i("INGESTA_INTERVAL_MIN", "60")
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = _i("SMTP_PORT", "587")

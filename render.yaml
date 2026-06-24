@@ -7,6 +7,8 @@ envVarGroups:
     envVars:
       - key: AEMET_API_KEY
         sync: false
+      - key: CRON_SECRET
+        sync: false
 
 services:
   - type: web
@@ -30,6 +32,8 @@ services:
         value: false
       - key: ENABLE_API_DOCS
         value: false
+      - key: INGESTA_INTERVAL_MIN
+        value: "60"
       - key: CORS_ORIGINS
         fromService:
           type: web
@@ -55,6 +59,8 @@ services:
         value: 0.0.0.0
       - key: ALLOW_DATA_REFRESH
         value: false
+      - key: INGESTA_INTERVAL_MIN
+        value: "60"
       - key: API_BASE_URL
         fromService:
           type: web

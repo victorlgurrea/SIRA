@@ -56,4 +56,11 @@ Despliegue en Render (gratis para pruebas)
     sira-dashboard  interfaz Dash (gunicorn)
 
   Plan free: se duerme tras ~15 min sin uso; el primer acceso tarda ~1 min.
-  Los datos se actualizan al redesplegar (Manual Deploy en Render o push a main).
+  Ingesta horaria: GitHub Actions (.github/workflows/ingesta-hourly.yml).
+    1. Genera CRON_SECRET (cadena aleatoria) en Render → sira-api → Environment.
+    2. GitHub → repo → Settings → Secrets → Actions:
+         SIRA_API_URL=https://sira-api.onrender.com
+         SIRA_CRON_SECRET=<mismo CRON_SECRET>
+    3. Tras push a main, la ingesta corre cada hora (UTC).
+
+  El dashboard recarga la pantalla cada 5 min; los datos nuevos llegan con la ingesta.
