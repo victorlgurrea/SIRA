@@ -1,0 +1,17 @@
+{
+  "subscriptions": [
+    {
+      "endpoint": "https://wns2-db5p.notify.windows.com/w/?token=BQYAAABqK%2fjXrhEVgemfBbVcum8O%2fjWySCNwJspGMvt0Xlo6txSNfjcVbtyciaA5xynakZ1MxtSW0gi0zs0O8kRlZvFvBsT557vpKxdOO1gmwvpeeK33zjR48MI4i7bYVqutHPfuVEADv0K%2fcLCTHr1qNCSEj%2bNmR4I7YjmQ8WQH2X0joBUlwiNhE8eWchYd6oa9SRZkJo32lH3IX%2bs5iaSgEnJNSLgskbD4t39Bvqy9KDvHx7p2MFLtNNEsMfWeqX66M8gs9XZFtHQGY2vFTaH7nj2cRKcnAhGZEOcbcbxEJhbfgodeiva88eMSv9ArSqrGfnQ%3d",
+      "keys": {
+        "p256dh": "BBAQJC93ZELgqWZAJFV7sHasUmNLVdghoXTMmhma0XuO2b-yYxw9N2igC5TuUWsQ2koLrCw_2d3bMbuBUp1YJx0",
+        "auth": "OfTMbBuV8wYBCPvG9xmIxQ"
+      },
+      "provincia_id": "",
+      "municipio_id": "",
+      "localidad_id": "",
+      "alertas": [
+        "sismo"
+      ]
+    }
+  ]
+}

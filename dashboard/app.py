@@ -9,7 +9,8 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import requests
-from dash import Dash, Input, Output, State, callback, ctx, dcc, html
+from dash import Dash, Input, Output, State, callback, clientside_callback, ctx, dcc, html
+from flask import send_from_directory
 from dash.exceptions import PreventUpdate
 
 from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones
@@ -90,6 +91,7 @@ _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refr
 
 app.layout = html.Div(className="sira-page", children=[
     html.Div(id="sira-meta", **{"data-api-base": API_BASE_URL}, style={"display": "none"}),
+    html.Div(id="push-geo", style={"display": "none"}),
     html.Header(className="sira-header", children=[
         html.Div(className="sira-header-inner", children=[
             html.Div(className="sira-header-text", children=[
@@ -571,3 +573,30 @@ if __name__ == "__main__":
 
 # WSGI (gunicorn en Render)
 server = app.server
+
+
+@server.route("/sw.js")
+def _service_worker():
+    resp = send_from_directory(str(_ASSETS), "sw.js")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
+clientside_callback(
+    """
+    function(geo) {
+        const el = document.getElementById('push-geo');
+        if (el && geo) {
+            el.dataset.provinciaId = geo.provincia_id || '';
+            el.dataset.municipioId = geo.municipio_id || '';
+            el.dataset.localidadId = geo.localidad_id || '';
+            el.dataset.municipio = geo.municipio || '';
+            el.dispatchEvent(new CustomEvent('sira-geo-changed'));
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("push-geo", "children"),
+    Input("geo-store", "data"),
+)
