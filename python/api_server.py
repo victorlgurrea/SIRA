@@ -76,6 +76,14 @@ def _valid_api_key(provided: str | None) -> bool:
     return secrets.compare_digest(provided, API_KEY)
 
 
+def _valid_push_test_auth(api_key: str | None, cron_secret: str | None) -> bool:
+    if _valid_api_key(api_key):
+        return True
+    if CRON_SECRET and cron_secret and secrets.compare_digest(cron_secret, CRON_SECRET):
+        return True
+    return False
+
+
 @app.get("/api/dashboard")
 def dashboard():
     return read_dashboard()
@@ -130,12 +138,16 @@ def push_unsubscribe(payload: UnsubscribeIn):
 
 
 @app.post("/api/push/test")
-def push_test(payload: TestPushIn, x_api_key: str | None = Header(default=None)):
-    """Notificación de prueba (Postman). Requiere X-API-Key."""
-    if not API_KEY:
-        raise HTTPException(503, "API_KEY no configurada")
-    if not _valid_api_key(x_api_key):
-        raise HTTPException(401, "API key inválida")
+def push_test(
+    payload: TestPushIn,
+    x_api_key: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
+):
+    """Notificación de prueba (Postman). Requiere X-API-Key o X-Cron-Secret."""
+    if not API_KEY and not CRON_SECRET:
+        raise HTTPException(503, "API_KEY o CRON_SECRET no configurado en el servidor")
+    if not _valid_push_test_auth(x_api_key, x_cron_secret):
+        raise HTTPException(401, "No autorizado (X-API-Key o X-Cron-Secret inválido)")
     if not vapid_enabled():
         raise HTTPException(503, "Web Push no configurado")
     dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
