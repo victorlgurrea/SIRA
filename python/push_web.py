@@ -16,6 +16,8 @@ from config import (
     ZONA,
 )
 from core import read_dashboard, read_json_file
+from geo_es import coords_municipio
+from sismos import distancia_km, es_perceptible
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +94,28 @@ def _build_payload(s: dict, dashboard_url: str) -> dict:
     }
 
 
+def _sub_prefers_sismo(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return "sismo" in vals or "all" in vals or "todas" in vals
+
+
+def _sismo_match_subscription(sismo: dict, sub: dict) -> bool:
+    if not _sub_prefers_sismo(sub):
+        return False
+    municipio_id = sub.get("municipio_id")
+    if not municipio_id:
+        return True
+    try:
+        lat, lon = coords_municipio(str(municipio_id))
+        dist = distancia_km(lat, lon, float(sismo["lat"]), float(sismo["lon"]))
+        return es_perceptible(float(sismo.get("magnitud", 0)), float(sismo.get("profundidad") or 0), dist)
+    except (TypeError, ValueError, KeyError):
+        return False
+
+
 def send_push(subscription: dict, payload: dict) -> bool:
     if not vapid_enabled():
         return False
@@ -134,6 +158,8 @@ def notify_new_alerts(dashboard_url: str) -> int:
     for s in nuevos:
         payload = _build_payload(s, dashboard_url)
         for sub in subs:
+            if not _sismo_match_subscription(s, sub):
+                continue
             ok = send_push(sub, payload)
             if ok:
                 sent += 1

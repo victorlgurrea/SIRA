@@ -101,6 +101,8 @@ Web Push (MVP)
   Objetivo:
     Notificar en móvil/navegador instalado cuando la ingesta detecta
     sismos con score >= UMBRAL_SCORE_ALERTA.
+    La notificación se envía según la zona seleccionada al activar push
+    (municipio/localidad del selector de España).
 
   Backend:
     - GET  /api/push/public-key
@@ -116,3 +118,7 @@ Web Push (MVP)
   Frontend:
     botón "Activar notificaciones" en la barra superior.
     service worker: dashboard/assets/sw.js
+
+  Importante:
+    si cambias de zona en el selector, vuelve a pulsar "Activar notificaciones"
+    para actualizar la suscripción con la nueva zona.

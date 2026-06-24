@@ -39,6 +39,10 @@ _last_post: dict[str, float] = defaultdict(float)
 class SubscriptionIn(BaseModel):
     endpoint: str
     keys: dict
+    provincia_id: str | None = None
+    municipio_id: str | None = None
+    localidad_id: str | None = None
+    alertas: list[str] | None = None
 
 
 class UnsubscribeIn(BaseModel):
