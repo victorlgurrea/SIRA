@@ -96,6 +96,8 @@ URLs públicas actuales
     usa la URL exacta mostrada en Render para el servicio "sira-api"
     (puede ser https://sira-api-xxxxx.onrender.com).
 
+App móvil Android (APK): ver ../WWW/SIRA_MOVILE/ (WebView del dashboard + push).
+
 Web Push (MVP)
 ──────────────
   Objetivo:
