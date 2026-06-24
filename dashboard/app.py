@@ -63,7 +63,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=14">
+        <link rel="stylesheet" href="/assets/sira.css?v=15">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -92,10 +92,6 @@ app.layout = html.Div(className="sira-page", children=[
             html.Div(className="sira-header-text", children=[
                 html.H1("SIRA", className="sira-title"),
                 html.P("Sistema Ibérico de Riesgos y Alerta", className="sira-subtitle"),
-                html.P(
-                    "Sismos · Cantábrico · Atlántico · Oceanografía · Meteorología",
-                    className="sira-tags",
-                ),
             ]),
             html.Img(
                 src=_LOGO,
@@ -106,66 +102,64 @@ app.layout = html.Div(className="sira-page", children=[
     ]),
     html.Main(className="sira-main", children=[
         html.Div(className="sira-container", children=[
-            html.Div(id="cards", className="sira-cards"),
-            html.Div(className="sira-content", children=[
-                html.Div(className="sira-toolbar", children=[
-                    html.Div(className="sira-ts-wrap", children=[
-                        html.Span(id="ts", className="sira-ts"),
-                        html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
-                    ]),
-                    html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
+            dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
+            dcc.Store(id="data-ts-store"),
+            dcc.Store(id="geo-store"),
+            selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
+            html.Div(className="sira-toolbar", children=[
+                html.Div(className="sira-ts-wrap", children=[
+                    html.Span(id="ts", className="sira-ts"),
+                    html.Span(f" · auto cada {DASHBOARD_REFRESH_MIN} min", className="sira-ts-hint"),
                 ]),
-                dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
-                dcc.Store(id="data-ts-store"),
-                dcc.Store(id="geo-store"),
-                selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
-                html.Div(className="sira-charts", children=[
-                    html.Div(className="sira-charts-row", children=[
-                        bloque(
-                            "mapa", "Mapa sísmico — España",
-                            f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
-                            map_chart=True, accent=C_ORANGE,
-                        ),
-                        bloque(
-                            "lluvia", "Previsión de lluvia",
-                            "Según la localidad seleccionada · AEMET o Open-Meteo.",
-                            accent=C_TEAL,
-                        ),
-                    ]),
-                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
-                        bloque(
-                            "sst_med", "SST — Mediterráneo",
-                            f"Temperatura superficial · {MARES['MEDITERRÁNEO']['punto']}.",
-                            accent=C_ORANGE,
-                        ),
-                        bloque(
-                            "sst_cant", "SST — Cantábrico",
-                            f"Temperatura superficial · {MARES['CANTÁBRICO']['punto']}.",
-                            accent=C_GREEN,
-                        ),
-                        bloque(
-                            "sst_atl", "SST — Atlántico",
-                            f"Temperatura superficial · {MARES['ATLÁNTICO']['punto']}.",
-                            accent=C_CYAN,
-                        ),
-                    ]),
-                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
-                        bloque(
-                            "cor_med", "Corrientes — Mediterráneo",
-                            f"Velocidad y dirección · {MARES['MEDITERRÁNEO']['punto']}.",
-                            accent=C_ORANGE,
-                        ),
-                        bloque(
-                            "cor_cant", "Corrientes — Cantábrico",
-                            f"Velocidad y dirección · {MARES['CANTÁBRICO']['punto']}.",
-                            accent=C_GREEN,
-                        ),
-                        bloque(
-                            "cor_atl", "Corrientes — Atlántico",
-                            f"Velocidad y dirección · {MARES['ATLÁNTICO']['punto']}.",
-                            accent=C_CYAN,
-                        ),
-                    ]),
+                html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
+            ]),
+            html.Div(id="cards", className="sira-cards"),
+            html.Div(className="sira-charts", children=[
+                html.Div(className="sira-charts-row", children=[
+                    bloque(
+                        "mapa", "Mapa sísmico — España",
+                        f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']}.",
+                        map_chart=True, accent=C_ORANGE,
+                    ),
+                    bloque(
+                        "lluvia", "Previsión de lluvia",
+                        "Según la localidad seleccionada · AEMET o Open-Meteo.",
+                        accent=C_TEAL,
+                    ),
+                ]),
+                html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                    bloque(
+                        "sst_med", "SST — Mediterráneo",
+                        f"Temperatura superficial · {MARES['MEDITERRÁNEO']['punto']}.",
+                        accent=C_ORANGE,
+                    ),
+                    bloque(
+                        "sst_cant", "SST — Cantábrico",
+                        f"Temperatura superficial · {MARES['CANTÁBRICO']['punto']}.",
+                        accent=C_GREEN,
+                    ),
+                    bloque(
+                        "sst_atl", "SST — Atlántico",
+                        f"Temperatura superficial · {MARES['ATLÁNTICO']['punto']}.",
+                        accent=C_CYAN,
+                    ),
+                ]),
+                html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                    bloque(
+                        "cor_med", "Corrientes — Mediterráneo",
+                        f"Velocidad y dirección · {MARES['MEDITERRÁNEO']['punto']}.",
+                        accent=C_ORANGE,
+                    ),
+                    bloque(
+                        "cor_cant", "Corrientes — Cantábrico",
+                        f"Velocidad y dirección · {MARES['CANTÁBRICO']['punto']}.",
+                        accent=C_GREEN,
+                    ),
+                    bloque(
+                        "cor_atl", "Corrientes — Atlántico",
+                        f"Velocidad y dirección · {MARES['ATLÁNTICO']['punto']}.",
+                        accent=C_CYAN,
+                    ),
                 ]),
             ]),
         ]),
