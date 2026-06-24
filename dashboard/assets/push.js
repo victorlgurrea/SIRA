@@ -1,5 +1,6 @@
 (function () {
   let pushActive = false;
+  let pushBound = false;
 
   function b64ToUint8Array(base64String) {
     const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -25,11 +26,12 @@
 
   async function setupPush() {
     const button = document.getElementById("push-btn");
-    if (!button) return;
+    if (!button) return false;
+    if (pushBound) return true;
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       button.disabled = true;
       setStatus("Push no soportado en este navegador", false);
-      return;
+      return true;
     }
 
     async function registerOrUpdatePush() {
@@ -97,7 +99,20 @@
         }
       });
     });
+    pushBound = true;
+    return true;
   }
 
-  window.addEventListener("load", setupPush);
+  function bootPush(retries) {
+    setupPush().then((ok) => {
+      if (ok) return;
+      if (retries <= 0) return;
+      window.setTimeout(() => bootPush(retries - 1), 600);
+    });
+  }
+
+  window.addEventListener("load", function () {
+    // Dash puede montar elementos tras el load inicial.
+    bootPush(20);
+  });
 })();
