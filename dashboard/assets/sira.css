@@ -595,26 +595,38 @@ body {
   }
 
   .sira-header-inner {
-    gap: 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 0.2rem 0.6rem;
+    align-items: center;
+  }
+
+  .sira-header-text {
+    display: contents;
   }
 
   .sira-title {
+    grid-column: 1;
+    grid-row: 1;
     font-size: 1.5rem;
     letter-spacing: 0.08em;
   }
 
   .sira-subtitle {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
     font-size: 0.85rem;
   }
 
-  .sira-tags {
-    font-size: 0.78rem;
-    line-height: 1.4;
-  }
-
   .sira-logo {
-    max-height: 92px;
-    max-width: min(240px, 58vw);
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    justify-self: end;
+    max-height: 64px;
+    max-width: min(100px, 28vw);
   }
 
   .sira-cards {
@@ -699,12 +711,6 @@ body {
 }
 
 @media (max-width: 400px) {
-  .sira-header-inner {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
   .sira-title {
     font-size: 1.25rem;
     letter-spacing: 0.06em;
@@ -716,8 +722,8 @@ body {
   }
 
   .sira-logo {
-    max-height: 72px;
-    max-width: min(110px, 32vw);
+    max-height: 56px;
+    max-width: min(88px, 26vw);
   }
 
   .sira-graph-wrap--map {
