@@ -521,6 +521,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
 
 if __name__ == "__main__":
-    if not DATA_FILE.exists():
-        raise SystemExit("Sin datos. Ejecuta startup.py para generar la ingesta inicial.")
     app.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, debug=False)
+
+
+# WSGI (gunicorn en Render)
+server = app.server

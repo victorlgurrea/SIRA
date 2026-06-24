@@ -41,3 +41,19 @@ Seguridad (modo consulta)
 
 Para habilitar actualización desde el dashboard:
   ALLOW_DATA_REFRESH=true en .env
+
+Despliegue en Render (gratis para pruebas)
+──────────────────────────────────────────
+  1. Sube los cambios a GitHub (main).
+  2. Entra en https://render.com → Sign up with GitHub.
+  3. New → Blueprint → repositorio victorlgurrea/SIRA.
+  4. En el grupo de variables sira-secrets, añade AEMET_API_KEY (opcional).
+  5. Apply. Espera 5–10 min (build + ingesta).
+  6. Abre https://sira-dashboard.onrender.com
+
+  render.yaml define dos servicios:
+    sira-api        API FastAPI + ingesta en cada deploy
+    sira-dashboard  interfaz Dash (gunicorn)
+
+  Plan free: se duerme tras ~15 min sin uso; el primer acceso tarda ~1 min.
+  Los datos se actualizan al redesplegar (Manual Deploy en Render o push a main).

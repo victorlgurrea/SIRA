@@ -1,0 +1,62 @@
+# Blueprint Render — https://render.com/docs/blueprint-spec
+# Repo: https://github.com/victorlgurrea/SIRA
+# Tras el deploy: dashboard en https://sira-dashboard.onrender.com
+
+envVarGroups:
+  - name: sira-secrets
+    envVars:
+      - key: AEMET_API_KEY
+        sync: false
+
+services:
+  - type: web
+    name: sira-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: python
+    buildCommand: pip install -r ../requirements.txt && python ingesta.py
+    startCommand: uvicorn api_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/dashboard
+    envVars:
+      - fromGroup: sira-secrets
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SIRA_SERVICE
+        value: api
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: ALLOW_DATA_REFRESH
+        value: false
+      - key: ENABLE_API_DOCS
+        value: false
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: sira-dashboard
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: sira-dashboard
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: dashboard
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: gunicorn app:server --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /
+    envVars:
+      - fromGroup: sira-secrets
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SIRA_SERVICE
+        value: dashboard
+      - key: DASHBOARD_HOST
+        value: 0.0.0.0
+      - key: ALLOW_DATA_REFRESH
+        value: false
+      - key: API_BASE_URL
+        fromService:
+          type: web
+          name: sira-api
+          envVarKey: RENDER_EXTERNAL_URL
