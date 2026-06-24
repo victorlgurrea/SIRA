@@ -63,7 +63,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=13">
+        <link rel="stylesheet" href="/assets/sira.css?v=14">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -392,10 +392,11 @@ def on_provincia(provincia_id, current_muni):
     opts = opciones(munis, "Municipio")
     if not munis:
         return opts, None
-    ids = {m["id"] for m in munis}
-    if current_muni in ids:
-        return opts, current_muni
-    return opts, munis[0]["id"]
+    ids = {str(m["id"]) for m in munis}
+    cur = str(current_muni) if current_muni else None
+    if cur in ids:
+        return opts, cur
+    return opts, str(munis[0]["id"])
 
 
 @callback(
@@ -411,10 +412,11 @@ def on_municipio(municipio_id, current_loc):
     opts = opciones(locs, "Localidad")
     if not locs:
         return opts, None
-    ids = {l["id"] for l in locs}
-    if current_loc in ids:
-        return opts, current_loc
-    return opts, locs[0]["id"]
+    ids = {str(l["id"]) for l in locs}
+    cur = str(current_loc) if current_loc else None
+    if cur in ids:
+        return opts, cur
+    return opts, str(locs[0]["id"])
 
 
 @callback(

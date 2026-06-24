@@ -33,6 +33,17 @@ ZONA = {
     "anomalia_sst_umbral": _f("ANOMALIA_SST_UMBRAL", "0.8"),
 }
 
+# Radio de percepción sísmica (km) desde la localidad · MMI ≥ II
+# radio ≈ FACTOR × 10^(EXP_MAG × M + EXP_BASE); profundos amplían el radio
+SISMO_PERCEPCION = {
+    "mag_min": _f("SISMO_PERCEPTIBLE_MAG_MIN", "2.5"),
+    "factor": _f("SISMO_PERCEPTIBLE_FACTOR", "1.0"),
+    "exp_mag": _f("SISMO_PERCEPTIBLE_EXP_MAG", "0.55"),
+    "exp_base": _f("SISMO_PERCEPTIBLE_EXP_BASE", "0.15"),
+    "prof_km": _f("SISMO_PERCEPTIBLE_PROF_KM", "70"),
+    "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "0"),
+}
+
 MAPA = {
     "lat_centro": _f("MAPA_LAT_CENTRO", "40.4168"),
     "lon_centro": _f("MAPA_LON_CENTRO", "-3.7038"),
@@ -60,9 +71,9 @@ MARES = {
     },
     "ATLÁNTICO": {
         "nombre": "Mar Atlántico",
-        "lat": _f("MAR_ATL_LAT", "42.88"),
-        "lon": _f("MAR_ATL_LON", "-8.55"),
-        "punto": os.getenv("MAR_ATL_PUNTO", "A Coruña"),
+        "lat": _f("MAR_ATL_LAT", "42.90"),
+        "lon": _f("MAR_ATL_LON", "-9.35"),
+        "punto": os.getenv("MAR_ATL_PUNTO", "Costa atlántica — Galicia"),
     },
 }
 

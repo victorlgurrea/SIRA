@@ -6,6 +6,19 @@ from dash import dcc, html
 from geo_es import localidades, municipios, opciones, provincias
 
 
+def _dropdown(drop_id: str, opts: list, value: str | None, placeholder: str) -> html.Div:
+    return html.Div(className="sira-geo-select-wrap", children=[
+        dcc.Dropdown(
+            id=drop_id,
+            options=opts,
+            value=value or None,
+            placeholder=placeholder,
+            clearable=False,
+            searchable=drop_id != "geo-localidad",
+        ),
+    ])
+
+
 def selector_geo(
     prov_id: str = "",
     muni_id: str = "",
@@ -20,36 +33,15 @@ def selector_geo(
         html.Div(className="sira-geo-fields", children=[
             html.Div(className="sira-geo-field", children=[
                 html.Label("Provincia", className="sira-geo-field-label", htmlFor="geo-provincia"),
-                dcc.Dropdown(
-                    id="geo-provincia",
-                    options=prov_opts,
-                    value=prov_id or None,
-                    placeholder="Provincia",
-                    clearable=False,
-                    className="sira-geo-select",
-                ),
+                _dropdown("geo-provincia", prov_opts, prov_id, "Provincia"),
             ]),
             html.Div(className="sira-geo-field", children=[
                 html.Label("Municipio", className="sira-geo-field-label", htmlFor="geo-municipio"),
-                dcc.Dropdown(
-                    id="geo-municipio",
-                    options=muni_opts,
-                    value=muni_id or None,
-                    placeholder="Municipio",
-                    clearable=False,
-                    className="sira-geo-select",
-                ),
+                _dropdown("geo-municipio", muni_opts, muni_id, "Municipio"),
             ]),
             html.Div(className="sira-geo-field", children=[
                 html.Label("Localidad", className="sira-geo-field-label", htmlFor="geo-localidad"),
-                dcc.Dropdown(
-                    id="geo-localidad",
-                    options=loc_opts,
-                    value=loc_id or None,
-                    placeholder="Localidad",
-                    clearable=False,
-                    className="sira-geo-select",
-                ),
+                _dropdown("geo-localidad", loc_opts, loc_id, "Localidad"),
             ]),
         ]),
     ])

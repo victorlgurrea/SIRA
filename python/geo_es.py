@@ -79,4 +79,4 @@ def coords_municipio(municipio_id: str | None) -> tuple[float, float]:
 def opciones(items: list[dict], placeholder: str = "Selecciona…") -> list[dict]:
     if not items:
         return [{"label": placeholder, "value": "__none__", "disabled": True}]
-    return [{"label": i["nombre"], "value": i["id"]} for i in items]
+    return [{"label": i["nombre"], "value": str(i["id"])} for i in items]

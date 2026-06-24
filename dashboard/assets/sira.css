@@ -15,6 +15,17 @@
   --sira-max-w: 1400px;
   --sira-radius: 14px;
   --sira-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(34, 211, 238, 0.06);
+  /* Variables Dash 4 (dropdown) en tema oscuro */
+  --Dash-Text-Strong: #f0f9ff;
+  --Dash-Text-Weak: #94a3b8;
+  --Dash-Text-Disabled: #64748b;
+  --Dash-Fill-Inverse-Strong: rgba(10, 22, 40, 0.95);
+  --Dash-Fill-Interactive-Strong: #22d3ee;
+  --Dash-Fill-Interactive-Weak: rgba(34, 211, 238, 0.12);
+  --Dash-Stroke-Strong: #1e4976;
+  --Dash-Shading-Strong: rgba(0, 0, 0, 0.45);
+  --Dash-Shading-Weak: rgba(0, 0, 0, 0.2);
+  --Dash-Spacing: 4px;
 }
 
 *, *::before, *::after {
@@ -346,36 +357,63 @@ body {
   margin-bottom: 0.35rem;
 }
 
-.sira-geo-select {
+.sira-geo-select-wrap {
   width: 100%;
 }
 
-.sira-geo-select .Select-control,
-.sira-geo-select .dash-dropdown {
+.sira-geo-select-wrap .dash-dropdown {
   background: rgba(10, 22, 40, 0.85) !important;
-  border-color: var(--sira-border) !important;
-  color: var(--sira-text) !important;
+  border: 1px solid var(--sira-border) !important;
   border-radius: 8px !important;
+  min-height: 38px;
+  color: var(--sira-text) !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-trigger {
   min-height: 38px;
 }
 
-.sira-geo-select .Select-value-label,
-.sira-geo-select .Select-placeholder {
+.sira-geo-select-wrap .dash-dropdown-value,
+.sira-geo-select-wrap .dash-dropdown-value-item {
   color: var(--sira-text) !important;
 }
 
-.sira-geo-select .Select-menu-outer {
-  background: var(--sira-navy-mid) !important;
-  border-color: var(--sira-border) !important;
+.sira-geo-select-wrap .dash-dropdown-placeholder {
+  color: var(--sira-help) !important;
 }
 
-.sira-geo-select .VirtualizedSelectOption {
-  background: var(--sira-navy-mid);
+.sira-geo-select-wrap .dash-dropdown-trigger-icon {
+  color: var(--sira-muted) !important;
+  fill: var(--sira-muted) !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-content {
+  background: var(--sira-navy-mid) !important;
+  border: 1px solid var(--sira-border) !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-option {
   color: var(--sira-text);
 }
 
-.sira-geo-select .VirtualizedSelectFocusedOption {
+.sira-geo-select-wrap .dash-dropdown-option[data-highlighted="true"],
+.sira-geo-select-wrap .dash-dropdown-option[data-selected="true"] {
   background: rgba(34, 211, 238, 0.15) !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-search-container {
+  background: var(--sira-navy) !important;
+  border-color: var(--sira-border) !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-search {
+  color: var(--sira-text) !important;
+  background: transparent !important;
+}
+
+.sira-geo-select-wrap .dash-dropdown-search-icon,
+.sira-geo-select-wrap .dash-dropdown-clear {
+  color: var(--sira-muted) !important;
 }
 
 /* --- Bloques de gráficos --- */
