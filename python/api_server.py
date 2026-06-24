@@ -23,7 +23,7 @@ from config import (
 )
 from core import read_dashboard
 from ingesta import ejecutar_ingesta
-from push_web import add_subscription, notify_new_alerts, remove_subscription, vapid_enabled, vapid_public_key
+from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_push, vapid_enabled, vapid_public_key
 
 app = FastAPI(title="SIRA API", docs_url="/docs" if ENABLE_API_DOCS else None, redoc_url=None)
 app.add_middleware(
@@ -47,6 +47,15 @@ class SubscriptionIn(BaseModel):
 
 class UnsubscribeIn(BaseModel):
     endpoint: str
+
+
+class TestPushIn(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    url: str | None = None
+    tag: str | None = None
+    renotify: bool = True
+    solo_municipio_id: str | None = None
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -118,6 +127,30 @@ def push_subscribe(sub: SubscriptionIn):
 def push_unsubscribe(payload: UnsubscribeIn):
     n = remove_subscription(payload.endpoint)
     return {"ok": True, "suscripciones": n}
+
+
+@app.post("/api/push/test")
+def push_test(payload: TestPushIn, x_api_key: str | None = Header(default=None)):
+    """Notificación de prueba (Postman). Requiere X-API-Key."""
+    if not API_KEY:
+        raise HTTPException(503, "API_KEY no configurada")
+    if not _valid_api_key(x_api_key):
+        raise HTTPException(401, "API key inválida")
+    if not vapid_enabled():
+        raise HTTPException(503, "Web Push no configurado")
+    dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
+    result = send_test_push(
+        dashboard_url,
+        title=payload.title,
+        body=payload.body,
+        url=payload.url,
+        tag=payload.tag or "sira-test-valencia",
+        renotify=payload.renotify,
+        solo_municipio_id=payload.solo_municipio_id,
+    )
+    if not result.get("ok"):
+        raise HTTPException(404 if result.get("error") == "No hay suscripciones activas" else 503, result.get("error", "Envío fallido"))
+    return result
 
 
 if __name__ == "__main__":

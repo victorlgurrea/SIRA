@@ -172,3 +172,63 @@ def notify_new_alerts(dashboard_url: str) -> int:
 
     _save_state_ids(ids)
     return sent
+
+
+def send_test_push(
+    dashboard_url: str,
+    *,
+    title: str | None = None,
+    body: str | None = None,
+    url: str | None = None,
+    tag: str = "sira-test-valencia",
+    renotify: bool = True,
+    solo_municipio_id: str | None = None,
+) -> dict:
+    """Envía una notificación de prueba a suscripciones activas (Postman / admin)."""
+    if not vapid_enabled():
+        return {"ok": False, "error": "Web Push no configurado", "enviados": 0, "suscripciones": 0}
+
+    subs = list_subscriptions()
+    if solo_municipio_id:
+        subs = [s for s in subs if str(s.get("municipio_id") or "") == str(solo_municipio_id)]
+    if not subs:
+        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
+
+    payload = {
+        "title": title or "SIRA · Sismo ALTO",
+        "body": body or "M4.2 · score 68 · 12 km al E de Valencia (prueba)",
+        "icon": "/assets/logo_sira_3.png?v=8",
+        "badge": "/assets/logo_sira_3.png?v=8",
+        "url": url or dashboard_url,
+        "tag": tag,
+        "renotify": renotify,
+    }
+
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    for sub in subs:
+        ok = send_push(sub, payload)
+        if ok:
+            sent += 1
+        else:
+            invalid_endpoints.add(sub.get("endpoint", ""))
+
+    if invalid_endpoints:
+        remaining = [s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(remaining)
+
+    if sent == 0:
+        return {
+            "ok": False,
+            "error": "No se pudo enviar a ninguna suscripción (¿expiradas?)",
+            "enviados": 0,
+            "suscripciones": len(subs),
+            "payload": payload,
+        }
+
+    return {
+        "ok": True,
+        "enviados": sent,
+        "suscripciones": len(subs),
+        "payload": payload,
+    }
