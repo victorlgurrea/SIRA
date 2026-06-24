@@ -12,6 +12,7 @@ from config import (
     AEMET_MUNICIPIO,
     FORECAST_DAYS,
     MAPA,
+    MARES,
     OPEN_METEO_MARINE_URL,
     OPEN_METEO_WEATHER_URL,
     USGS_URL,
@@ -122,35 +123,42 @@ def descargar_sismos() -> list[dict]:
 
 
 def descargar_oceanografia() -> dict:
-    try:
-        data = fetch_json(OPEN_METEO_MARINE_URL, {
-            "latitude": ZONA["lat_ref"], "longitude": ZONA["lon_ref"],
-            "hourly": "sea_surface_temperature,ocean_current_velocity,ocean_current_direction",
-            "timezone": "UTC", "forecast_days": FORECAST_DAYS,
-        })
-        serie = _hourly(data, {
-            "sst_c": "sea_surface_temperature",
-            "corriente_vel_ms": "ocean_current_velocity",
-            "corriente_dir_grados": "ocean_current_direction",
-        })
-    except (requests.RequestException, ValueError, OSError) as exc:
-        log.warning("Open-Meteo marine: %s", exc)
-        return VACIO_OCE
+    resultado: dict = {}
+    for clave, mar in MARES.items():
+        try:
+            data = fetch_json(OPEN_METEO_MARINE_URL, {
+                "latitude": mar["lat"], "longitude": mar["lon"],
+                "hourly": "sea_surface_temperature,ocean_current_velocity,ocean_current_direction",
+                "timezone": "UTC", "forecast_days": FORECAST_DAYS,
+            })
+            serie = _hourly(data, {
+                "sst_c": "sea_surface_temperature",
+                "corriente_vel_ms": "ocean_current_velocity",
+                "corriente_dir_grados": "ocean_current_direction",
+            })
+        except (requests.RequestException, ValueError, OSError) as exc:
+            log.warning("Open-Meteo marine %s: %s", clave, exc)
+            resultado[clave] = dict(VACIO_OCE)
+            continue
 
-    sst_vals = [x["sst_c"] for x in serie if x["sst_c"] is not None]
-    media = sum(sst_vals) / len(sst_vals) if sst_vals else 0.0
-    ult = serie[-1] if serie else {}
-    anom = (ult.get("sst_c") or media) - media
-    return {
-        "serie_horaria": serie,
-        "resumen": {
-            "sst_media_c": round(media, 2), "sst_actual_c": ult.get("sst_c"),
-            "anomalia_c": round(anom, 2),
-            "alerta_termica": abs(anom) > ZONA["anomalia_sst_umbral"],
-            "corriente_vel_ms": ult.get("corriente_vel_ms"),
-            "corriente_dir_grados": ult.get("corriente_dir_grados"),
-        },
-    }
+        sst_vals = [x["sst_c"] for x in serie if x["sst_c"] is not None]
+        media = sum(sst_vals) / len(sst_vals) if sst_vals else 0.0
+        ult = serie[-1] if serie else {}
+        anom = (ult.get("sst_c") or media) - media
+        resultado[clave] = {
+            "punto": mar["punto"],
+            "serie_horaria": serie,
+            "resumen": {
+                "sst_media_c": round(media, 2),
+                "sst_actual_c": ult.get("sst_c"),
+                "anomalia_c": round(anom, 2),
+                "alerta_termica": abs(anom) > ZONA["anomalia_sst_umbral"],
+                "corriente_vel_ms": ult.get("corriente_vel_ms"),
+                "corriente_dir_grados": ult.get("corriente_dir_grados"),
+            },
+        }
+    log.info("Oceanografía: %d zonas", len(resultado))
+    return resultado
 
 
 def _parse_aemet(data: dict | list) -> list[dict]:

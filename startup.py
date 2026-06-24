@@ -121,7 +121,10 @@ def main() -> None:
 
     sys.path.insert(0, str(PYTHON_DIR))
     from config import ALLOW_DATA_REFRESH, API_HOST, API_PORT, DASHBOARD_HOST, DASHBOARD_PORT, DATA_FILE, ENABLE_API_DOCS
+    from geo_es import ensure_geo
     from ingesta import ejecutar_ingesta
+
+    ensure_geo()
 
     if API_HOST in ("0.0.0.0", "::"):
         say(False, "API_HOST expuesto a todas las interfaces — usa 127.0.0.1 si solo es consulta local")

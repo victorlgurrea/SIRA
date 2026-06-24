@@ -14,6 +14,7 @@ from dash.exceptions import PreventUpdate
 
 from components import bloque, card, dir_compass, mag_con_riesgo, regiones
 from config import (  # noqa: E402
+    AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
     API_KEY,
@@ -22,10 +23,15 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
+    MARES,
     MAPA,
     ZONA,
 )
 from core import read_dashboard  # noqa: E402
+from geo_es import coords_municipio, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
+from geo_ui import selector_geo
+from meteo_live import meteo_localidad
+from sismos import filtrar_perceptibles
 from theme import (
     C_CYAN,
     C_GREEN,
@@ -57,7 +63,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=11">
+        <link rel="stylesheet" href="/assets/sira.css?v=13">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -72,6 +78,11 @@ app.index_string = """
 """
 
 _LOGO = app.get_asset_url("logo_sira_3.png") + "?v=8"
+
+_DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
+_DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
+_locs = localidades(_DEFAULT_MUNI)
+_DEFAULT_LOC = _locs[0]["id"] if _locs else _DEFAULT_MUNI
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
@@ -106,6 +117,8 @@ app.layout = html.Div(className="sira-page", children=[
                 ]),
                 dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
                 dcc.Store(id="data-ts-store"),
+                dcc.Store(id="geo-store"),
+                selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row", children=[
                         bloque(
@@ -114,14 +127,44 @@ app.layout = html.Div(className="sira-page", children=[
                             map_chart=True, accent=C_ORANGE,
                         ),
                         bloque(
-                            "sst", "SST — Mar Mediterráneo",
-                            f"Temperatura superficial del mar · {ZONA['ciudad_ref']}.",
+                            "lluvia", "Previsión de lluvia",
+                            "Según la localidad seleccionada · AEMET o Open-Meteo.",
+                            accent=C_TEAL,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                        bloque(
+                            "sst_med", "SST — Mediterráneo",
+                            f"Temperatura superficial · {MARES['MEDITERRÁNEO']['punto']}.",
+                            accent=C_ORANGE,
+                        ),
+                        bloque(
+                            "sst_cant", "SST — Cantábrico",
+                            f"Temperatura superficial · {MARES['CANTÁBRICO']['punto']}.",
+                            accent=C_GREEN,
+                        ),
+                        bloque(
+                            "sst_atl", "SST — Atlántico",
+                            f"Temperatura superficial · {MARES['ATLÁNTICO']['punto']}.",
                             accent=C_CYAN,
                         ),
                     ]),
-                    html.Div(className="sira-charts-row", children=[
-                        bloque("lluvia", "Previsión de lluvia", "AEMET con fallback Open-Meteo.", accent=C_TEAL),
-                        bloque("corrientes", "Corrientes marinas", "Velocidad (m/s) y dirección de la corriente.", accent=C_GREEN),
+                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                        bloque(
+                            "cor_med", "Corrientes — Mediterráneo",
+                            f"Velocidad y dirección · {MARES['MEDITERRÁNEO']['punto']}.",
+                            accent=C_ORANGE,
+                        ),
+                        bloque(
+                            "cor_cant", "Corrientes — Cantábrico",
+                            f"Velocidad y dirección · {MARES['CANTÁBRICO']['punto']}.",
+                            accent=C_GREEN,
+                        ),
+                        bloque(
+                            "cor_atl", "Corrientes — Atlántico",
+                            f"Velocidad y dirección · {MARES['ATLÁNTICO']['punto']}.",
+                            accent=C_CYAN,
+                        ),
                     ]),
                 ]),
             ]),
@@ -175,7 +218,16 @@ def _detalle_sismo(sismo: dict | None) -> html.Div | str:
     ])
 
 
-def _fig_mapa(sismos: list) -> go.Figure:
+def _bloque_oce(oce: dict, clave: str) -> dict:
+    bloque = oce.get(clave)
+    if isinstance(bloque, dict) and bloque.get("serie_horaria") is not None:
+        return bloque
+    if clave == "MEDITERRÁNEO" and oce.get("serie_horaria") is not None:
+        return oce
+    return {"serie_horaria": [], "resumen": {}}
+
+
+def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None = None, obs_nombre: str = "") -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
@@ -187,6 +239,7 @@ def _fig_mapa(sismos: list) -> go.Figure:
             continue
         reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
         fechas = [_fmt_sismo_fecha(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else ["—"] * len(sub)
+        dist_loc = sub["dist_local_km"] if "dist_local_km" in sub.columns else [""] * len(sub)
         hoy_mask = [_es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
         base = sub["magnitud"] * 2 + 5
         sizes = [b * hoy_scale if h else b for b, h in zip(base, hoy_mask)]
@@ -198,11 +251,12 @@ def _fig_mapa(sismos: list) -> go.Figure:
                 line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
             ),
             text=sub["lugar"],
-            customdata=list(zip(sub["magnitud"], sub["score_total"], reg_col, fechas)),
+            customdata=list(zip(sub["magnitud"], sub["score_total"], reg_col, fechas, dist_loc)),
             hovertemplate=(
                 "%{text}<br>"
                 "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score %{customdata[1]} · %{customdata[2]}"
+                "Mag %{customdata[0]} · Score %{customdata[1]} · %{customdata[2]}<br>"
+                "Distancia: %{customdata[4]} km"
                 "<extra></extra>"
             ),
         ))
@@ -220,6 +274,13 @@ def _fig_mapa(sismos: list) -> go.Figure:
                 line=dict(width=1.5, color="#f87171"),
             ),
             hoverinfo="skip", legendgroup="hoy",
+        ))
+    if lat_obs is not None and lon_obs is not None:
+        fig.add_trace(go.Scattergeo(
+            lat=[lat_obs], lon=[lon_obs], mode="markers+text",
+            text=[obs_nombre or "Ubicación"], showlegend=False,
+            marker=dict(size=11, color="#fbbf24", symbol="star", line=dict(width=1, color="white")),
+            textposition="top center",
         ))
     for lat, lon, name, color in (
         (MAPA["lat_centro"], MAPA["lon_centro"], MAPA["ciudad_centro"], "gold"),
@@ -250,13 +311,48 @@ def _fig_mapa(sismos: list) -> go.Figure:
     return fig
 
 
-def _fig_linea(serie: list, campo: str, color: str, unidad: str) -> go.Figure:
+def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
+    fig = go.Figure()
+    dir_txt = "—"
+    if serie:
+        s = pd.DataFrame(serie)
+        s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
+        fig.add_trace(go.Scatter(
+            x=s["timestamp"], y=s["corriente_vel_ms"],
+            mode="lines", name="m/s", line=dict(color=C_GREEN),
+        ))
+        ult = s.iloc[-1]
+        dir_txt = dir_compass(ult.get("corriente_dir_grados"))
+    fig.update_layout(
+        margin=dict(t=28, b=0, l=0, r=0),
+        autosize=True,
+        yaxis_title="m/s",
+        uirevision=uirev,
+        annotations=[dict(
+            text=f"Dirección: {dir_txt}",
+            xref="paper", yref="paper", x=0, y=1.12,
+            showarrow=False, font=dict(color=C_GREEN, size=11),
+        )],
+        **PLOTLY_BG,
+    )
+    return fig
+
+
+def _stats_region(sismos: list) -> dict[str, int]:
+    reg: dict[str, int] = {}
+    for s in sismos:
+        r = s.get("region", "")
+        reg[r] = reg.get(r, 0) + 1
+    return reg
+
+
+def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str) -> go.Figure:
     fig = go.Figure()
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
         fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
-    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, uirevision=f"sira-{campo}", **PLOTLY_BG)
+    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, uirevision=uirev, **PLOTLY_BG)
     return fig
 
 
@@ -284,13 +380,73 @@ def _fig_lluvia(serie: list) -> go.Figure:
 
 
 @callback(
+    Output("geo-municipio", "options"),
+    Output("geo-municipio", "value"),
+    Input("geo-provincia", "value"),
+    State("geo-municipio", "value"),
+)
+def on_provincia(provincia_id, current_muni):
+    if not provincia_id:
+        return opciones([], "Municipio"), None
+    munis = municipios(provincia_id)
+    opts = opciones(munis, "Municipio")
+    if not munis:
+        return opts, None
+    ids = {m["id"] for m in munis}
+    if current_muni in ids:
+        return opts, current_muni
+    return opts, munis[0]["id"]
+
+
+@callback(
+    Output("geo-localidad", "options"),
+    Output("geo-localidad", "value"),
+    Input("geo-municipio", "value"),
+    State("geo-localidad", "value"),
+)
+def on_municipio(municipio_id, current_loc):
+    if not municipio_id:
+        return opciones([], "Localidad"), None
+    locs = localidades(municipio_id)
+    opts = opciones(locs, "Localidad")
+    if not locs:
+        return opts, None
+    ids = {l["id"] for l in locs}
+    if current_loc in ids:
+        return opts, current_loc
+    return opts, locs[0]["id"]
+
+
+@callback(
+    Output("geo-store", "data"),
+    Input("geo-provincia", "value"),
+    Input("geo-municipio", "value"),
+    Input("geo-localidad", "value"),
+)
+def on_geo_change(provincia_id, municipio_id, localidad_id):
+    prov = next((p for p in provincias() if p["id"] == provincia_id), None)
+    muni = municipio_por_id(municipio_id)
+    locs = localidades(municipio_id)
+    loc = next((l for l in locs if l["id"] == localidad_id), locs[0] if locs else None)
+    return {
+        "provincia_id": provincia_id,
+        "provincia": prov["nombre"] if prov else None,
+        "municipio_id": municipio_id,
+        "municipio": muni["nombre"] if muni else None,
+        "localidad_id": localidad_id,
+        "localidad": loc["nombre"] if loc else None,
+    }
+
+
+@callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
     Output("mapa", "figure"), Output("lluvia", "figure"),
-    Output("sst", "figure"), Output("corrientes", "figure"),
-    Input("tick", "n_intervals"), Input("btn", "n_clicks"),
+    Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
+    Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
+    Input("tick", "n_intervals"), Input("btn", "n_clicks"), Input("geo-store", "data"),
     State("data-ts-store", "data"),
 )
-def refresh(n_intervals, clicks, last_ts):
+def refresh(n_intervals, clicks, geo, last_ts):
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:
             requests.post(
@@ -306,25 +462,34 @@ def refresh(n_intervals, clicks, last_ts):
     if ctx.triggered_id == "tick" and n_intervals and last_ts == ts_raw:
         raise PreventUpdate
 
-    sismos, st = d.get("sismos", []), d.get("estadisticas", {})
-    oce, met = d.get("oceanografia", {}), d.get("meteorologia", {})
-    res_oce, res_met = oce.get("resumen", {}), met.get("resumen", {})
-    reg = st.get("por_region", {})
+    geo = geo or {}
+    muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
+    localidad = geo.get("localidad") or ZONA["ciudad_ref"]
+    lat_obs, lon_obs = coords_municipio(muni_id)
 
-    mag_max = float(st.get("mag_max", 0) or 0)
+    sismos_all = d.get("sismos", [])
+    sismos = filtrar_perceptibles(sismos_all, lat_obs, lon_obs)
+    oce = d.get("oceanografia", {})
+    met = meteo_localidad(muni_id, localidad)
+
+    mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
     nivel_max = sismo_max.get("nivel_alerta") if sismo_max else None
+    reg = _stats_region(sismos)
+    res_met = met.get("resumen", {})
+
+    loc_label = f"{localidad}, {geo.get('municipio') or ''}".strip(", ")
 
     cards = [
         card(
-            "Sismos", str(st.get("n_sismos", 0)),
+            "Sismos perceptibles", str(len(sismos)),
             regiones(reg),
-            f"M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días · fuente USGS",
+            f"Desde {loc_label} · M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días",
             accent=C_ORANGE,
         ),
         card(
             "Magnitud máx.",
-            mag_con_riesgo(mag_max, nivel_max),
+            mag_con_riesgo(float(mag_max), nivel_max),
             _detalle_sismo(sismo_max),
             "Eventos críticos con score ≥ 55.",
             accent="#ef4444",
@@ -332,26 +497,8 @@ def refresh(n_intervals, clicks, last_ts):
         card(
             "Lluvia 24h", f"{res_met.get('precip_prox_24h_mm', '—')} mm",
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            met.get("municipio", ZONA["ciudad_ref"]),
+            loc_label,
             accent=C_TEAL,
-        ),
-        card(
-            "SST — Mar Mediterráneo", f"{res_oce.get('sst_actual_c', '—')} °C",
-            f"Temperatura superficial del mar · anomalía {res_oce.get('anomalia_c', '—')} °C",
-            f"Punto de referencia: {ZONA['ciudad_ref']} · Open-Meteo marine",
-            accent=C_CYAN,
-        ),
-        card(
-            "Corriente marina", f"{res_oce.get('corriente_vel_ms', '—')} m/s",
-            html.Div([
-                html.Span("Dirección: ", style={"color": C_MUTED}),
-                html.Span(
-                    dir_compass(res_oce.get("corriente_dir_grados")),
-                    style={"color": C_GREEN, "fontWeight": "600"},
-                ),
-            ]),
-            f"Rumbo de la corriente en el Mediterráneo occidental · {ZONA['ciudad_ref']}",
-            accent=C_GREEN,
         ),
     ]
     ts = d.get("generado_en", "—")
@@ -360,12 +507,20 @@ def refresh(n_intervals, clicks, last_ts):
     except (ValueError, AttributeError):
         pass
 
+    oce_med = _bloque_oce(oce, "MEDITERRÁNEO")
+    oce_cant = _bloque_oce(oce, "CANTÁBRICO")
+    oce_atl = _bloque_oce(oce, "ATLÁNTICO")
+
     return (
         cards, f"Actualizado: {ts}", ts_raw,
-        _fig_mapa(sismos),
+        _fig_mapa(sismos, lat_obs, lon_obs, localidad),
         _fig_lluvia(met.get("serie_horaria", [])),
-        _fig_linea(oce.get("serie_horaria", []), "sst_c", C_CYAN, "°C"),
-        _fig_linea(oce.get("serie_horaria", []), "corriente_vel_ms", C_GREEN, "m/s"),
+        _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
+        _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),
+        _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl"),
+        _fig_corrientes(oce_med.get("serie_horaria", []), "sira-cor-med"),
+        _fig_corrientes(oce_cant.get("serie_horaria", []), "sira-cor-cant"),
+        _fig_corrientes(oce_atl.get("serie_horaria", []), "sira-cor-atl"),
     )
 
 

@@ -44,6 +44,28 @@ MAPA = {
     "projection_scale": _f("MAPA_PROJECTION_SCALE", "1.5"),
 }
 
+# Puntos de referencia marinos por costa (Open-Meteo marine)
+MARES = {
+    "MEDITERRÁNEO": {
+        "nombre": "Mar Mediterráneo",
+        "lat": _f("MAR_MED_LAT", "39.20"),
+        "lon": _f("MAR_MED_LON", "0.20"),
+        "punto": os.getenv("MAR_MED_PUNTO", "Valencia"),
+    },
+    "CANTÁBRICO": {
+        "nombre": "Mar Cantábrico",
+        "lat": _f("MAR_CANT_LAT", "43.46"),
+        "lon": _f("MAR_CANT_LON", "-3.81"),
+        "punto": os.getenv("MAR_CANT_PUNTO", "Santander"),
+    },
+    "ATLÁNTICO": {
+        "nombre": "Mar Atlántico",
+        "lat": _f("MAR_ATL_LAT", "42.88"),
+        "lon": _f("MAR_ATL_LON", "-8.55"),
+        "punto": os.getenv("MAR_ATL_PUNTO", "A Coruña"),
+    },
+}
+
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
@@ -79,5 +101,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 ALLOWED_HOSTS = frozenset({
     "earthquake.usgs.gov", "marine-api.open-meteo.com", "api.open-meteo.com",
+    "geocoding-api.open-meteo.com", "datasets-server.huggingface.co",
+    "raw.githubusercontent.com", "huggingface.co",
     "opendata.aemet.es", "api.telegram.org",
 }) | {h.strip() for h in os.getenv("ALLOWED_HTTP_HOSTS", "").split(",") if h.strip()}
