@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from pywebpush import WebPushException, webpush
+from pywebpush import WebPushException, Vapid, webpush
 
 from config import (
     PUSH_STATE_FILE,
@@ -20,6 +20,19 @@ from geo_es import coords_municipio
 from sismos import distancia_km, es_perceptible
 
 log = logging.getLogger(__name__)
+
+_vapid_signer: Vapid | None = None
+
+
+def _subscription_info(sub: dict) -> dict:
+    return {"endpoint": sub["endpoint"], "keys": sub["keys"]}
+
+
+def _get_vapid_signer() -> Vapid:
+    global _vapid_signer
+    if _vapid_signer is None:
+        _vapid_signer = Vapid.from_pem(VAPID_PRIVATE_KEY.encode("utf-8"))
+    return _vapid_signer
 
 
 def _write_json(path, payload: dict) -> None:
@@ -121,15 +134,18 @@ def send_push(subscription: dict, payload: dict) -> bool:
         return False
     try:
         webpush(
-            subscription_info=subscription,
+            subscription_info=_subscription_info(subscription),
             data=json.dumps(payload, ensure_ascii=False),
-            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_private_key=_get_vapid_signer(),
             vapid_claims={"sub": VAPID_SUBJECT},
             ttl=3600,
         )
         return True
     except WebPushException as exc:
         log.warning("WebPush fallo: %s", exc)
+        return False
+    except (ValueError, TypeError, KeyError) as exc:
+        log.warning("Push inválido: %s", exc)
         return False
 
 

@@ -24,6 +24,15 @@ def _i(key: str, default: str) -> int:
     return int(os.getenv(key, default))
 
 
+def _pem_env(key: str) -> str:
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+        raw = raw[1:-1]
+    return raw.replace("\\n", "\n")
+
+
 ZONA = {
     "nombre": os.getenv("ZONA_NOMBRE", "Mediterráneo Occidental - Costa Valenciana"),
     "lat_ref": _f("LAT_REF", "39.47"),
@@ -106,7 +115,7 @@ CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://127.0.0.1:8
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 INGESTA_INTERVAL_MIN = _i("INGESTA_INTERVAL_MIN", "60")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_PRIVATE_KEY = _pem_env("VAPID_PRIVATE_KEY")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:admin@sira.local")
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")

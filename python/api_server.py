@@ -1,6 +1,7 @@
 """API REST local — consulta de datos y actualización opcional."""
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 from collections import defaultdict
@@ -24,6 +25,8 @@ from config import (
 from core import read_dashboard
 from ingesta import ejecutar_ingesta
 from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_push, vapid_enabled, vapid_public_key
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="SIRA API", docs_url="/docs" if ENABLE_API_DOCS else None, redoc_url=None)
 app.add_middleware(
@@ -151,15 +154,19 @@ def push_test(
     if not vapid_enabled():
         raise HTTPException(503, "Web Push no configurado")
     dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
-    result = send_test_push(
-        dashboard_url,
-        title=payload.title,
-        body=payload.body,
-        url=payload.url,
-        tag=payload.tag or "sira-test-valencia",
-        renotify=payload.renotify,
-        solo_municipio_id=payload.solo_municipio_id,
-    )
+    try:
+        result = send_test_push(
+            dashboard_url,
+            title=payload.title,
+            body=payload.body,
+            url=payload.url,
+            tag=payload.tag or "sira-test-valencia",
+            renotify=payload.renotify,
+            solo_municipio_id=payload.solo_municipio_id,
+        )
+    except Exception as exc:
+        log.exception("push/test falló")
+        raise HTTPException(500, f"Error interno al enviar push: {exc}") from exc
     if not result.get("ok"):
         raise HTTPException(404 if result.get("error") == "No hay suscripciones activas" else 503, result.get("error", "Envío fallido"))
     return result
