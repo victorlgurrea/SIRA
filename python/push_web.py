@@ -1,0 +1,148 @@
+"""Web Push (VAPID) para notificaciones en navegador/PWA."""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+
+from pywebpush import WebPushException, webpush
+
+from config import (
+    PUSH_STATE_FILE,
+    PUSH_SUBSCRIPTIONS_FILE,
+    VAPID_PRIVATE_KEY,
+    VAPID_PUBLIC_KEY,
+    VAPID_SUBJECT,
+    ZONA,
+)
+from core import read_dashboard, read_json_file
+
+log = logging.getLogger(__name__)
+
+
+def _write_json(path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def vapid_enabled() -> bool:
+    return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and VAPID_SUBJECT)
+
+
+def vapid_public_key() -> str:
+    return VAPID_PUBLIC_KEY
+
+
+def list_subscriptions() -> list[dict]:
+    data = read_json_file(PUSH_SUBSCRIPTIONS_FILE)
+    subs = data.get("subscriptions", [])
+    return [s for s in subs if isinstance(s, dict) and s.get("endpoint")]
+
+
+def save_subscriptions(subs: list[dict]) -> None:
+    _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": subs})
+
+
+def add_subscription(sub: dict) -> int:
+    endpoint = sub.get("endpoint")
+    if not endpoint:
+        return len(list_subscriptions())
+    subs = list_subscriptions()
+    for i, current in enumerate(subs):
+        if current.get("endpoint") == endpoint:
+            subs[i] = sub
+            save_subscriptions(subs)
+            return len(subs)
+    subs.append(sub)
+    save_subscriptions(subs)
+    return len(subs)
+
+
+def remove_subscription(endpoint: str) -> int:
+    subs = [s for s in list_subscriptions() if s.get("endpoint") != endpoint]
+    save_subscriptions(subs)
+    return len(subs)
+
+
+def _state_ids() -> list[str]:
+    return read_json_file(PUSH_STATE_FILE).get("ids_push", [])
+
+
+def _save_state_ids(ids: list[str]) -> None:
+    _write_json(PUSH_STATE_FILE, {"ids_push": ids, "updated": datetime.now(timezone.utc).isoformat()})
+
+
+def _alertables(sismos: list[dict]) -> list[dict]:
+    return [s for s in sismos if s.get("score_total", 0) >= ZONA["umbral_score_alerta"]]
+
+
+def _build_payload(s: dict, dashboard_url: str) -> dict:
+    mag = s.get("magnitud", "—")
+    lugar = s.get("lugar", "—")
+    score = s.get("score_total", "—")
+    nivel = s.get("nivel_alerta", "—")
+    return {
+        "title": f"SIRA · Sismo {nivel}",
+        "body": f"M{mag} · score {score} · {lugar}",
+        "icon": "/assets/logo_sira_3.png?v=8",
+        "badge": "/assets/logo_sira_3.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-{s.get('id')}",
+        "renotify": False,
+    }
+
+
+def send_push(subscription: dict, payload: dict) -> bool:
+    if not vapid_enabled():
+        return False
+    try:
+        webpush(
+            subscription_info=subscription,
+            data=json.dumps(payload, ensure_ascii=False),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_SUBJECT},
+            ttl=3600,
+        )
+        return True
+    except WebPushException as exc:
+        log.warning("WebPush fallo: %s", exc)
+        return False
+
+
+def notify_new_alerts(dashboard_url: str) -> int:
+    if not vapid_enabled():
+        return 0
+    data = read_dashboard()
+    crit = _alertables(data.get("sismos", []))
+    if not crit:
+        _save_state_ids([])
+        return 0
+
+    ids = sorted({str(s.get("id")) for s in crit if s.get("id")})
+    prev = _state_ids()
+    nuevos = [s for s in crit if str(s.get("id")) not in prev]
+    if not nuevos:
+        return 0
+
+    subs = list_subscriptions()
+    if not subs:
+        _save_state_ids(ids)
+        return 0
+
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    for s in nuevos:
+        payload = _build_payload(s, dashboard_url)
+        for sub in subs:
+            ok = send_push(sub, payload)
+            if ok:
+                sent += 1
+            else:
+                invalid_endpoints.add(sub.get("endpoint", ""))
+
+    if invalid_endpoints:
+        subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(subs)
+
+    _save_state_ids(ids)
+    return sent

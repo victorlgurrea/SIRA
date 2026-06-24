@@ -366,6 +366,34 @@ body {
   display: none !important;
 }
 
+.sira-btn-push {
+  padding: 0.45rem 1.1rem;
+  background: linear-gradient(135deg, #0891b2, var(--sira-cyan));
+  color: #042f3b;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(34, 211, 238, 0.32);
+}
+
+.sira-btn-push:hover {
+  filter: brightness(1.06);
+}
+
+.sira-btn-push:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.sira-push-status {
+  color: var(--sira-help);
+  font-size: 0.8rem;
+  min-width: 130px;
+}
+
 /* --- Selector geográfico --- */
 
 .sira-geo-bar {
@@ -611,9 +639,14 @@ body {
     font-size: 0.82rem;
   }
 
-  .sira-btn-refresh {
+  .sira-btn-refresh,
+  .sira-btn-push {
     width: 100%;
     min-height: 44px;
+  }
+
+  .sira-push-status {
+    text-align: center;
   }
 
   .sira-geo-fields {

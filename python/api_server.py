@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -22,16 +23,26 @@ from config import (
 )
 from core import read_dashboard
 from ingesta import ejecutar_ingesta
+from push_web import add_subscription, notify_new_alerts, remove_subscription, vapid_enabled, vapid_public_key
 
 app = FastAPI(title="SIRA API", docs_url="/docs" if ENABLE_API_DOCS else None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key"],
+    allow_headers=["X-API-Key", "X-Cron-Secret", "Content-Type"],
     allow_credentials=False,
 )
 _last_post: dict[str, float] = defaultdict(float)
+
+
+class SubscriptionIn(BaseModel):
+    endpoint: str
+    keys: dict
+
+
+class UnsubscribeIn(BaseModel):
+    endpoint: str
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -70,7 +81,8 @@ def actualizar(request: Request, x_api_key: str | None = Header(default=None)):
         raise HTTPException(429, f"Espera {RATE_LIMIT_SEC}s")
     _last_post[client] = time.monotonic()
     ejecutar_ingesta()
-    return {"ok": True, "generado_en": read_dashboard().get("generado_en")}
+    n = notify_new_alerts(CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com")
+    return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
 
 
 @app.post("/api/cron/ingesta")
@@ -81,7 +93,27 @@ def cron_ingesta(x_cron_secret: str | None = Header(default=None, alias="X-Cron-
     if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
         raise HTTPException(401, "No autorizado")
     ejecutar_ingesta()
-    return {"ok": True, "generado_en": read_dashboard().get("generado_en")}
+    n = notify_new_alerts(CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com")
+    return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
+
+
+@app.get("/api/push/public-key")
+def push_public_key():
+    if not vapid_enabled():
+        raise HTTPException(503, "Web Push no configurado")
+    return {"public_key": vapid_public_key()}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(sub: SubscriptionIn):
+    n = add_subscription(sub.model_dump())
+    return {"ok": True, "suscripciones": n}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(payload: UnsubscribeIn):
+    n = remove_subscription(payload.endpoint)
+    return {"ok": True, "suscripciones": n}
 
 
 if __name__ == "__main__":

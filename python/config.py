@@ -12,6 +12,8 @@ load_dotenv(ROOT / ".env")
 DATA_DIR = ROOT / "data" / "processed"
 DATA_FILE = DATA_DIR / "dashboard_data.json"
 ALERTAS_STATE_FILE = DATA_DIR / "alertas_estado.json"
+PUSH_SUBSCRIPTIONS_FILE = DATA_DIR / "push_subscriptions.json"
+PUSH_STATE_FILE = DATA_DIR / "push_estado.json"
 
 
 def _f(key: str, default: str) -> float:
@@ -103,6 +105,9 @@ ALLOW_DATA_REFRESH = os.getenv("ALLOW_DATA_REFRESH", "false").lower() in ("1", "
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://127.0.0.1:8050,http://localhost:8050").split(",") if o.strip()]
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 INGESTA_INTERVAL_MIN = _i("INGESTA_INTERVAL_MIN", "60")
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:admin@sira.local")
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = _i("SMTP_PORT", "587")

@@ -95,3 +95,24 @@ URLs públicas actuales
   API:
     usa la URL exacta mostrada en Render para el servicio "sira-api"
     (puede ser https://sira-api-xxxxx.onrender.com).
+
+Web Push (MVP)
+──────────────
+  Objetivo:
+    Notificar en móvil/navegador instalado cuando la ingesta detecta
+    sismos con score >= UMBRAL_SCORE_ALERTA.
+
+  Backend:
+    - GET  /api/push/public-key
+    - POST /api/push/subscribe
+    - POST /api/push/unsubscribe
+    - envío automático en /api/cron/ingesta y /api/actualizar
+
+  Variables necesarias (Render / .env):
+    VAPID_PUBLIC_KEY
+    VAPID_PRIVATE_KEY
+    VAPID_SUBJECT   (ej. mailto:tu-email@dominio.com)
+
+  Frontend:
+    botón "Activar notificaciones" en la barra superior.
+    service worker: dashboard/assets/sw.js

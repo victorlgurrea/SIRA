@@ -40,6 +40,7 @@ from theme import (
     C_NAVY,
     C_ORANGE,
     C_TEAL,
+    C_TEXT,
     COLORES,
     PLOTLY_BG,
 )
@@ -64,7 +65,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=17">
+        <link rel="stylesheet" href="/assets/sira.css?v=18">
         <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
     </head>
     <body>
@@ -88,6 +89,7 @@ _DEFAULT_LOC = _locs[0]["id"] if _locs else _DEFAULT_MUNI
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
 app.layout = html.Div(className="sira-page", children=[
+    html.Div(id="sira-meta", **{"data-api-base": API_BASE_URL}, style={"display": "none"}),
     html.Header(className="sira-header", children=[
         html.Div(className="sira-header-inner", children=[
             html.Div(className="sira-header-text", children=[
@@ -116,6 +118,8 @@ app.layout = html.Div(className="sira-page", children=[
                         ),
                 ]),
                 html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
+                html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
+                html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
             ]),
             html.Div(id="cards", className="sira-cards"),
             html.Div(className="sira-charts", children=[
@@ -312,6 +316,7 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
 def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
     fig = go.Figure()
     dir_txt = "—"
+    ult_txt = "Última: — m/s"
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
@@ -319,18 +324,29 @@ def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
             x=s["timestamp"], y=s["corriente_vel_ms"],
             mode="lines", name="m/s", line=dict(color=C_GREEN),
         ))
-        ult = s.iloc[-1]
-        dir_txt = dir_compass(ult.get("corriente_dir_grados"))
+        vel = s["corriente_vel_ms"].dropna()
+        if not vel.empty:
+            ult_txt = f"Última: {float(vel.iloc[-1]):.2f} m/s"
+        if s["corriente_dir_grados"].notna().any():
+            dir_txt = dir_compass(s["corriente_dir_grados"].dropna().iloc[-1])
     fig.update_layout(
         margin=dict(t=28, b=0, l=0, r=0),
         autosize=True,
         yaxis_title="m/s",
         uirevision=uirev,
-        annotations=[dict(
-            text=f"Dirección: {dir_txt}",
-            xref="paper", yref="paper", x=0, y=1.12,
-            showarrow=False, font=dict(color=C_GREEN, size=11),
-        )],
+        annotations=[
+            dict(
+                text=f"Dirección: {dir_txt}",
+                xref="paper", yref="paper", x=0, y=1.12,
+                showarrow=False, font=dict(color=C_GREEN, size=11),
+            ),
+            dict(
+                text=ult_txt,
+                xref="paper", yref="paper", x=1, y=1.12,
+                xanchor="right",
+                showarrow=False, font=dict(color=C_TEXT, size=11),
+            ),
+        ],
         **PLOTLY_BG,
     )
     return fig
@@ -346,11 +362,29 @@ def _stats_region(sismos: list) -> dict[str, int]:
 
 def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str) -> go.Figure:
     fig = go.Figure()
+    ult_txt = f"Última: — {unidad}"
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
         fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
-    fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, yaxis_title=unidad, uirevision=uirev, **PLOTLY_BG)
+        vals = s[campo].dropna()
+        if not vals.empty:
+            ult_txt = f"Última: {float(vals.iloc[-1]):.2f} {unidad}"
+    fig.update_layout(
+        margin=dict(t=28, b=0, l=0, r=0),
+        autosize=True,
+        yaxis_title=unidad,
+        uirevision=uirev,
+        annotations=[dict(
+            text=ult_txt,
+            xref="paper", yref="paper",
+            x=1, y=1.12,
+            xanchor="right",
+            showarrow=False,
+            font=dict(color=C_TEXT, size=11),
+        )],
+        **PLOTLY_BG,
+    )
     return fig
 
 
