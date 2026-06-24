@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PYTHON_DIR, DASHBOARD_DIR = ROOT / "python", ROOT / "dashboard"
-DEPS = ("requests", "dotenv", "fastapi", "uvicorn", "dash", "plotly", "pandas")
+DEPS = ("requests", "dotenv", "fastapi", "uvicorn", "dash", "plotly", "pandas", "pywebpush")
 PIP = {"dotenv": "python-dotenv", "uvicorn": "uvicorn[standard]"}
 
 
