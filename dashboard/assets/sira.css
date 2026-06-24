@@ -700,14 +700,24 @@ body {
 
 @media (max-width: 400px) {
   .sira-header-inner {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .sira-title {
+    font-size: 1.25rem;
+    letter-spacing: 0.06em;
+  }
+
+  .sira-subtitle {
+    font-size: 0.72rem;
+    line-height: 1.25;
   }
 
   .sira-logo {
-    align-self: flex-end;
-    max-height: 84px;
-    max-width: min(220px, 68vw);
+    max-height: 72px;
+    max-width: min(110px, 32vw);
   }
 
   .sira-graph-wrap--map {
