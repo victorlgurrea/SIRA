@@ -47,20 +47,51 @@ Despliegue en Render (gratis para pruebas)
   1. Sube los cambios a GitHub (main).
   2. Entra en https://render.com → Sign up with GitHub.
   3. New → Blueprint → repositorio victorlgurrea/SIRA.
-  4. En el grupo de variables sira-secrets, añade AEMET_API_KEY (opcional).
-  5. Apply. Espera 5–10 min (build + ingesta).
-  6. Abre https://sira-dashboard.onrender.com
+  4. En el grupo de variables sira-secrets añade:
+       - AEMET_API_KEY (opcional)
+       - CRON_SECRET (obligatorio para cron externo)
+  5. Apply. Espera 5–10 min (build + ingesta inicial).
+  6. Abre el dashboard público: https://sira-dashboard.onrender.com
 
   render.yaml define dos servicios:
     sira-api        API FastAPI + ingesta en cada deploy
     sira-dashboard  interfaz Dash (gunicorn)
 
   Plan free: se duerme tras ~15 min sin uso; el primer acceso tarda ~1 min.
-  Ingesta horaria: GitHub Actions (.github/workflows/ingesta-hourly.yml).
-    1. Genera CRON_SECRET (cadena aleatoria) en Render → sira-api → Environment.
-    2. GitHub → repo → Settings → Secrets → Actions:
-         SIRA_API_URL=https://sira-api.onrender.com
-         SIRA_CRON_SECRET=<mismo CRON_SECRET>
-    3. Tras push a main, la ingesta corre cada hora (UTC).
-
   El dashboard recarga la pantalla cada 5 min; los datos nuevos llegan con la ingesta.
+
+Ingesta horaria (GitHub Actions)
+────────────────────────────────
+  Workflow:
+    .github/workflows/ingesta-hourly.yml
+    cron: "0 * * * *"  (cada hora, UTC)
+
+  Endpoint llamado:
+    POST /api/cron/ingesta
+    Header: X-Cron-Secret: <CRON_SECRET>
+
+  Secrets de GitHub (repo → Settings → Secrets and variables → Actions):
+    SIRA_API_URL       URL real del servicio sira-api en Render
+                       (ejemplo: https://sira-api-xxxxx.onrender.com)
+    SIRA_CRON_SECRET   mismo valor que CRON_SECRET en Render
+
+  Importante:
+    - SIRA_API_URL debe apuntar a sira-api, no al dashboard.
+    - En Render free, la URL de sira-api puede incluir sufijo aleatorio.
+
+Verificación rápida de cron
+───────────────────────────
+  1. GitHub → Actions → "Ingesta horaria SIRA" → Run workflow.
+  2. Debe finalizar en verde.
+  3. Abre /api/dashboard y revisa generado_en:
+       <URL_SIRA_API>/api/dashboard
+  4. En el dashboard verás la nueva hora tras el refresco.
+
+URLs públicas actuales
+──────────────────────
+  Dashboard:
+    https://sira-dashboard.onrender.com
+
+  API:
+    usa la URL exacta mostrada en Render para el servicio "sira-api"
+    (puede ser https://sira-api-xxxxx.onrender.com).
