@@ -329,7 +329,7 @@ body {
 }
 
 .sira-alertas-scroll--multi {
-  max-height: 5.5rem;
+  max-height: 8.5rem;
   overflow-x: hidden;
   overflow-y: auto;
   padding-right: 0.35rem;
