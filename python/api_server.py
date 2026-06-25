@@ -287,9 +287,12 @@ def meteo_test(
     }
     saved = save_test_alert(alert, ttl_min=payload.ttl_minutos)
     out = {"ok": True, "alerta": saved}
-    if payload.enviar_push and vapid_enabled():
-        dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
-        out["push"] = send_test_meteo_push(dashboard_url, saved, only_municipio_id=payload.solo_municipio_id)
+    if payload.enviar_push:
+        if not vapid_enabled():
+            out["push"] = {"ok": False, "error": "Web Push no configurado (VAPID)", "enviados": 0}
+        else:
+            dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
+            out["push"] = send_test_meteo_push(dashboard_url, saved, only_municipio_id=payload.solo_municipio_id or muni_id)
     return out
 
 

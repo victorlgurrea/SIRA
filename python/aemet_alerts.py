@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tarfile
+import unicodedata
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from io import BytesIO
@@ -51,6 +52,68 @@ PHENO_ICON = {
 
 def _norm(s: str) -> str:
     return " ".join((s or "").strip().lower().split())
+
+
+def _norm_area(value: str | None) -> str:
+    if not value:
+        return ""
+    txt = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return " ".join(txt.strip().lower().split())
+
+
+def _nombre_tokens(nombre: str | None) -> list[str]:
+    if not nombre:
+        return []
+    return [t for p in str(nombre).split("/") if (t := _norm_area(p.strip()))]
+
+
+def alerta_coincide_zona(
+    alerta: dict,
+    *,
+    provincia_id: str | None = None,
+    municipio_id: str | None = None,
+    provincia: str | None = None,
+    municipio: str | None = None,
+) -> bool:
+    """True si el aviso aplica a la zona seleccionada (mismo criterio que push)."""
+    mid = str(municipio_id or "").zfill(5) if municipio_id else ""
+    zona = str(alerta.get("zona") or "")
+    if alerta.get("is_test") and mid and zona == f"test-{mid}":
+        return True
+
+    area = _norm_area(alerta.get("area_desc"))
+    if not area:
+        return not (provincia_id or municipio_id or provincia or municipio)
+
+    for token in _nombre_tokens(provincia):
+        if token in area:
+            return True
+
+    if provincia_id:
+        from geo_es import provincias
+
+        pname = next(
+            (p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)),
+            "",
+        )
+        for token in _nombre_tokens(pname):
+            if token in area:
+                return True
+
+    for token in _nombre_tokens(municipio):
+        if token in area:
+            return True
+
+    if mid:
+        from geo_es import municipio_por_id
+
+        muni = municipio_por_id(mid)
+        if muni:
+            token = _norm_area(muni.get("nombre"))
+            if token and token in area:
+                return True
+
+    return False
 
 
 def _parse_iso(value: str | None) -> datetime | None:

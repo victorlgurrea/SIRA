@@ -34,7 +34,7 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import fetch_active_alerts
+from aemet_alerts import alerta_coincide_zona, fetch_active_alerts
 from sismos import filtrar_perceptibles
 from theme import (
     C_CYAN,
@@ -233,12 +233,7 @@ def _bloque_oce(oce: dict, clave: str) -> dict:
     return {"serie_horaria": [], "resumen": {}}
 
 
-def _norm_txt(v: str | None) -> str:
-    return " ".join((v or "").strip().lower().split())
-
-
 def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
-    provincia = _norm_txt(geo.get("provincia"))
     local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
     live: list[dict] = []
     if AEMET_API_KEY:
@@ -247,9 +242,21 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
         except Exception:
             live = []
     all_alerts = [*local, *live]
-    if not provincia:
-        return all_alerts
-    return [a for a in all_alerts if provincia in _norm_txt(a.get("area_desc"))]
+    return [
+        a for a in all_alerts
+        if alerta_coincide_zona(
+            a,
+            provincia_id=geo.get("provincia_id"),
+            municipio_id=geo.get("municipio_id"),
+            provincia=geo.get("provincia"),
+            municipio=geo.get("municipio"),
+        )
+    ]
+
+
+def _data_refresh_token(d: dict) -> str:
+    meteo_ids = sorted(str(a.get("id", "")) for a in (d.get("meteo_alertas_test") or []))
+    return f"{d.get('generado_en', '—')}|{'|'.join(meteo_ids)}|{bool(d.get('sismo_prueba_activo'))}"
 
 
 def _fmt_alerta_detalle(alerta: dict) -> str:
@@ -667,7 +674,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     d = _load()
     ts_raw = d.get("generado_en", "—")
-    if ctx.triggered_id == "tick" and n_intervals and last_ts == ts_raw:
+    refresh_token = _data_refresh_token(d)
+    if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
         raise PreventUpdate
 
     geo = geo or {}
@@ -732,7 +740,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
     oce_atl = _bloque_oce(oce, "ATLÁNTICO")
 
     return (
-        cards, f"Actualizado: {ts}", ts_raw,
+        cards, f"Actualizado: {ts}", refresh_token,
         _fig_mapa(sismos, lat_obs, lon_obs, localidad),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),

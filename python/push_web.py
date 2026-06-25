@@ -16,9 +16,9 @@ from config import (
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
 )
-from aemet_alerts import fetch_active_alerts
+from aemet_alerts import alerta_coincide_zona, fetch_active_alerts
 from core import read_dashboard, read_json_file
-from geo_es import coords_observacion, provincia_nombre_de_municipio
+from geo_es import coords_observacion
 from sismos import alerta_local
 from test_overlay import build_test_sismo, save_test_overlay
 
@@ -159,23 +159,11 @@ def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
 def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
     if not _sub_prefers_meteo(sub):
         return False
-    area = _norm_text(alerta.get("area_desc"))
-    if not area:
-        return False
-    provincia_id = sub.get("provincia_id")
-    if provincia_id:
-        from geo_es import provincias
-
-        pname = next((p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)), "")
-        if pname and _norm_text(pname) in area:
-            return True
-    municipio_id = sub.get("municipio_id")
-    if municipio_id:
-        prov_name = provincia_nombre_de_municipio(str(municipio_id))
-        if prov_name and _norm_text(prov_name) in area:
-            return True
-    # Sin zona concreta en la suscripción: aplica para todo.
-    return not (provincia_id or municipio_id)
+    return alerta_coincide_zona(
+        alerta,
+        provincia_id=sub.get("provincia_id"),
+        municipio_id=sub.get("municipio_id"),
+    )
 
 
 def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
@@ -197,11 +185,38 @@ def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
 
 def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id: str | None = None) -> dict:
     """Envía un aviso meteo de prueba con el mismo matcher que AEMET."""
-    subs = list_subscriptions()
-    if only_municipio_id:
-        subs = [s for s in subs if str(s.get("municipio_id") or "") == str(only_municipio_id)]
+    all_subs = list_subscriptions()
+    target_muni = str(only_municipio_id).zfill(5) if only_municipio_id else None
+    subs = all_subs
+    if target_muni:
+        subs = [s for s in subs if str(s.get("municipio_id") or "").zfill(5) == target_muni]
+
+    diagnostico = []
+    for sub in all_subs:
+        diagnostico.append(
+            {
+                "municipio_id": sub.get("municipio_id"),
+                "prefiere_meteo": _sub_prefers_meteo(sub),
+                "coincide": _aemet_match_subscription(alerta, sub),
+                "en_filtro_municipio": (
+                    not target_muni
+                    or str(sub.get("municipio_id") or "").zfill(5) == target_muni
+                ),
+            }
+        )
+
     if not subs:
-        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
+        return {
+            "ok": False,
+            "error": (
+                f"No hay suscripciones para municipio {target_muni}"
+                if target_muni
+                else "No hay suscripciones activas"
+            ),
+            "enviados": 0,
+            "suscripciones": len(all_subs),
+            "diagnostico": diagnostico,
+        }
 
     payload = _build_aemet_payload(alerta, dashboard_url)
     sent = 0
@@ -221,6 +236,8 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id:
         "enviados": sent,
         "suscripciones": len(subs),
         "payload": payload,
+        "diagnostico": diagnostico,
+        "error": None if sent > 0 else "Ninguna suscripción coincide con la zona del aviso de prueba",
     }
 
 
