@@ -30,7 +30,7 @@ from config import (  # noqa: E402
     ZONA,
 )
 from core import read_dashboard  # noqa: E402
-from geo_es import coords_municipio, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
+from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from sismos import filtrar_perceptibles
@@ -210,7 +210,7 @@ def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
     candidatos = [s for s in sismos if s.get("magnitud") == mag_max]
     if not candidatos:
         candidatos = sismos
-    return max(candidatos, key=lambda s: (s.get("score_total", 0), s.get("magnitud", 0)))
+    return max(candidatos, key=lambda s: (s.get("score_local", s.get("score_total", 0)), s.get("magnitud", 0)))
 
 
 def _detalle_sismo(sismo: dict | None) -> html.Div | str:
@@ -237,8 +237,22 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
     hoy_df = pd.DataFrame()
     hoy_scale = 1.35
 
+    if not df.empty and "nivel_local" not in df.columns:
+        df = df.copy()
+        if "nivel_alerta" in df.columns:
+            df["nivel_local"] = df["nivel_alerta"]
+        if "score_total" in df.columns:
+            df["score_local"] = df["score_total"]
+
+    if not df.empty and "es_prueba" in df.columns:
+        mask_prueba = df["es_prueba"].fillna(False)
+        df_prueba = df[mask_prueba]
+        df = df[~mask_prueba]
+    else:
+        df_prueba = pd.DataFrame()
+
     for nivel, color in COLORES.items():
-        sub = df[df["nivel_alerta"] == nivel] if not df.empty else pd.DataFrame()
+        sub = df[df["nivel_local"] == nivel] if not df.empty else pd.DataFrame()
         if sub.empty:
             continue
         reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
@@ -255,11 +269,11 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
             ),
             text=sub["lugar"],
-            customdata=list(zip(sub["magnitud"], sub["score_total"], reg_col, fechas, dist_loc)),
+            customdata=list(zip(sub["magnitud"], sub["score_local"], reg_col, fechas, dist_loc)),
             hovertemplate=(
                 "%{text}<br>"
                 "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score %{customdata[1]} · %{customdata[2]}<br>"
+                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
                 "Distancia: %{customdata[4]} km"
                 "<extra></extra>"
             ),
@@ -279,6 +293,30 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
             ),
             hoverinfo="skip", legendgroup="hoy",
         ))
+
+    if not df_prueba.empty:
+        reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
+        fechas = [_fmt_sismo_fecha(ts) for ts in df_prueba["timestamp"]] if "timestamp" in df_prueba.columns else ["—"] * len(df_prueba)
+        dist_loc = df_prueba["dist_local_km"] if "dist_local_km" in df_prueba.columns else [""] * len(df_prueba)
+        fig.add_trace(go.Scattergeo(
+            lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
+            marker=dict(
+                size=df_prueba["magnitud"] * 2 + 8,
+                color="#a855f7",
+                symbol="diamond",
+                line=dict(width=2.5, color="#fbbf24"),
+            ),
+            text=df_prueba["lugar"],
+            customdata=list(zip(df_prueba["magnitud"], df_prueba["score_local"], reg_col, fechas, dist_loc)),
+            hovertemplate=(
+                "🧪 %{text}<br>"
+                "Fecha: %{customdata[3]}<br>"
+                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
+                "Distancia: %{customdata[4]} km"
+                "<extra></extra>"
+            ),
+        ))
+
     if lat_obs is not None and lon_obs is not None:
         fig.add_trace(go.Scattergeo(
             lat=[lat_obs], lon=[lon_obs], mode="markers+text",
@@ -501,7 +539,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
     geo = geo or {}
     muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
     localidad = geo.get("localidad") or ZONA["ciudad_ref"]
-    lat_obs, lon_obs = coords_municipio(muni_id)
+    lat_obs, lon_obs, _ = coords_observacion(muni_id, geo.get("localidad_id"))
 
     sismos_all = d.get("sismos", [])
     sismos = filtrar_perceptibles(sismos_all, lat_obs, lon_obs)
@@ -510,7 +548,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
-    nivel_max = sismo_max.get("nivel_alerta") if sismo_max else None
+    nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
     reg = _stats_region(sismos)
     res_met = met.get("resumen", {})
 
@@ -527,7 +565,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
             "Magnitud máx.",
             mag_con_riesgo(float(mag_max), nivel_max),
             _detalle_sismo(sismo_max),
-            "Eventos críticos con score ≥ 55.",
+            "Eventos críticos (score local ≥ 55 desde tu zona).",
             accent="#ef4444",
         ),
         card(
@@ -549,6 +587,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")
     except (ValueError, AttributeError):
         pass
+    if d.get("sismo_prueba_activo"):
+        ts = f"{ts} · Sismo de prueba en mapa"
 
     oce_med = _bloque_oce(oce, "MEDITERRÁNEO")
     oce_cant = _bloque_oce(oce, "CANTÁBRICO")

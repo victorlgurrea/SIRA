@@ -74,7 +74,16 @@ def read_json_file(path: Path) -> dict:
 
 
 def read_dashboard() -> dict:
-    return read_json_file(DATA_FILE)
+    data = read_json_file(DATA_FILE)
+    if not data:
+        return data
+    from test_overlay import read_test_overlay
+
+    overlay = read_test_overlay()
+    if not overlay:
+        return data
+    sismos = [s for s in data.get("sismos", []) if s.get("id") != overlay.get("id")]
+    return {**data, "sismos": [overlay, *sismos], "sismo_prueba_activo": True}
 
 
 def write_dashboard(payload: dict) -> Path:

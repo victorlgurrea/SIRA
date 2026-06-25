@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import date, datetime, timedelta, timezone
 
 import requests
@@ -19,6 +18,8 @@ from config import (
     ZONA,
 )
 from core import fetch_aemet, fetch_json, write_dashboard
+from sismos import distancia_km, score_sismo
+from test_overlay import clear_test_overlay
 
 log = logging.getLogger(__name__)
 VACIO_OCE = {"serie_horaria": [], "resumen": {}}
@@ -37,16 +38,7 @@ def _region(lat: float, lon: float) -> str:
 
 def _dist_km(lat: float, lon: float) -> float:
     rlat, rlon = ZONA["lat_ref"], ZONA["lon_ref"]
-    return round(111.2 * math.hypot(lat - rlat, (lon - rlon) * math.cos(math.radians(rlat))), 1)
-
-
-def _score(mag: float, prof: float, dist: float, sub: bool) -> dict:
-    mag_p = next((p for m, p in [(7, 40), (6.5, 32), (6, 22), (5.5, 14), (5, 8), (4.5, 4)] if mag >= m), 1)
-    prof_p = next((p for d, p in [(10, 30), (30, 25), (70, 18), (150, 8)] if prof <= d), 2)
-    dist_p = next((p for d, p in [(200, 20), (400, 15), (700, 10), (1000, 5)] if dist <= d), 1)
-    total = mag_p + prof_p + dist_p + (10 if sub else 0)
-    nivel = next((n for u, n in [(75, "CRÍTICO"), (55, "ALTO"), (35, "MODERADO"), (15, "BAJO")] if total >= u), "MÍNIMO")
-    return {"score_total": total, "nivel_alerta": nivel}
+    return distancia_km(lat, lon, rlat, rlon)
 
 
 def _hourly(data: dict, mapping: dict[str, str]) -> list[dict]:
@@ -116,7 +108,7 @@ def descargar_sismos() -> list[dict]:
             "timestamp": datetime.fromtimestamp(p["time"] / 1000, tz=timezone.utc).isoformat(),
             "lat": lat, "lon": lon, "profundidad": prof,
             "dist_valencia_km": dist, "es_submarino": sub, "region": _region(lat, lon),
-            **_score(float(p["mag"]), prof, dist, sub),
+            **score_sismo(float(p["mag"]), prof, dist, sub),
         })
     log.info("Sismos: %d", len(sismos))
     return sismos
@@ -207,6 +199,7 @@ def descargar_meteo() -> dict:
 
 
 def ejecutar_ingesta():
+    clear_test_overlay()
     sismos = descargar_sismos()
     por_region: dict[str, int] = {}
     for s in sismos:

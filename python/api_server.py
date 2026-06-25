@@ -59,6 +59,13 @@ class TestPushIn(BaseModel):
     tag: str | None = None
     renotify: bool = True
     solo_municipio_id: str | None = None
+    mostrar_en_mapa: bool = True
+    magnitud: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+    profundidad: float | None = None
+    lugar: str | None = None
+    overlay_minutos: int = 30
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -163,6 +170,13 @@ def push_test(
             tag=payload.tag or "sira-test-valencia",
             renotify=payload.renotify,
             solo_municipio_id=payload.solo_municipio_id,
+            mostrar_en_mapa=payload.mostrar_en_mapa,
+            magnitud=payload.magnitud,
+            lat=payload.lat,
+            lon=payload.lon,
+            profundidad=payload.profundidad,
+            lugar=payload.lugar,
+            overlay_minutos=payload.overlay_minutos,
         )
     except Exception as exc:
         log.exception("push/test falló")

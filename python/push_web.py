@@ -13,11 +13,11 @@ from config import (
     VAPID_PRIVATE_KEY,
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
-    ZONA,
 )
 from core import read_dashboard, read_json_file
-from geo_es import coords_municipio
-from sismos import distancia_km, es_perceptible
+from geo_es import coords_observacion
+from sismos import alerta_local
+from test_overlay import build_test_sismo, save_test_overlay
 
 log = logging.getLogger(__name__)
 
@@ -87,18 +87,14 @@ def _save_state_ids(ids: list[str]) -> None:
     _write_json(PUSH_STATE_FILE, {"ids_push": ids, "updated": datetime.now(timezone.utc).isoformat()})
 
 
-def _alertables(sismos: list[dict]) -> list[dict]:
-    return [s for s in sismos if s.get("score_total", 0) >= ZONA["umbral_score_alerta"]]
-
-
-def _build_payload(s: dict, dashboard_url: str) -> dict:
+def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
     mag = s.get("magnitud", "—")
     lugar = s.get("lugar", "—")
-    score = s.get("score_total", "—")
-    nivel = s.get("nivel_alerta", "—")
+    score = s.get("score_local", s.get("score_total", "—"))
+    nivel = s.get("nivel_local", s.get("nivel_alerta", "—"))
     return {
         "title": f"SIRA · Sismo {nivel}",
-        "body": f"M{mag} · score {score} · {lugar}",
+        "body": f"M{mag} · score {score} · a {dist_km} km de {zona} · {lugar}",
         "icon": "/assets/logo_sira_3.png?v=8",
         "badge": "/assets/logo_sira_3.png?v=8",
         "url": dashboard_url,
@@ -115,18 +111,18 @@ def _sub_prefers_sismo(sub: dict) -> bool:
     return "sismo" in vals or "all" in vals or "todas" in vals
 
 
-def _sismo_match_subscription(sismo: dict, sub: dict) -> bool:
+def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
+    """Alerta si el sismo es perceptible y crítico desde la zona de la suscripción."""
     if not _sub_prefers_sismo(sub):
-        return False
-    municipio_id = sub.get("municipio_id")
-    if not municipio_id:
-        return True
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
     try:
-        lat, lon = coords_municipio(str(municipio_id))
-        dist = distancia_km(lat, lon, float(sismo["lat"]), float(sismo["lon"]))
-        return es_perceptible(float(sismo.get("magnitud", 0)), float(sismo.get("profundidad") or 0), dist)
+        info = alerta_local(sismo, lat, lon)
+        if not info:
+            return None
+        return {**info, "zona": zona}
     except (TypeError, ValueError, KeyError):
-        return False
+        return None
 
 
 def send_push(subscription: dict, payload: dict) -> bool:
@@ -153,40 +149,44 @@ def notify_new_alerts(dashboard_url: str) -> int:
     if not vapid_enabled():
         return 0
     data = read_dashboard()
-    crit = _alertables(data.get("sismos", []))
-    if not crit:
+    todos = data.get("sismos", [])
+    if not todos:
         _save_state_ids([])
         return 0
 
-    ids = sorted({str(s.get("id")) for s in crit if s.get("id")})
-    prev = _state_ids()
-    nuevos = [s for s in crit if str(s.get("id")) not in prev]
+    prev = set(_state_ids())
+    if not prev:
+        _save_state_ids(sorted({str(s["id"]) for s in todos if s.get("id")}))
+        return 0
+
+    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev]
     if not nuevos:
         return 0
 
     subs = list_subscriptions()
-    if not subs:
-        _save_state_ids(ids)
-        return 0
-
     sent = 0
     invalid_endpoints: set[str] = set()
+    procesados: set[str] = set()
+
     for s in nuevos:
-        payload = _build_payload(s, dashboard_url)
+        sid = str(s["id"])
         for sub in subs:
-            if not _sismo_match_subscription(s, sub):
+            info = _sismo_match_subscription(s, sub)
+            if not info:
                 continue
+            payload = _build_payload(info, dashboard_url, zona=info["zona"], dist_km=info["dist_local_km"])
             ok = send_push(sub, payload)
             if ok:
                 sent += 1
             else:
                 invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados.add(sid)
 
     if invalid_endpoints:
         subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
         save_subscriptions(subs)
 
-    _save_state_ids(ids)
+    _save_state_ids(sorted(prev | procesados))
     return sent
 
 
@@ -199,16 +199,33 @@ def send_test_push(
     tag: str = "sira-test-valencia",
     renotify: bool = True,
     solo_municipio_id: str | None = None,
+    mostrar_en_mapa: bool = True,
+    magnitud: float | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+    profundidad: float | None = None,
+    lugar: str | None = None,
+    overlay_minutos: int = 30,
 ) -> dict:
-    """Envía una notificación de prueba a suscripciones activas (Postman / admin)."""
+    """Envía notificación de prueba y opcionalmente un sismo efímero en el mapa."""
     if not vapid_enabled():
         return {"ok": False, "error": "Web Push no configurado", "enviados": 0, "suscripciones": 0}
+
+    overlay_meta = None
+    if mostrar_en_mapa:
+        sismo_prueba = build_test_sismo(
+            tag=tag,
+            magnitud=magnitud if magnitud is not None else 4.2,
+            lat=lat,
+            lon=lon,
+            profundidad=profundidad if profundidad is not None else 10.0,
+            lugar=lugar,
+        )
+        overlay_meta = save_test_overlay(sismo_prueba, ttl_min=overlay_minutos)
 
     subs = list_subscriptions()
     if solo_municipio_id:
         subs = [s for s in subs if str(s.get("municipio_id") or "") == str(solo_municipio_id)]
-    if not subs:
-        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
 
     payload = {
         "title": title or "SIRA · Sismo ALTO",
@@ -219,6 +236,18 @@ def send_test_push(
         "tag": tag,
         "renotify": renotify,
     }
+
+    if not subs:
+        if overlay_meta:
+            return {
+                "ok": True,
+                "enviados": 0,
+                "suscripciones": 0,
+                "payload": payload,
+                "mapa_prueba": overlay_meta,
+                "aviso": "Sin suscripciones push; solo mapa de prueba",
+            }
+        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
 
     sent = 0
     invalid_endpoints: set[str] = set()
@@ -233,18 +262,14 @@ def send_test_push(
         remaining = [s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints]
         save_subscriptions(remaining)
 
-    if sent == 0:
-        return {
-            "ok": False,
-            "error": "No se pudo enviar a ninguna suscripción (¿expiradas?)",
-            "enviados": 0,
-            "suscripciones": len(subs),
-            "payload": payload,
-        }
-
-    return {
-        "ok": True,
+    base = {
         "enviados": sent,
         "suscripciones": len(subs),
         "payload": payload,
+        "mapa_prueba": overlay_meta,
     }
+    if sent == 0 and not overlay_meta:
+        return {"ok": False, "error": "No se pudo enviar a ninguna suscripción (¿expiradas?)", **base}
+    if sent == 0:
+        return {"ok": True, "aviso": "Push fallido; mapa de prueba activo", **base}
+    return {"ok": True, **base}

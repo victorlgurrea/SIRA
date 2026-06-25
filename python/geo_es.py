@@ -76,6 +76,35 @@ def coords_municipio(municipio_id: str | None) -> tuple[float, float]:
     return ZONA["lat_ref"], ZONA["lon_ref"]
 
 
+def etiqueta_observacion(municipio_id: str | None, localidad_id: str | None = None) -> str:
+    """Nombre legible de la zona de observación (localidad + municipio si aplica)."""
+    from config import ZONA
+
+    if not municipio_id:
+        return ZONA["ciudad_ref"]
+    muni = municipio_por_id(municipio_id)
+    if not muni:
+        return ZONA["ciudad_ref"]
+    locs = localidades(municipio_id)
+    if localidad_id:
+        lid = str(localidad_id)
+        for loc in locs:
+            if loc["id"] == lid:
+                if len(locs) > 1:
+                    return f"{loc['nombre']}, {muni['nombre']}"
+                return loc["nombre"]
+    return muni["nombre"]
+
+
+def coords_observacion(
+    municipio_id: str | None,
+    localidad_id: str | None = None,
+) -> tuple[float, float, str]:
+    """Coordenadas y etiqueta del punto de observación (centro del municipio)."""
+    lat, lon = coords_municipio(municipio_id)
+    return lat, lon, etiqueta_observacion(municipio_id, localidad_id)
+
+
 def opciones(items: list[dict], placeholder: str = "Selecciona…") -> list[dict]:
     if not items:
         return [{"label": placeholder, "value": "__none__", "disabled": True}]
