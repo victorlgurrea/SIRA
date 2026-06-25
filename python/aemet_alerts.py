@@ -67,6 +67,43 @@ def _nombre_tokens(nombre: str | None) -> list[str]:
     return [t for p in str(nombre).split("/") if (t := _norm_area(p.strip()))]
 
 
+def _coincide_por_area(
+    area_desc: str | None,
+    provincia_id: str | None,
+    provincia: str | None,
+    municipio: str | None,
+    municipio_ref: str | None = None,
+) -> bool:
+    area = _norm_area(area_desc)
+    if not area:
+        return False
+    for token in _nombre_tokens(provincia):
+        if token in area:
+            return True
+    if provincia_id:
+        from geo_es import provincias
+
+        pname = next(
+            (p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)),
+            "",
+        )
+        for token in _nombre_tokens(pname):
+            if token in area:
+                return True
+    for token in _nombre_tokens(municipio):
+        if token in area:
+            return True
+    if municipio_ref:
+        from geo_es import municipio_por_id
+
+        muni = municipio_por_id(str(municipio_ref).zfill(5))
+        if muni:
+            token = _norm_area(muni.get("nombre"))
+            if token and token in area:
+                return True
+    return False
+
+
 def alerta_coincide_zona(
     alerta: dict,
     *,
@@ -80,41 +117,16 @@ def alerta_coincide_zona(
     zona = str(alerta.get("zona") or "")
     if alerta.get("is_test") and zona.startswith("test-"):
         test_mid = zona[5:].zfill(5)
-        return bool(mid and mid == test_mid)
+        if mid and mid == test_mid:
+            return True
+        if not mid:
+            return _coincide_por_area(alerta.get("area_desc"), provincia_id, provincia, municipio, test_mid)
+        return False
 
-    area = _norm_area(alerta.get("area_desc"))
-    if not area:
+    if not _norm_area(alerta.get("area_desc")):
         return not (provincia_id or municipio_id or provincia or municipio)
 
-    for token in _nombre_tokens(provincia):
-        if token in area:
-            return True
-
-    if provincia_id:
-        from geo_es import provincias
-
-        pname = next(
-            (p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)),
-            "",
-        )
-        for token in _nombre_tokens(pname):
-            if token in area:
-                return True
-
-    for token in _nombre_tokens(municipio):
-        if token in area:
-            return True
-
-    if mid:
-        from geo_es import municipio_por_id
-
-        muni = municipio_por_id(mid)
-        if muni:
-            token = _norm_area(muni.get("nombre"))
-            if token and token in area:
-                return True
-
-    return False
+    return _coincide_por_area(alerta.get("area_desc"), provincia_id, provincia, municipio, mid or None)
 
 
 def fmt_alerta_detalle(alerta: dict) -> str:

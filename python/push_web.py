@@ -50,17 +50,35 @@ def vapid_public_key() -> str:
     return VAPID_PUBLIC_KEY
 
 
+def _normalize_sub(sub: dict) -> dict:
+    """Normaliza suscripciones legacy (solo sismo, sin municipio)."""
+    out = dict(sub)
+    alertas = out.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        out["alertas"] = ["sismo", "meteo"]
+    else:
+        vals = {str(a).lower() for a in alertas}
+        if vals <= {"sismo"}:
+            out["alertas"] = ["sismo", "meteo"]
+    if out.get("municipio_id"):
+        out["municipio_id"] = str(out["municipio_id"]).zfill(5)
+    if out.get("provincia_id"):
+        out["provincia_id"] = str(out["provincia_id"]).zfill(2)
+    return out
+
+
 def list_subscriptions() -> list[dict]:
     data = read_json_file(PUSH_SUBSCRIPTIONS_FILE)
     subs = data.get("subscriptions", [])
-    return [s for s in subs if isinstance(s, dict) and s.get("endpoint")]
+    return [_normalize_sub(s) for s in subs if isinstance(s, dict) and s.get("endpoint")]
 
 
 def save_subscriptions(subs: list[dict]) -> None:
-    _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": subs})
+    _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": [_normalize_sub(s) for s in subs]})
 
 
 def add_subscription(sub: dict) -> int:
+    sub = _normalize_sub(sub)
     endpoint = sub.get("endpoint")
     if not endpoint:
         return len(list_subscriptions())
@@ -153,6 +171,7 @@ def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
 
 
 def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
+    sub = _normalize_sub(sub)
     if not _sub_prefers_meteo(sub):
         return False
     return alerta_coincide_zona(
@@ -224,10 +243,10 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id:
     for sub in subs:
         if not _aemet_match_subscription(alerta, sub):
             continue
-        ok = send_push(sub, payload)
-        if ok:
+        result = send_push(sub, payload)
+        if result == "ok":
             sent += 1
-        else:
+        elif result == "gone":
             invalid_endpoints.add(sub.get("endpoint", ""))
     if invalid_endpoints:
         save_subscriptions([s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints])
@@ -280,9 +299,17 @@ def debug_aemet_matches(*, provincia_id: str | None = None, municipio_id: str | 
     }
 
 
-def send_push(subscription: dict, payload: dict) -> bool:
+def _push_gone(exc: WebPushException) -> bool:
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) in (404, 410):
+        return True
+    return "410" in str(exc) or "404" in str(exc) or "gone" in str(exc).lower()
+
+
+def send_push(subscription: dict, payload: dict) -> str:
+    """ok | gone (suscripción caducada) | error (fallo transitorio)."""
     if not vapid_enabled():
-        return False
+        return "error"
     try:
         webpush(
             subscription_info=_subscription_info(subscription),
@@ -291,13 +318,13 @@ def send_push(subscription: dict, payload: dict) -> bool:
             vapid_claims={"sub": VAPID_SUBJECT},
             ttl=3600,
         )
-        return True
+        return "ok"
     except WebPushException as exc:
         log.warning("WebPush fallo: %s", exc)
-        return False
+        return "gone" if _push_gone(exc) else "error"
     except (ValueError, TypeError, KeyError) as exc:
         log.warning("Push inválido: %s", exc)
-        return False
+        return "gone"
 
 
 def notify_new_alerts(dashboard_url: str) -> int:
@@ -327,10 +354,10 @@ def notify_new_alerts(dashboard_url: str) -> int:
             if not info:
                 continue
             payload = _build_payload(info, dashboard_url, zona=info["zona"], dist_km=info["dist_local_km"])
-            ok = send_push(sub, payload)
-            if ok:
+            result = send_push(sub, payload)
+            if result == "ok":
                 sent += 1
-            else:
+            elif result == "gone":
                 invalid_endpoints.add(sub.get("endpoint", ""))
         procesados_sismo.add(sid)
 
@@ -355,10 +382,10 @@ def notify_new_alerts(dashboard_url: str) -> int:
             for sub in subs:
                 if not _aemet_match_subscription(a, sub):
                     continue
-                ok = send_push(sub, _build_aemet_payload(a, dashboard_url))
-                if ok:
+                result = send_push(sub, _build_aemet_payload(a, dashboard_url))
+                if result == "ok":
                     sent += 1
-                else:
+                elif result == "gone":
                     invalid_endpoints.add(sub.get("endpoint", ""))
             procesados_meteo.add(aid)
 
@@ -407,7 +434,8 @@ def send_test_push(
 
     subs = list_subscriptions()
     if solo_municipio_id:
-        subs = [s for s in subs if str(s.get("municipio_id") or "") == str(solo_municipio_id)]
+        target = str(solo_municipio_id).zfill(5)
+        subs = [s for s in subs if str(s.get("municipio_id") or "").zfill(5) == target]
 
     payload = {
         "title": title or "SIRA · Sismo ALTO",
@@ -434,10 +462,10 @@ def send_test_push(
     sent = 0
     invalid_endpoints: set[str] = set()
     for sub in subs:
-        ok = send_push(sub, payload)
-        if ok:
+        result = send_push(sub, payload)
+        if result == "ok":
             sent += 1
-        else:
+        elif result == "gone":
             invalid_endpoints.add(sub.get("endpoint", ""))
 
     if invalid_endpoints:

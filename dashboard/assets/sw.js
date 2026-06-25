@@ -25,6 +25,11 @@ self.addEventListener("push", (event) => {
           tag: options.tag || "sira-alerta",
         });
       }
+      try {
+        const bc = new BroadcastChannel("sira-push");
+        bc.postMessage({ type: "SIRA_PUSH_RECEIVED", at: Date.now(), tag: options.tag || "sira-alerta" });
+        bc.close();
+      } catch (e) {}
     })()
   );
 });

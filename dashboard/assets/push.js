@@ -167,6 +167,15 @@
       });
     }
 
+    try {
+      const pushChannel = new BroadcastChannel("sira-push");
+      pushChannel.addEventListener("message", function (event) {
+        const data = event && event.data;
+        if (!data || data.type !== "SIRA_PUSH_RECEIVED") return;
+        autoRefreshFromPush();
+      });
+    } catch (e) {}
+
     async function registerOrUpdatePush(skipPermission) {
       if (!skipPermission) {
         await ensureNotificationPermission();
