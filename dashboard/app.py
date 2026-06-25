@@ -70,7 +70,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=23">
+        <link rel="stylesheet" href="/assets/sira.css?v=24">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
     </head>
     <body>

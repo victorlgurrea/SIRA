@@ -139,8 +139,9 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
     if not elementos:
         filas.append(html.Div("Sin fenómenos adversos destacados", className="sira-riesgo-vacio"))
     else:
-        for elem in elementos:
-            filas.append(_riesgo_elemento(elem))
+        item_nodes = [_riesgo_elemento(elem) for elem in elementos]
+        scroll_cls = "sira-riesgo-scroll sira-riesgo-scroll--multi"
+        filas.append(html.Div(item_nodes, className=scroll_cls))
 
     filas.append(
         html.Div(className="sira-riesgo-global", children=[

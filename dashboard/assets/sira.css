@@ -306,6 +306,42 @@ body {
   flex-direction: column;
   gap: 0.65rem;
   width: 100%;
+  min-height: 0;
+}
+
+.sira-riesgo-scroll {
+  width: 100%;
+  min-height: 0;
+}
+
+.sira-riesgo-scroll--multi {
+  max-height: 11rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.sira-riesgo-scroll--multi::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sira-riesgo-scroll--multi::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.35);
+  border-radius: 999px;
+}
+
+.sira-riesgo-scroll--multi::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sira-card-value:has(.sira-riesgo-meteo) {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: normal;
+  overflow: visible;
 }
 
 .sira-riesgo-meteo-horas {
@@ -326,6 +362,11 @@ body {
   gap: 0.35rem;
   padding: 0.55rem 0;
   border-top: 1px solid rgba(30, 73, 118, 0.45);
+}
+
+.sira-riesgo-scroll .sira-riesgo-elem:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .sira-riesgo-elem:first-of-type {
