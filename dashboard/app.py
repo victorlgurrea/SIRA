@@ -298,18 +298,35 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
         fechas = [_fmt_sismo_fecha(ts) for ts in df_prueba["timestamp"]] if "timestamp" in df_prueba.columns else ["—"] * len(df_prueba)
         dist_loc = df_prueba["dist_local_km"] if "dist_local_km" in df_prueba.columns else [""] * len(df_prueba)
-        # Pulso rojo también para eventos de prueba (paridad visual con "Hoy"/ingesta).
-        halo_prueba = df_prueba["magnitud"] * 2 + 5
-        fig.add_trace(go.Scattergeo(
-            lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Hoy",
-            marker=dict(
-                size=[s * hoy_scale * 2.4 for s in halo_prueba],
-                color="rgba(248, 113, 113, 0.35)",
-                line=dict(width=1.5, color="#f87171"),
-            ),
-            hoverinfo="skip", legendgroup="hoy",
-            showlegend=False,
-        ))
+        hoy_mask_prueba = (
+            [_es_sismo_hoy(ts) for ts in df_prueba["timestamp"]]
+            if "timestamp" in df_prueba.columns
+            else [False] * len(df_prueba)
+        )
+        df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
+        if not df_prueba_hoy.empty:
+            # Pulso visual reforzado para eventos de prueba de hoy.
+            halo_prueba = df_prueba_hoy["magnitud"] * 2 + 5
+            fig.add_trace(go.Scattergeo(
+                lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
+                marker=dict(
+                    size=[s * hoy_scale * 3.0 for s in halo_prueba],
+                    color="rgba(248, 113, 113, 0.22)",
+                    line=dict(width=2, color="rgba(248, 113, 113, 0.75)"),
+                ),
+                hoverinfo="skip", legendgroup="prueba",
+                showlegend=False,
+            ))
+            fig.add_trace(go.Scattergeo(
+                lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
+                marker=dict(
+                    size=[s * hoy_scale * 2.0 for s in halo_prueba],
+                    color="rgba(248, 113, 113, 0.30)",
+                    line=dict(width=1.5, color="rgba(248, 113, 113, 0.85)"),
+                ),
+                hoverinfo="skip", legendgroup="prueba",
+                showlegend=False,
+            ))
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
             marker=dict(
