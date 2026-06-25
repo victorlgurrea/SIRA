@@ -24,7 +24,7 @@ from config import (
     RATE_LIMIT_SEC,
 )
 from core import read_dashboard
-from geo_es import municipio_por_id, provincia_de_municipio
+from geo_es import municipio_por_id, provincia_de_municipio, provincias
 from ingesta import ejecutar_ingesta
 from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
 from push_web import debug_aemet_matches, debug_push_state
@@ -125,8 +125,9 @@ def _require_debug_auth(api_key: str | None, cron_secret: str | None) -> None:
 def _meteo_test_defaults(municipio_id: str | None) -> tuple[str, str]:
     muni_id = str(municipio_id or AEMET_MUNICIPIO).zfill(5)
     muni = municipio_por_id(muni_id)
-    prov = provincia_de_municipio(muni_id) or "46"
-    area = f"{muni.get('nombre') if muni else 'Valencia'} ({prov})"
+    prov_id = provincia_de_municipio(muni_id) or "46"
+    prov_name = next((p.get("nombre") for p in provincias() if str(p.get("id")) == str(prov_id)), "Valencia")
+    area = f"{muni.get('nombre') if muni else 'Valencia'} ({prov_name})"
     return muni_id, area
 
 
