@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+from aemet_alerts import alerta_firma
 from config import TEST_METEO_ALERTS_FILE
 from core import read_json_file
 
@@ -18,8 +19,11 @@ def save_test_alert(alert: dict, ttl_min: int = 30) -> dict:
     existing = data.get("alerts", []) if isinstance(data.get("alerts"), list) else []
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=max(1, ttl_min))).isoformat()
     entry = {**alert, "expires": expires_at, "is_test": True}
-    # replace by id
-    out = [a for a in existing if str(a.get("id")) != str(entry.get("id"))]
+    firma_new = alerta_firma(entry)
+    out = [
+        a for a in existing
+        if alerta_firma(a) != firma_new and str(a.get("id")) != str(entry.get("id"))
+    ]
     out.insert(0, entry)
     _write({"alerts": out})
     return entry

@@ -34,7 +34,7 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, fetch_active_alerts
+from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle
 from sismos import filtrar_perceptibles
 from theme import (
     C_CYAN,
@@ -242,7 +242,7 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
         except Exception:
             live = []
     all_alerts = [*local, *live]
-    return [
+    filtradas = [
         a for a in all_alerts
         if alerta_coincide_zona(
             a,
@@ -252,26 +252,13 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
             municipio=geo.get("municipio"),
         )
     ]
+    return deduplicar_alertas(filtradas)
 
 
 def _data_refresh_token(d: dict) -> str:
-    meteo_ids = sorted(str(a.get("id", "")) for a in (d.get("meteo_alertas_test") or []))
-    return f"{d.get('generado_en', '—')}|{'|'.join(meteo_ids)}|{bool(d.get('sismo_prueba_activo'))}"
-
-
-def _fmt_alerta_detalle(alerta: dict) -> str:
-    parametro = (alerta.get("parametro") or "").strip()
-    if parametro and ";" in parametro:
-        parts = [p.strip() for p in parametro.split(";") if p.strip()]
-        if len(parts) >= 3:
-            return f"{parts[1]}: {parts[2]}"
-        if len(parts) == 2:
-            return f"{parts[0]}: {parts[1]}"
-        if parts:
-            return parts[0]
-    if parametro:
-        return parametro
-    return (alerta.get("description") or "Sin detalle").strip()
+    meteo_tests = d.get("meteo_alertas_test") or []
+    firmas = sorted("|".join(alerta_firma(a)) for a in meteo_tests if isinstance(a, dict))
+    return f"{d.get('generado_en', '—')}|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}"
 
 
 def _alerta_meteo_fila(alerta: dict) -> html.Div:
@@ -279,7 +266,7 @@ def _alerta_meteo_fila(alerta: dict) -> html.Div:
     level = (alerta.get("level") or "amarillo").upper()
     fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
     area = alerta.get("area_desc") or "Zona no definida"
-    detalle = _fmt_alerta_detalle(alerta)
+    detalle = fmt_alerta_detalle(alerta)
     return html.Div(
         className="sira-meteo-ahora sira-alerta-fila",
         children=[

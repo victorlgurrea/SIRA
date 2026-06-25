@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import unicodedata
 from datetime import datetime, timezone
 
 from pywebpush import WebPushException, Vapid, webpush
@@ -16,7 +15,7 @@ from config import (
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
 )
-from aemet_alerts import alerta_coincide_zona, fetch_active_alerts
+from aemet_alerts import alerta_coincide_zona, fetch_active_alerts, fmt_alerta_detalle
 from core import read_dashboard, read_json_file
 from geo_es import coords_observacion
 from sismos import alerta_local
@@ -103,11 +102,8 @@ def _save_state(state: dict) -> None:
     )
 
 
-def _norm_text(value: str | None) -> str:
-    if not value:
-        return ""
-    txt = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
-    return " ".join(txt.strip().lower().split())
+def _fmt_parametro_push(parametro: str) -> str:
+    return fmt_alerta_detalle({"parametro": parametro})
 
 
 def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
@@ -166,30 +162,37 @@ def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
     )
 
 
-def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
+def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | None = None) -> dict:
     level = str(alerta.get("level", "amarillo")).lower()
     nivel = {"amarillo": "MODERADO", "naranja": "ALTO", "rojo": "CRÍTICO"}.get(level, level.upper())
     fenomeno = alerta.get("fenomeno_desc") or "fenómeno meteorológico"
     parametro = alerta.get("parametro") or ""
+    detalle = _fmt_parametro_push(parametro)
     zona = alerta.get("area_desc") or "tu zona"
+    fenomeno_code = str(alerta.get("fenomeno") or "xx").lower()
     return {
-        "title": f"SIRA · Meteo {nivel}",
-        "body": f"AEMET {level.upper()} · {fenomeno} · {zona}" + (f" · {parametro}" if parametro else ""),
+        "title": f"SIRA · {fenomeno} {nivel}",
+        "body": f"AEMET {level.upper()} · {zona}" + (f" · {detalle}" if detalle else ""),
         "icon": "/assets/logo-sira_4.png?v=8",
         "badge": "/assets/logo-sira_4.png?v=8",
         "url": dashboard_url,
-        "tag": f"sira-aemet-{alerta.get('id')}",
-        "renotify": False,
+        "tag": f"sira-aemet-{fenomeno_code}-{alerta.get('id')}",
+        "renotify": alerta.get("is_test", False) if renotify is None else renotify,
     }
 
 
 def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id: str | None = None) -> dict:
     """Envía un aviso meteo de prueba con el mismo matcher que AEMET."""
     all_subs = list_subscriptions()
+    is_test = bool(alerta.get("is_test"))
     target_muni = str(only_municipio_id).zfill(5) if only_municipio_id else None
-    subs = all_subs
-    if target_muni:
-        subs = [s for s in subs if str(s.get("municipio_id") or "").zfill(5) == target_muni]
+
+    if is_test:
+        subs = all_subs
+    elif target_muni:
+        subs = [s for s in all_subs if str(s.get("municipio_id") or "").zfill(5) == target_muni]
+    else:
+        subs = all_subs
 
     diagnostico = []
     for sub in all_subs:
@@ -199,7 +202,8 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id:
                 "prefiere_meteo": _sub_prefers_meteo(sub),
                 "coincide": _aemet_match_subscription(alerta, sub),
                 "en_filtro_municipio": (
-                    not target_muni
+                    is_test
+                    or not target_muni
                     or str(sub.get("municipio_id") or "").zfill(5) == target_muni
                 ),
             }
@@ -208,17 +212,13 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id:
     if not subs:
         return {
             "ok": False,
-            "error": (
-                f"No hay suscripciones para municipio {target_muni}"
-                if target_muni
-                else "No hay suscripciones activas"
-            ),
+            "error": "No hay suscripciones activas",
             "enviados": 0,
-            "suscripciones": len(all_subs),
+            "suscripciones": 0,
             "diagnostico": diagnostico,
         }
 
-    payload = _build_aemet_payload(alerta, dashboard_url)
+    payload = _build_aemet_payload(alerta, dashboard_url, renotify=True)
     sent = 0
     invalid_endpoints: set[str] = set()
     for sub in subs:

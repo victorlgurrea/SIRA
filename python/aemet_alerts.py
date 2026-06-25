@@ -78,8 +78,9 @@ def alerta_coincide_zona(
     """True si el aviso aplica a la zona seleccionada (mismo criterio que push)."""
     mid = str(municipio_id or "").zfill(5) if municipio_id else ""
     zona = str(alerta.get("zona") or "")
-    if alerta.get("is_test") and mid and zona == f"test-{mid}":
-        return True
+    if alerta.get("is_test") and zona.startswith("test-"):
+        test_mid = zona[5:].zfill(5)
+        return bool(mid and mid == test_mid)
 
     area = _norm_area(alerta.get("area_desc"))
     if not area:
@@ -114,6 +115,52 @@ def alerta_coincide_zona(
                 return True
 
     return False
+
+
+def fmt_alerta_detalle(alerta: dict) -> str:
+    parametro = (alerta.get("parametro") or "").strip()
+    if parametro and ";" in parametro:
+        parts = [p.strip() for p in parametro.split(";") if p.strip()]
+        if len(parts) >= 3:
+            return f"{parts[1]}: {parts[2]}"
+        if len(parts) == 2:
+            return f"{parts[0]}: {parts[1]}"
+        if parts:
+            return parts[0]
+    if parametro:
+        return parametro
+    return (alerta.get("description") or "Sin detalle").strip()
+
+
+def alerta_firma(alerta: dict) -> tuple[str, str, str, str]:
+    """Clave de contenido visible: fenómeno, nivel, zona y valor (ºC, km/h…)."""
+    return (
+        str(alerta.get("fenomeno") or "").upper().strip(),
+        str(alerta.get("level") or "amarillo").lower().strip(),
+        _norm_area(alerta.get("area_desc")),
+        _norm(fmt_alerta_detalle(alerta)),
+    )
+
+
+def deduplicar_alertas(alertas: list[dict]) -> list[dict]:
+    """Un aviso por combinación única de fenómeno, nivel, zona y magnitud."""
+    prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
+    ordenadas = sorted(
+        alertas,
+        key=lambda a: (
+            -prioridad.get(str(a.get("level", "")).lower(), 0),
+            str(a.get("fenomeno", "")),
+        ),
+    )
+    seen: set[tuple[str, str, str, str]] = set()
+    out: list[dict] = []
+    for a in ordenadas:
+        key = alerta_firma(a)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(a)
+    return out
 
 
 def _parse_iso(value: str | None) -> datetime | None:
