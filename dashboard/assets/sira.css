@@ -314,7 +314,7 @@ body {
 .sira-alertas-badge {
   position: absolute;
   top: -6px;
-  right: -2px;
+  left: -2px;
   min-width: 26px;
   height: 26px;
   padding: 0 8px;

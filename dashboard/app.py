@@ -252,6 +252,21 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
     return [a for a in all_alerts if provincia in _norm_txt(a.get("area_desc"))]
 
 
+def _fmt_alerta_detalle(alerta: dict) -> str:
+    parametro = (alerta.get("parametro") or "").strip()
+    if parametro and ";" in parametro:
+        parts = [p.strip() for p in parametro.split(";") if p.strip()]
+        if len(parts) >= 3:
+            return f"{parts[1]}: {parts[2]}"
+        if len(parts) == 2:
+            return f"{parts[0]}: {parts[1]}"
+        if parts:
+            return parts[0]
+    if parametro:
+        return parametro
+    return (alerta.get("description") or "Sin detalle").strip()
+
+
 def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
     if not alertas:
         return card("Avisos meteorológicos", "Sin avisos", "", "", accent=C_ORANGE)
@@ -266,12 +281,12 @@ def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
     top = ordenadas[0]
     level_top = (top.get("level") or "amarillo").upper()
     items = []
-    for a in ordenadas:
+    for a in ordenadas[1:]:
         icon = a.get("icon") or "⚠️"
         level = (a.get("level") or "amarillo").upper()
         fenomeno = a.get("fenomeno_desc") or "Fenómeno meteorológico"
         area = a.get("area_desc") or "Zona no definida"
-        detalle = a.get("parametro") or a.get("description") or "Sin detalle"
+        detalle = _fmt_alerta_detalle(a)
         items.append(
             html.Div(
                 className="sira-alerta-item",
@@ -286,7 +301,7 @@ def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
     top_level = (top.get("level") or "amarillo").upper()
     top_fenomeno = top.get("fenomeno_desc") or "Fenómeno meteorológico"
     top_area = top.get("area_desc") or "Zona no definida"
-    top_detalle = top.get("parametro") or top.get("description") or "Sin detalle"
+    top_detalle = _fmt_alerta_detalle(top)
     encabezado = html.Div(
         className="sira-meteo-ahora",
         children=[
