@@ -281,7 +281,7 @@ def _alerta_meteo_fila(alerta: dict) -> html.Div:
     area = alerta.get("area_desc") or "Zona no definida"
     detalle = _fmt_alerta_detalle(alerta)
     return html.Div(
-        className="sira-meteo-ahora",
+        className="sira-meteo-ahora sira-alerta-fila",
         children=[
             html.Span(icon, className="sira-meteo-icon"),
             html.Div(
