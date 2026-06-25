@@ -16,7 +16,7 @@ from config import (
     VAPID_SUBJECT,
 )
 from aemet_alerts import alerta_coincide_zona, fetch_active_alerts, fmt_alerta_detalle
-from core import read_dashboard, read_json_file
+from core import read_dashboard, read_json_file, clear_meteo_live_cache
 from geo_es import coords_observacion, municipio_por_id, provincia_nombre_de_municipio, provincias
 from sismos import alerta_local
 from test_overlay import build_test_sismo, save_test_overlay
@@ -412,6 +412,8 @@ def notify_new_alerts(dashboard_url: str) -> int:
                 elif result == "gone":
                     invalid_endpoints.add(sub.get("endpoint", ""))
             procesados_meteo.add(aid)
+        if procesados_meteo:
+            clear_meteo_live_cache()
 
     if invalid_endpoints:
         subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]

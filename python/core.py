@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
 
-from config import ALLOWED_HOSTS, DATA_DIR, DATA_FILE, HTTP_TIMEOUT
+from config import AEMET_API_KEY, ALLOWED_HOSTS, DATA_DIR, DATA_FILE, HTTP_TIMEOUT
 
 log = logging.getLogger(__name__)
 AEMET_BASE = "https://opendata.aemet.es/opendata/api"
@@ -85,6 +86,34 @@ def read_json_file(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+_meteo_live_cache: dict = {"at": 0.0, "alerts": []}
+METEO_LIVE_CACHE_SEC = 90
+
+
+def clear_meteo_live_cache() -> None:
+    _meteo_live_cache["at"] = 0.0
+    _meteo_live_cache["alerts"] = []
+
+
+def _live_meteo_alerts() -> list[dict]:
+    """Avisos AEMET activos (CAP), con caché breve para no saturar la API."""
+    if not AEMET_API_KEY:
+        return []
+    now = time.monotonic()
+    if now - float(_meteo_live_cache.get("at", 0)) < METEO_LIVE_CACHE_SEC:
+        return list(_meteo_live_cache.get("alerts", []))
+    try:
+        from aemet_alerts import fetch_active_alerts
+
+        alerts = fetch_active_alerts(AEMET_API_KEY)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AEMET CAP en read_dashboard: %s", exc)
+        alerts = []
+    _meteo_live_cache["at"] = now
+    _meteo_live_cache["alerts"] = alerts
+    return alerts
+
+
 def read_dashboard() -> dict:
     data = read_json_file(DATA_FILE)
     if not data:
@@ -102,6 +131,9 @@ def read_dashboard() -> dict:
     meteo_tests = read_active_test_alerts()
     if meteo_tests:
         out["meteo_alertas_test"] = meteo_tests
+    meteo_live = _live_meteo_alerts()
+    if meteo_live:
+        out["meteo_alertas_live"] = meteo_live
     return out
 
 

@@ -89,6 +89,43 @@ _DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
 _locs = localidades(_DEFAULT_MUNI)
 _DEFAULT_LOC = _locs[0]["id"] if _locs else _DEFAULT_MUNI
 
+
+def _default_geo() -> dict:
+    muni = municipio_por_id(_DEFAULT_MUNI)
+    prov = next((p for p in provincias() if p["id"] == _DEFAULT_PROV), None)
+    loc = _locs[0] if _locs else None
+    return {
+        "provincia_id": _DEFAULT_PROV,
+        "provincia": prov["nombre"] if prov else None,
+        "municipio_id": _DEFAULT_MUNI,
+        "municipio": muni["nombre"] if muni else None,
+        "localidad_id": loc["id"] if loc else None,
+        "localidad": loc["nombre"] if loc else None,
+    }
+
+
+def _geo_resuelto(geo: dict | None) -> dict:
+    """Geo efectiva del panel: nombres siempre coherentes con los IDs."""
+    if not geo:
+        return _default_geo()
+
+    muni_id = str(geo.get("municipio_id") or _DEFAULT_MUNI).zfill(5)
+    muni = municipio_por_id(muni_id)
+    pid = str(geo.get("provincia_id") or provincia_de_municipio(muni_id) or _DEFAULT_PROV).zfill(2)
+    prov = next((p for p in provincias() if p["id"] == pid), None)
+    locs = localidades(muni_id)
+    loc_id = geo.get("localidad_id")
+    loc = next((l for l in locs if l["id"] == loc_id), locs[0] if locs else None)
+
+    return {
+        "provincia_id": pid,
+        "provincia": prov["nombre"] if prov else geo.get("provincia"),
+        "municipio_id": muni_id,
+        "municipio": muni["nombre"] if muni else geo.get("municipio"),
+        "localidad_id": loc["id"] if loc else geo.get("localidad_id"),
+        "localidad": loc["nombre"] if loc else geo.get("localidad"),
+    }
+
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
 app.layout = html.Div(className="sira-page", children=[
@@ -111,7 +148,7 @@ app.layout = html.Div(className="sira-page", children=[
         html.Div(className="sira-container", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
-            dcc.Store(id="geo-store"),
+            dcc.Store(id="geo-store", data=_default_geo()),
             selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
             html.Div(className="sira-toolbar", children=[
                 html.Div(className="sira-ts-wrap", children=[
@@ -184,7 +221,7 @@ app.layout = html.Div(className="sira-page", children=[
 
 def _load() -> dict:
     try:
-        r = requests.get(f"{API_BASE_URL}/api/dashboard", timeout=10)
+        r = requests.get(f"{API_BASE_URL}/api/dashboard", timeout=30)
         if r.ok:
             return r.json()
     except requests.RequestException:
@@ -233,17 +270,21 @@ def _bloque_oce(oce: dict, clave: str) -> dict:
     return {"serie_horaria": [], "resumen": {}}
 
 
-def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
+def _alertas_meteo_fuente(d: dict) -> list[dict]:
     local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
-    live: list[dict] = []
-    if AEMET_API_KEY:
+    live = list(d.get("meteo_alertas_live", [])) if isinstance(d.get("meteo_alertas_live"), list) else []
+    if not live and AEMET_API_KEY:
         try:
             live = fetch_active_alerts(AEMET_API_KEY)
         except Exception:
             live = []
-    all_alerts = [*local, *live]
+    return [*local, *live]
+
+
+def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
+    geo = _geo_resuelto(geo)
     filtradas = [
-        a for a in all_alerts
+        a for a in _alertas_meteo_fuente(d)
         if alerta_coincide_zona(
             a,
             provincia_id=geo.get("provincia_id"),
@@ -256,8 +297,11 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
 
 
 def _data_refresh_token(d: dict) -> str:
-    meteo_tests = d.get("meteo_alertas_test") or []
-    firmas = sorted("|".join(alerta_firma(a)) for a in meteo_tests if isinstance(a, dict))
+    firmas = sorted(
+        "|".join(alerta_firma(a))
+        for a in _alertas_meteo_fuente(d)
+        if isinstance(a, dict)
+    )
     return f"{d.get('generado_en', '—')}|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}"
 
 
@@ -619,7 +663,7 @@ def on_municipio(municipio_id, current_loc):
     Input("geo-localidad", "value"),
 )
 def on_geo_change(provincia_id, municipio_id, localidad_id):
-    prov = next((p for p in provincias() if p["id"] == provincia_id), None)
+    prov = next((p for p in provincias() if p["id"] == str(provincia_id or "").zfill(2)), None)
     muni = municipio_por_id(municipio_id)
     locs = localidades(municipio_id)
     loc = next((l for l in locs if l["id"] == localidad_id), locs[0] if locs else None)
@@ -658,7 +702,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
     if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
         raise PreventUpdate
 
-    geo = geo or {}
+    geo = _geo_resuelto(geo)
     muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
     localidad = geo.get("localidad") or ZONA["ciudad_ref"]
     lat_obs, lon_obs, _ = coords_observacion(muni_id, geo.get("localidad_id"))
