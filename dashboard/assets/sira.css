@@ -153,6 +153,7 @@ body {
 .sira-card {
   display: flex;
   flex-direction: column;
+  position: relative;
   gap: 0.35rem;
   padding: 1.25rem;
   border-radius: var(--sira-radius);
@@ -307,14 +308,13 @@ body {
 }
 
 .sira-alertas-wrap {
-  position: relative;
   min-height: 64px;
 }
 
 .sira-alertas-badge {
   position: absolute;
-  top: -6px;
-  left: -2px;
+  top: -10px;
+  right: -10px;
   min-width: 26px;
   height: 26px;
   padding: 0 8px;
