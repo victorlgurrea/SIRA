@@ -5,6 +5,12 @@ from dash import dcc, html
 
 from theme import C_CYAN, C_GREEN, C_MUTED, C_ORANGE, C_TEAL, COLORES
 
+_PELIGRO_COLOR = {
+    "rojo": "#ef4444",
+    "naranja": C_ORANGE,
+    "amarillo": "#eab308",
+}
+
 
 def nivel_etiqueta(nivel: str | None) -> str:
     if not nivel or nivel == "—":
@@ -14,6 +20,7 @@ def nivel_etiqueta(nivel: str | None) -> str:
         "BAJO": "Bajo",
         "MODERADO": "Moderado",
         "ALTO": "Alto",
+        "MUY ALTO": "Muy alto",
         "CRÍTICO": "Crítico",
     }.get(nivel, nivel.title())
 
@@ -86,6 +93,68 @@ def dir_compass(grados) -> str:
     puntos = ("N", "NE", "E", "SE", "S", "SO", "O", "NO")
     cardinal = puntos[int((g + 22.5) / 45) % 8]
     return f"{g:.0f}° ({cardinal})"
+
+
+def _riesgo_elemento(elem: dict) -> html.Div:
+    nivel_key = str(elem.get("nivel_peligro") or "").lower()
+    peligro_color = _PELIGRO_COLOR.get(nivel_key, C_MUTED)
+    detalle_extra = elem.get("detalle")
+    secundario = [
+        html.Span(
+            elem.get("nivel_label") or "—",
+            className="sira-riesgo-peligro-badge",
+            style={"borderColor": peligro_color, "color": peligro_color},
+        ),
+        html.Span(elem.get("nivel_etiqueta") or "Nivel de peligro", className="sira-riesgo-peligro-lbl"),
+    ]
+    if detalle_extra:
+        secundario.append(html.Span(detalle_extra, className="sira-riesgo-elem-detalle"))
+    return html.Div(
+        className="sira-riesgo-elem",
+        children=[
+            html.Div(className="sira-riesgo-elem-top", children=[
+                html.Span(elem.get("icon") or "⚠️", className="sira-meteo-icon"),
+                html.Span(elem.get("desc") or "—", className="sira-riesgo-elem-nombre"),
+            ]),
+            html.Div(className="sira-riesgo-elem-principal", children=[
+                html.Span(elem.get("prob_principal") or "—", className="sira-riesgo-prob-val"),
+                html.Span(elem.get("prob_etiqueta") or "Probabilidad AEMET", className="sira-riesgo-prob-lbl"),
+            ]),
+            html.Div(className="sira-riesgo-elem-secundario", children=secundario),
+        ],
+    )
+
+
+def riesgo_meteo_panel(riesgo: dict) -> html.Div:
+    horas = riesgo.get("horas", 48)
+    elementos = riesgo.get("elementos") or riesgo.get("fenomenos") or []
+    indice = riesgo.get("indice_global", riesgo.get("indice", 0))
+    nivel = riesgo.get("nivel_global", riesgo.get("nivel", "MÍNIMO"))
+    color_global = COLORES.get(nivel, C_MUTED)
+
+    filas: list = [html.Div(f"Horizonte: próximas {horas} h", className="sira-riesgo-meteo-horas")]
+
+    if not elementos:
+        filas.append(html.Div("Sin fenómenos adversos destacados", className="sira-riesgo-vacio"))
+    else:
+        for elem in elementos:
+            filas.append(_riesgo_elemento(elem))
+
+    filas.append(
+        html.Div(className="sira-riesgo-global", children=[
+            html.Span("Índice combinado (opcional)", className="sira-riesgo-global-lbl"),
+            html.Span(
+                f"{indice}/100 · {nivel_etiqueta(nivel)}",
+                className="sira-riesgo-global-val",
+                style={"color": color_global},
+            ),
+            html.Span(
+                "Resumen orientativo; no sustituye la probabilidad AEMET por fenómeno.",
+                className="sira-riesgo-global-nota",
+            ),
+        ])
+    )
+    return html.Div(className="sira-riesgo-meteo", children=filas)
 
 
 def meteo_ahora(resumen: dict) -> html.Div:

@@ -301,6 +301,125 @@ body {
   font-weight: 600;
 }
 
+.sira-riesgo-meteo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.sira-riesgo-meteo-horas {
+  font-size: 0.78rem;
+  color: var(--sira-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sira-riesgo-vacio {
+  font-size: 0.9rem;
+  color: var(--sira-muted);
+}
+
+.sira-riesgo-elem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgba(30, 73, 118, 0.45);
+}
+
+.sira-riesgo-elem:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sira-riesgo-elem-top {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.sira-riesgo-elem-nombre {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--sira-text);
+}
+
+.sira-riesgo-elem-principal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-left: 2rem;
+}
+
+.sira-riesgo-prob-val {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--sira-cyan);
+}
+
+.sira-riesgo-prob-lbl {
+  font-size: 0.72rem;
+  color: var(--sira-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sira-riesgo-elem-secundario {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  padding-left: 2rem;
+}
+
+.sira-riesgo-peligro-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid;
+  border-radius: 4px;
+}
+
+.sira-riesgo-peligro-lbl {
+  font-size: 0.72rem;
+  color: var(--sira-muted);
+}
+
+.sira-riesgo-elem-detalle {
+  font-size: 0.78rem;
+  color: var(--sira-teal);
+}
+
+.sira-riesgo-global {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.25rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed rgba(30, 73, 118, 0.55);
+}
+
+.sira-riesgo-global-lbl {
+  font-size: 0.68rem;
+  color: var(--sira-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sira-riesgo-global-val {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sira-riesgo-global-nota {
+  font-size: 0.68rem;
+  color: var(--sira-muted);
+  line-height: 1.35;
+}
+
 .sira-card-value:has(.sira-alertas-wrap) {
   font-size: 1rem;
   font-weight: 400;

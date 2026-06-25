@@ -13,7 +13,7 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones
+from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
@@ -28,6 +28,7 @@ from config import (  # noqa: E402
     INGESTA_INTERVAL_MIN,
     MARES,
     MAPA,
+    RIESGO_METEO_HORAS,
     ZONA,
 )
 from core import read_dashboard  # noqa: E402
@@ -36,6 +37,7 @@ from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle, icono_alerta
 from sismos import filtrar_perceptibles
+from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
     C_GREEN,
@@ -68,7 +70,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=20">
+        <link rel="stylesheet" href="/assets/sira.css?v=22">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
     </head>
     <body>
@@ -303,6 +305,31 @@ def _data_refresh_token(d: dict) -> str:
         if isinstance(a, dict)
     )
     return f"{d.get('generado_en', '—')}|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}"
+
+
+def _riesgo_meteo_card(riesgo: dict) -> html.Div:
+    elementos = riesgo.get("elementos") or []
+    nivel_peligro = "amarillo"
+    for e in elementos:
+        n = str(e.get("nivel_peligro") or "").lower()
+        if n == "rojo":
+            nivel_peligro = "rojo"
+            break
+        if n == "naranja":
+            nivel_peligro = "naranja"
+    accent = {"rojo": "#ef4444", "naranja": C_ORANGE, "amarillo": "#eab308"}.get(
+        nivel_peligro,
+        COLORES.get(riesgo.get("nivel_global", riesgo.get("nivel", "MÍNIMO")), C_ORANGE),
+    )
+    h = riesgo.get("horas", RIESGO_METEO_HORAS)
+    return card(
+        "Riesgo meteorológico adverso",
+        riesgo_meteo_panel(riesgo),
+        riesgo.get("texto") or "",
+        f"Probabilidad según AEMET Meteoalerta y predicción horaria ({h} h). "
+        "El índice combinado es orientativo.",
+        accent=accent,
+    )
 
 
 def _alerta_meteo_fila(alerta: dict) -> html.Div:
@@ -749,6 +776,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
             accent=C_CYAN,
         ),
     ]
+    riesgo_meteo = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
+    cards.append(_riesgo_meteo_card(riesgo_meteo))
     if alertas_meteo:
         cards.append(_alerta_meteo_card(alertas_meteo))
     ts = d.get("generado_en", "—")

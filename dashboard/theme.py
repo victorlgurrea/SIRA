@@ -16,6 +16,7 @@ COLORES = {
     "BAJO": "#F1C40F",
     "MODERADO": "#E67E22",
     "ALTO": "#E74C3C",
+    "MUY ALTO": "#ef4444",
     "CRÍTICO": "#8B0000",
 }
 
