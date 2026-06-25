@@ -314,9 +314,9 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
             marker=dict(
                 size=df_prueba["magnitud"] * 2 + 8,
-                color="#a855f7",
-                symbol="diamond",
-                line=dict(width=2.5, color="#fbbf24"),
+                color="rgba(239, 68, 68, 0.9)",
+                symbol="circle",
+                line=dict(width=2, color="#f87171"),
             ),
             text=df_prueba["lugar"],
             customdata=list(zip(df_prueba["magnitud"], df_prueba["score_local"], reg_col, fechas, dist_loc)),
