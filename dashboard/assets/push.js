@@ -1,6 +1,7 @@
 (function () {
   let pushActive = false;
   let pushBound = false;
+  let lastAutoRefreshAt = 0;
 
   const API_TIMEOUT_MS = 90000;
   const SUBSCRIBE_TIMEOUT_MS = 45000;
@@ -77,6 +78,17 @@
     };
   }
 
+  function autoRefreshFromPush() {
+    const now = Date.now();
+    // Evita bucles/reloads consecutivos al recibir varios pushes.
+    if (now - lastAutoRefreshAt < 30000) return;
+    lastAutoRefreshAt = now;
+    setStatus("Nuevo aviso recibido. Actualizando panel…", true);
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 700);
+  }
+
   async function ensureServiceWorker() {
     const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(
@@ -145,6 +157,14 @@
       button.disabled = true;
       setStatus("Push no soportado en este navegador", false);
       return true;
+    }
+
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener("message", function (event) {
+        const data = event && event.data;
+        if (!data || data.type !== "SIRA_PUSH_RECEIVED") return;
+        autoRefreshFromPush();
+      });
     }
 
     async function registerOrUpdatePush(skipPermission) {

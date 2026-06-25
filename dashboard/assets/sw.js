@@ -14,7 +14,19 @@ self.addEventListener("push", (event) => {
     data: { url: data.url || "/" },
     renotify: Boolean(data.renotify),
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, options);
+      const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of allClients) {
+        client.postMessage({
+          type: "SIRA_PUSH_RECEIVED",
+          at: Date.now(),
+          tag: options.tag || "sira-alerta",
+        });
+      }
+    })()
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

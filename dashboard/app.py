@@ -252,18 +252,42 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
     return [a for a in all_alerts if provincia in _norm_txt(a.get("area_desc"))]
 
 
-def _alerta_meteo_card(alerta: dict) -> html.Div:
-    icon = alerta.get("icon") or "⚠️"
-    level = (alerta.get("level") or "amarillo").upper()
-    fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
-    area = alerta.get("area_desc") or "Zona no definida"
-    detalle = alerta.get("parametro") or alerta.get("description") or "Sin detalle"
+def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
+    if not alertas:
+        return card("Avisos meteorológicos", "Sin avisos", "", "", accent=C_ORANGE)
+    prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
+    ordenadas = sorted(
+        alertas,
+        key=lambda a: (
+            -prioridad.get(str(a.get("level", "")).lower(), 0),
+            str(a.get("fenomeno", "")),
+        ),
+    )
+    top = ordenadas[0]
+    level_top = (top.get("level") or "amarillo").upper()
+    items = []
+    for a in ordenadas:
+        icon = a.get("icon") or "⚠️"
+        level = (a.get("level") or "amarillo").upper()
+        fenomeno = a.get("fenomeno_desc") or "Fenómeno meteorológico"
+        area = a.get("area_desc") or "Zona no definida"
+        detalle = a.get("parametro") or a.get("description") or "Sin detalle"
+        items.append(
+            html.Div(
+                className="sira-alerta-item",
+                children=[
+                    html.Div([html.Span(icon, className="sira-meteo-icon"), html.Span(f"{level} · {fenomeno}")], className="sira-alerta-head"),
+                    html.Div(area, className="sira-alerta-area"),
+                    html.Div(detalle, className="sira-card-help"),
+                ],
+            )
+        )
     return card(
-        "Aviso meteorológico",
-        html.Div([html.Span(icon, style={"marginRight": "8px"}), html.Span(f"{level} · {fenomeno}")]),
-        html.Div([html.Div(area), html.Div(detalle, className="sira-card-help")]),
-        "Aviso Meteoalerta activo para tu zona.",
-        accent="#ef4444" if level in ("ROJO", "NARANJA") else C_ORANGE,
+        "Avisos meteorológicos",
+        f"{len(ordenadas)} aviso(s) activo(s)",
+        html.Div(items, className="sira-alertas-scroll"),
+        "Avisos Meteoalerta activos para tu zona.",
+        accent="#ef4444" if level_top in ("ROJO", "NARANJA") else C_ORANGE,
     )
 
 
@@ -653,9 +677,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
         ),
     ]
     if alertas_meteo:
-        prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
-        top = max(alertas_meteo, key=lambda a: prioridad.get(str(a.get("level", "")).lower(), 0))
-        cards.append(_alerta_meteo_card(top))
+        cards.append(_alerta_meteo_card(alertas_meteo))
     ts = d.get("generado_en", "—")
     try:
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")
