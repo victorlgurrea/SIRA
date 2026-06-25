@@ -25,6 +25,7 @@ from config import (
 from core import read_dashboard
 from ingesta import ejecutar_ingesta
 from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_push, vapid_enabled, vapid_public_key
+from push_web import debug_aemet_matches, debug_push_state
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,12 @@ class TestPushIn(BaseModel):
     overlay_minutos: int = 30
 
 
+class DebugAemetIn(BaseModel):
+    provincia_id: str | None = None
+    municipio_id: str | None = None
+    localidad_id: str | None = None
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -92,6 +99,13 @@ def _valid_push_test_auth(api_key: str | None, cron_secret: str | None) -> bool:
     if CRON_SECRET and cron_secret and secrets.compare_digest(cron_secret, CRON_SECRET):
         return True
     return False
+
+
+def _require_debug_auth(api_key: str | None, cron_secret: str | None) -> None:
+    if not API_KEY and not CRON_SECRET:
+        raise HTTPException(503, "API_KEY o CRON_SECRET no configurado en el servidor")
+    if not _valid_push_test_auth(api_key, cron_secret):
+        raise HTTPException(401, "No autorizado (X-API-Key o X-Cron-Secret inválido)")
 
 
 @app.get("/api/dashboard")
@@ -184,6 +198,33 @@ def push_test(
     if not result.get("ok"):
         raise HTTPException(404 if result.get("error") == "No hay suscripciones activas" else 503, result.get("error", "Envío fallido"))
     return result
+
+
+@app.get("/api/debug/push")
+def debug_push(
+    x_api_key: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
+):
+    _require_debug_auth(x_api_key, x_cron_secret)
+    return debug_push_state()
+
+
+@app.post("/api/debug/aemet")
+def debug_aemet(
+    payload: DebugAemetIn,
+    x_api_key: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
+):
+    _require_debug_auth(x_api_key, x_cron_secret)
+    try:
+        return debug_aemet_matches(
+            provincia_id=payload.provincia_id,
+            municipio_id=payload.municipio_id,
+            localidad_id=payload.localidad_id,
+        )
+    except Exception as exc:
+        log.exception("debug/aemet falló")
+        raise HTTPException(500, f"Error interno al leer avisos AEMET: {exc}") from exc
 
 
 if __name__ == "__main__":

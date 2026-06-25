@@ -201,6 +201,45 @@ def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
     }
 
 
+def debug_push_state() -> dict:
+    return {
+        "suscripciones": list_subscriptions(),
+        "estado_push": _state(),
+        "vapid_ok": vapid_enabled(),
+    }
+
+
+def debug_aemet_matches(*, provincia_id: str | None = None, municipio_id: str | None = None, localidad_id: str | None = None) -> dict:
+    subs = [
+        {
+            "endpoint": "debug",
+            "keys": {},
+            "provincia_id": provincia_id,
+            "municipio_id": municipio_id,
+            "localidad_id": localidad_id,
+            "alertas": ["meteo"],
+        }
+    ]
+    avisos = fetch_active_alerts(AEMET_API_KEY) if AEMET_API_KEY else []
+    evaluados = []
+    for alerta in avisos:
+        evaluados.append(
+            {
+                **alerta,
+                "match_debug": _aemet_match_subscription(alerta, subs[0]),
+            }
+        )
+    return {
+        "aemet_api_configurada": bool(AEMET_API_KEY),
+        "filtros": {
+            "provincia_id": provincia_id,
+            "municipio_id": municipio_id,
+            "localidad_id": localidad_id,
+        },
+        "avisos_activos": evaluados,
+    }
+
+
 def send_push(subscription: dict, payload: dict) -> bool:
     if not vapid_enabled():
         return False
