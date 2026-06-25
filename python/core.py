@@ -90,12 +90,19 @@ def read_dashboard() -> dict:
     if not data:
         return data
     from test_overlay import read_test_overlay
+    from test_meteo_alerts import read_active_test_alerts
 
     overlay = read_test_overlay()
-    if not overlay:
-        return data
-    sismos = [s for s in data.get("sismos", []) if s.get("id") != overlay.get("id")]
-    return {**data, "sismos": [overlay, *sismos], "sismo_prueba_activo": True}
+    out = dict(data)
+    if overlay:
+        sismos = [s for s in data.get("sismos", []) if s.get("id") != overlay.get("id")]
+        out["sismos"] = [overlay, *sismos]
+        out["sismo_prueba_activo"] = True
+
+    meteo_tests = read_active_test_alerts()
+    if meteo_tests:
+        out["meteo_alertas_test"] = meteo_tests
+    return out
 
 
 def write_dashboard(payload: dict) -> Path:

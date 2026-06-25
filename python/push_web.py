@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import unicodedata
 from datetime import datetime, timezone
 
 from pywebpush import WebPushException, Vapid, webpush
@@ -81,16 +82,6 @@ def remove_subscription(endpoint: str) -> int:
     return len(subs)
 
 
-def _state_ids() -> list[str]:
-    data = read_json_file(PUSH_STATE_FILE)
-    if isinstance(data.get("ids_push"), list):
-        # Compatibilidad con formato antiguo (solo sismos).
-        return [str(x) for x in data.get("ids_push", [])]
-    ids_sismo = [str(x) for x in data.get("ids_sismo", [])]
-    ids_meteo = [str(x) for x in data.get("ids_meteo", [])]
-    return sorted(set(ids_sismo + ids_meteo))
-
-
 def _state() -> dict:
     data = read_json_file(PUSH_STATE_FILE)
     ids_sismo = [str(x) for x in data.get("ids_sismo", data.get("ids_push", []))]
@@ -99,10 +90,6 @@ def _state() -> dict:
         "ids_sismo": sorted(set(ids_sismo)),
         "ids_meteo": sorted(set(ids_meteo)),
     }
-
-
-def _save_state_ids(ids: list[str]) -> None:
-    _write_json(PUSH_STATE_FILE, {"ids_push": ids, "updated": datetime.now(timezone.utc).isoformat()})
 
 
 def _save_state(state: dict) -> None:
@@ -114,6 +101,13 @@ def _save_state(state: dict) -> None:
             "updated": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+def _norm_text(value: str | None) -> str:
+    if not value:
+        return ""
+    txt = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return " ".join(txt.strip().lower().split())
 
 
 def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
@@ -165,7 +159,7 @@ def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
 def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
     if not _sub_prefers_meteo(sub):
         return False
-    area = str(alerta.get("area_desc") or "").lower()
+    area = _norm_text(alerta.get("area_desc"))
     if not area:
         return False
     provincia_id = sub.get("provincia_id")
@@ -173,12 +167,12 @@ def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
         from geo_es import provincias
 
         pname = next((p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)), "")
-        if pname and str(pname).lower() in area:
+        if pname and _norm_text(pname) in area:
             return True
     municipio_id = sub.get("municipio_id")
     if municipio_id:
         prov_name = provincia_nombre_de_municipio(str(municipio_id))
-        if prov_name and prov_name.lower() in area:
+        if prov_name and _norm_text(prov_name) in area:
             return True
     # Sin zona concreta en la suscripción: aplica para todo.
     return not (provincia_id or municipio_id)
@@ -198,6 +192,35 @@ def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
         "url": dashboard_url,
         "tag": f"sira-aemet-{alerta.get('id')}",
         "renotify": False,
+    }
+
+
+def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id: str | None = None) -> dict:
+    """Envía un aviso meteo de prueba con el mismo matcher que AEMET."""
+    subs = list_subscriptions()
+    if only_municipio_id:
+        subs = [s for s in subs if str(s.get("municipio_id") or "") == str(only_municipio_id)]
+    if not subs:
+        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
+
+    payload = _build_aemet_payload(alerta, dashboard_url)
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    for sub in subs:
+        if not _aemet_match_subscription(alerta, sub):
+            continue
+        ok = send_push(sub, payload)
+        if ok:
+            sent += 1
+        else:
+            invalid_endpoints.add(sub.get("endpoint", ""))
+    if invalid_endpoints:
+        save_subscriptions([s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints])
+    return {
+        "ok": sent > 0,
+        "enviados": sent,
+        "suscripciones": len(subs),
+        "payload": payload,
     }
 
 
@@ -265,18 +288,15 @@ def notify_new_alerts(dashboard_url: str) -> int:
         return 0
     data = read_dashboard()
     todos = data.get("sismos", [])
-    if not todos:
-        _save_state_ids([])
-        return 0
 
     state = _state()
     prev_sismo = set(state["ids_sismo"])
-    if not prev_sismo:
+    if todos and not prev_sismo:
         state["ids_sismo"] = sorted({str(s["id"]) for s in todos if s.get("id")})
         _save_state(state)
         return 0
 
-    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo]
+    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo] if todos else []
 
     subs = list_subscriptions()
     sent = 0

@@ -32,6 +32,21 @@ PHENO_LABEL = {
     "RI": "rissaga",
     "AL": "aludes",
 }
+PHENO_ICON = {
+    "AT": "🌡️",
+    "BT": "🥶",
+    "VI": "💨",
+    "TO": "⛈️",
+    "PR": "🌧️",
+    "CO": "🌊",
+    "NE": "❄️",
+    "VS": "🌫️",
+    "NI": "🌁",
+    "DH": "💧",
+    "GA": "🌬️",
+    "RI": "🌊",
+    "AL": "🏔️",
+}
 
 
 def _norm(s: str) -> str:
@@ -164,6 +179,7 @@ def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
                     "onset": onset,
                     "expires": expires,
                     **aemet,
+                    "icon": PHENO_ICON.get(aemet["fenomeno"], "⚠️"),
                 }
             )
     return out

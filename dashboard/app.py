@@ -15,6 +15,7 @@ from dash.exceptions import PreventUpdate
 
 from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones
 from config import (  # noqa: E402
+    AEMET_API_KEY,
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
@@ -33,6 +34,7 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
+from aemet_alerts import fetch_active_alerts
 from sismos import filtrar_perceptibles
 from theme import (
     C_CYAN,
@@ -229,6 +231,40 @@ def _bloque_oce(oce: dict, clave: str) -> dict:
     if clave == "MEDITERRÁNEO" and oce.get("serie_horaria") is not None:
         return oce
     return {"serie_horaria": [], "resumen": {}}
+
+
+def _norm_txt(v: str | None) -> str:
+    return " ".join((v or "").strip().lower().split())
+
+
+def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
+    provincia = _norm_txt(geo.get("provincia"))
+    local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
+    live: list[dict] = []
+    if AEMET_API_KEY:
+        try:
+            live = fetch_active_alerts(AEMET_API_KEY)
+        except Exception:
+            live = []
+    all_alerts = [*local, *live]
+    if not provincia:
+        return all_alerts
+    return [a for a in all_alerts if provincia in _norm_txt(a.get("area_desc"))]
+
+
+def _alerta_meteo_card(alerta: dict) -> html.Div:
+    icon = alerta.get("icon") or "⚠️"
+    level = (alerta.get("level") or "amarillo").upper()
+    fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
+    area = alerta.get("area_desc") or "Zona no definida"
+    detalle = alerta.get("parametro") or alerta.get("description") or "Sin detalle"
+    return card(
+        "Aviso meteorológico",
+        html.Div([html.Span(icon, style={"marginRight": "8px"}), html.Span(f"{level} · {fenomeno}")]),
+        html.Div([html.Div(area), html.Div(detalle, className="sira-card-help")]),
+        "Aviso Meteoalerta activo para tu zona.",
+        accent="#ef4444" if level in ("ROJO", "NARANJA") else C_ORANGE,
+    )
 
 
 def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None = None, obs_nombre: str = "") -> go.Figure:
@@ -578,6 +614,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
     sismos = filtrar_perceptibles(sismos_all, lat_obs, lon_obs)
     oce = d.get("oceanografia", {})
     met = meteo_localidad(muni_id, localidad)
+    alertas_meteo = _alertas_meteo_locales(geo, d)
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
@@ -615,6 +652,10 @@ def refresh(n_intervals, clicks, geo, last_ts):
             accent=C_CYAN,
         ),
     ]
+    if alertas_meteo:
+        prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
+        top = max(alertas_meteo, key=lambda a: prioridad.get(str(a.get("level", "")).lower(), 0))
+        cards.append(_alerta_meteo_card(top))
     ts = d.get("generado_en", "—")
     try:
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")

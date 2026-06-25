@@ -15,6 +15,7 @@ ALERTAS_STATE_FILE = DATA_DIR / "alertas_estado.json"
 PUSH_SUBSCRIPTIONS_FILE = DATA_DIR / "push_subscriptions.json"
 PUSH_STATE_FILE = DATA_DIR / "push_estado.json"
 TEST_SISMO_OVERLAY_FILE = DATA_DIR / "test_sismo_overlay.json"
+TEST_METEO_ALERTS_FILE = DATA_DIR / "test_meteo_alerts.json"
 
 
 def _f(key: str, default: str) -> float:

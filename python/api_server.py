@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from config import (
+    AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
     API_HOST,
     API_KEY,
@@ -23,9 +24,11 @@ from config import (
     RATE_LIMIT_SEC,
 )
 from core import read_dashboard
+from geo_es import municipio_por_id, provincia_de_municipio
 from ingesta import ejecutar_ingesta
-from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_push, vapid_enabled, vapid_public_key
+from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
 from push_web import debug_aemet_matches, debug_push_state
+from test_meteo_alerts import save_test_alert
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +78,17 @@ class DebugAemetIn(BaseModel):
     localidad_id: str | None = None
 
 
+class TestMeteoIn(BaseModel):
+    tipo: str = "AT"  # AT temperatura, VI viento, CO costero, PR lluvia...
+    nivel: str = "naranja"  # amarillo|naranja|rojo
+    parametro: str | None = None
+    descripcion: str | None = None
+    area_desc: str | None = None
+    ttl_minutos: int = 30
+    enviar_push: bool = True
+    solo_municipio_id: str | None = None
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -106,6 +120,14 @@ def _require_debug_auth(api_key: str | None, cron_secret: str | None) -> None:
         raise HTTPException(503, "API_KEY o CRON_SECRET no configurado en el servidor")
     if not _valid_push_test_auth(api_key, cron_secret):
         raise HTTPException(401, "No autorizado (X-API-Key o X-Cron-Secret inválido)")
+
+
+def _meteo_test_defaults(municipio_id: str | None) -> tuple[str, str]:
+    muni_id = str(municipio_id or AEMET_MUNICIPIO).zfill(5)
+    muni = municipio_por_id(muni_id)
+    prov = provincia_de_municipio(muni_id) or "46"
+    area = f"{muni.get('nombre') if muni else 'Valencia'} ({prov})"
+    return muni_id, area
 
 
 @app.get("/api/dashboard")
@@ -225,6 +247,49 @@ def debug_aemet(
     except Exception as exc:
         log.exception("debug/aemet falló")
         raise HTTPException(500, f"Error interno al leer avisos AEMET: {exc}") from exc
+
+
+@app.post("/api/meteo/test")
+def meteo_test(
+    payload: TestMeteoIn,
+    x_api_key: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
+):
+    _require_debug_auth(x_api_key, x_cron_secret)
+    muni_id, area_default = _meteo_test_defaults(payload.solo_municipio_id)
+    tipo = (payload.tipo or "AT").strip().upper()
+    nivel = (payload.nivel or "naranja").strip().lower()
+    names = {
+        "AT": ("Temperatura máxima", "TA;Temperatura máxima;39 ºC"),
+        "VI": ("Viento", "RM;Racha máxima;90 km/h"),
+        "CO": ("Fenómeno costero", "CO;Oleaje;4 m"),
+        "PR": ("Lluvia", "P1;Precipitación 1h;30 mm"),
+        "TO": ("Tormenta", "TO;Tormenta;muy fuerte"),
+    }
+    desc, param_default = names.get(tipo, ("Fenómeno meteorológico", f"{tipo};Fenómeno;—"))
+    alert = {
+        "id": f"aemet-test-{tipo}-{int(time.time())}",
+        "source": "AEMET",
+        "level": nivel,
+        "severity": {"amarillo": "moderate", "naranja": "severe", "rojo": "extreme"}.get(nivel, "severe"),
+        "urgency": "expected",
+        "certainty": "likely",
+        "headline": f"Aviso de {desc} ({nivel})",
+        "description": payload.descripcion or f"Prueba de aviso {desc} para validar widget y push.",
+        "area_desc": payload.area_desc or area_default,
+        "fenomeno": tipo,
+        "fenomeno_desc": desc,
+        "parametro": payload.parametro or param_default,
+        "probabilidad": "40%-70%",
+        "zona": f"test-{muni_id}",
+        "icon": {"AT": "🌡️", "VI": "💨", "CO": "🌊", "PR": "🌧️", "TO": "⛈️"}.get(tipo, "⚠️"),
+    }
+    saved = save_test_alert(alert, ttl_min=payload.ttl_minutos)
+    out = {"ok": True, "alerta": saved}
+    if payload.enviar_push and vapid_enabled():
+        dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
+        out["push"] = send_test_meteo_push(dashboard_url, saved, only_municipio_id=payload.solo_municipio_id)
+    return out
 
 
 if __name__ == "__main__":
