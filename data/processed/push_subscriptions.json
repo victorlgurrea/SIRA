@@ -10,7 +10,8 @@
       "municipio_id": "",
       "localidad_id": "",
       "alertas": [
-        "sismo"
+        "sismo",
+        "meteo"
       ]
     }
   ]

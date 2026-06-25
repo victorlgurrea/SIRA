@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from config import SISMO_PERCEPCION, ZONA
+from config import SISMO_PERCEPCION
 
 
 def distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -59,11 +59,9 @@ def enriquecer_local(sismo: dict, lat: float, lon: float) -> dict:
 
 
 def alerta_local(sismo: dict, lat: float, lon: float) -> dict | None:
-    """Perceptible desde el punto y score local ≥ umbral; None si no aplica."""
+    """Perceptible desde el punto de observación; None si no aplica."""
     info = enriquecer_local(sismo, lat, lon)
     if not info["perceptible_local"]:
-        return None
-    if info["score_local"] < ZONA["umbral_score_alerta"]:
         return None
     return info
 

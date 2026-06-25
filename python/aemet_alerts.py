@@ -67,6 +67,16 @@ def _nombre_tokens(nombre: str | None) -> list[str]:
     return [t for p in str(nombre).split("/") if (t := _norm_area(p.strip()))]
 
 
+def _misma_provincia(municipio_a: str | None, municipio_b: str | None) -> bool:
+    if not municipio_a or not municipio_b:
+        return False
+    from geo_es import provincia_de_municipio
+
+    pa = provincia_de_municipio(str(municipio_a).zfill(5))
+    pb = provincia_de_municipio(str(municipio_b).zfill(5))
+    return bool(pa and pb and pa == pb)
+
+
 def _coincide_por_area(
     area_desc: str | None,
     provincia_id: str | None,
@@ -116,12 +126,18 @@ def alerta_coincide_zona(
     mid = str(municipio_id or "").zfill(5) if municipio_id else ""
     zona = str(alerta.get("zona") or "")
     if alerta.get("is_test") and zona.startswith("test-"):
+        from geo_es import provincia_de_municipio
+
         test_mid = zona[5:].zfill(5)
+        test_pid = provincia_de_municipio(test_mid)
         if mid and mid == test_mid:
             return True
-        if not mid:
-            return _coincide_por_area(alerta.get("area_desc"), provincia_id, provincia, municipio, test_mid)
-        return False
+        if mid and _misma_provincia(mid, test_mid):
+            return True
+        sub_pid = str(provincia_id).zfill(2) if provincia_id else (provincia_de_municipio(mid) if mid else None)
+        if test_pid and sub_pid and test_pid == sub_pid:
+            return True
+        return _coincide_por_area(alerta.get("area_desc"), provincia_id, provincia, municipio, mid or None)
 
     if not _norm_area(alerta.get("area_desc")):
         return not (provincia_id or municipio_id or provincia or municipio)
