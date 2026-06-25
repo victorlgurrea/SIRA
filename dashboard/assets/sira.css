@@ -301,14 +301,45 @@ body {
   font-weight: 600;
 }
 
+.sira-card-value:has(.sira-alertas-wrap) {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: normal;
+  overflow: visible;
+}
+
 .sira-alertas-scroll {
-  max-height: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sira-alertas-scroll--multi {
+  max-height: 6.5rem;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-right: 0.35rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.sira-alertas-scroll--multi::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sira-alertas-scroll--multi::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.35);
+  border-radius: 999px;
+}
+
+.sira-alertas-scroll--multi::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .sira-alertas-wrap {
-  min-height: 64px;
+  width: 100%;
+  min-height: 0;
 }
 
 .sira-alertas-badge {

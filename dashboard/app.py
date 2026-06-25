@@ -274,6 +274,28 @@ def _fmt_alerta_detalle(alerta: dict) -> str:
     return (alerta.get("description") or "Sin detalle").strip()
 
 
+def _alerta_meteo_fila(alerta: dict) -> html.Div:
+    icon = alerta.get("icon") or "⚠️"
+    level = (alerta.get("level") or "amarillo").upper()
+    fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
+    area = alerta.get("area_desc") or "Zona no definida"
+    detalle = _fmt_alerta_detalle(alerta)
+    return html.Div(
+        className="sira-meteo-ahora",
+        children=[
+            html.Span(icon, className="sira-meteo-icon"),
+            html.Div(
+                className="sira-meteo-body",
+                children=[
+                    html.Div(f"{level} · {fenomeno}", className="sira-meteo-estado"),
+                    html.Div(area, className="sira-meteo-viento"),
+                    html.Div(detalle, className="sira-card-help"),
+                ],
+            ),
+        ],
+    )
+
+
 def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
     if not alertas:
         return card("Avisos meteorológicos", "Sin avisos", "", "", accent=C_ORANGE)
@@ -285,55 +307,20 @@ def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
             str(a.get("fenomeno", "")),
         ),
     )
-    top = ordenadas[0]
-    level_top = (top.get("level") or "amarillo").upper()
-    items = []
-    for a in ordenadas[1:]:
-        icon = a.get("icon") or "⚠️"
-        level = (a.get("level") or "amarillo").upper()
-        fenomeno = a.get("fenomeno_desc") or "Fenómeno meteorológico"
-        area = a.get("area_desc") or "Zona no definida"
-        detalle = _fmt_alerta_detalle(a)
-        items.append(
-            html.Div(
-                className="sira-alerta-item",
-                children=[
-                    html.Div([html.Span(icon, className="sira-meteo-icon"), html.Span(f"{level} · {fenomeno}")], className="sira-alerta-head"),
-                    html.Div(area, className="sira-alerta-area"),
-                    html.Div(detalle, className="sira-card-help"),
-                ],
-            )
-        )
-    top_icon = top.get("icon") or "⚠️"
-    top_level = (top.get("level") or "amarillo").upper()
-    top_fenomeno = top.get("fenomeno_desc") or "Fenómeno meteorológico"
-    top_area = top.get("area_desc") or "Zona no definida"
-    top_detalle = _fmt_alerta_detalle(top)
-    encabezado = html.Div(
-        className="sira-meteo-ahora",
-        children=[
-            html.Span(top_icon, className="sira-meteo-icon"),
-            html.Div(
-                className="sira-meteo-body",
-                children=[
-                    html.Div(f"{top_level} · {top_fenomeno}", className="sira-meteo-estado"),
-                    html.Div(top_area, className="sira-meteo-viento"),
-                    html.Div(top_detalle, className="sira-card-help"),
-                ],
-            ),
-        ],
-    )
+    level_top = (ordenadas[0].get("level") or "amarillo").upper()
+    filas = [_alerta_meteo_fila(a) for a in ordenadas]
+    scroll_cls = "sira-alertas-scroll sira-alertas-scroll--multi" if len(ordenadas) > 1 else "sira-alertas-scroll"
     valor = html.Div(
         className="sira-alertas-wrap",
         children=[
-            encabezado,
+            html.Div(filas, className=scroll_cls),
             html.Span(str(len(ordenadas)), className="sira-alertas-badge"),
         ],
     )
     return card(
         "Avisos meteorológicos",
         valor,
-        html.Div(items, className="sira-alertas-scroll"),
+        "",
         "Avisos Meteoalerta activos para tu zona.",
         accent="#ef4444" if level_top in ("ROJO", "NARANJA") else C_ORANGE,
     )
