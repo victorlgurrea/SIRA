@@ -283,15 +283,18 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         hoy_df = df[df["timestamp"].map(_es_sismo_hoy)]
 
     if not hoy_df.empty:
-        halo = hoy_df["magnitud"] * 2 + 5
+        halo = (hoy_df["magnitud"] * 2 + 5).tolist()
+        radios = hoy_df["radio_perceptible_km"] if "radio_perceptible_km" in hoy_df.columns else [120.0] * len(hoy_df)
+        max_sizes = [min(base + max(10.0, float(r) * 0.12), 170.0) for base, r in zip(halo, radios)]
         fig.add_trace(go.Scattergeo(
             lat=hoy_df["lat"], lon=hoy_df["lon"], mode="markers", name="Hoy",
             marker=dict(
-                size=[s * hoy_scale * 2.4 for s in halo],
+                size=halo,
                 color="rgba(248, 113, 113, 0.35)",
                 line=dict(width=1.5, color="#f87171"),
             ),
             hoverinfo="skip", legendgroup="hoy",
+            meta={"pulse": True, "base_sizes": halo, "max_sizes": max_sizes, "period_ms": 1600},
         ))
 
     if not df_prueba.empty:
@@ -306,26 +309,23 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
         if not df_prueba_hoy.empty:
             # Pulso visual reforzado para eventos de prueba de hoy.
-            halo_prueba = df_prueba_hoy["magnitud"] * 2 + 5
+            halo_prueba = (df_prueba_hoy["magnitud"] * 2 + 5).tolist()
+            radios_prueba = (
+                df_prueba_hoy["radio_perceptible_km"]
+                if "radio_perceptible_km" in df_prueba_hoy.columns
+                else [120.0] * len(df_prueba_hoy)
+            )
+            max_prueba = [min(base + max(10.0, float(r) * 0.12), 185.0) for base, r in zip(halo_prueba, radios_prueba)]
             fig.add_trace(go.Scattergeo(
                 lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
                 marker=dict(
-                    size=[s * hoy_scale * 3.0 for s in halo_prueba],
+                    size=halo_prueba,
                     color="rgba(248, 113, 113, 0.22)",
                     line=dict(width=2, color="rgba(248, 113, 113, 0.75)"),
                 ),
                 hoverinfo="skip", legendgroup="prueba",
                 showlegend=False,
-            ))
-            fig.add_trace(go.Scattergeo(
-                lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
-                marker=dict(
-                    size=[s * hoy_scale * 2.0 for s in halo_prueba],
-                    color="rgba(248, 113, 113, 0.30)",
-                    line=dict(width=1.5, color="rgba(248, 113, 113, 0.85)"),
-                ),
-                hoverinfo="skip", legendgroup="prueba",
-                showlegend=False,
+                meta={"pulse": True, "base_sizes": halo_prueba, "max_sizes": max_prueba, "period_ms": 1400},
             ))
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",

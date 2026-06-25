@@ -47,12 +47,14 @@ def enriquecer_local(sismo: dict, lat: float, lon: float) -> dict:
     prof = float(sismo.get("profundidad") or 0)
     sub = bool(sismo.get("es_submarino"))
     local = score_sismo(mag, prof, d, sub)
+    radio = distancia_perceptible_km(mag, prof)
     return {
         **sismo,
         "dist_local_km": d,
+        "radio_perceptible_km": radio,
         "score_local": local["score_total"],
         "nivel_local": local["nivel_alerta"],
-        "perceptible_local": es_perceptible(mag, prof, d),
+        "perceptible_local": d <= radio,
     }
 
 
