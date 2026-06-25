@@ -169,7 +169,7 @@
         provincia_id: geo.provincia_id,
         municipio_id: geo.municipio_id,
         localidad_id: geo.localidad_id,
-        alertas: ["sismo"],
+        alertas: ["sismo", "meteo"],
       });
 
       setStatus("Guardando suscripción…", false);

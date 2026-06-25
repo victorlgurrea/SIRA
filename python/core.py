@@ -43,6 +43,18 @@ def fetch_aemet(path: str, api_key: str) -> dict | list:
     return _get_json(datos)
 
 
+def fetch_aemet_bytes(path: str, api_key: str, *, timeout: int | None = None) -> bytes:
+    """Devuelve el contenido binario del recurso AEMET (ej. CAP tar.gz)."""
+    meta = _get_json(f"{AEMET_BASE}/{path.lstrip('/')}", headers={"api_key": api_key})
+    datos = meta.get("datos") if isinstance(meta, dict) else None
+    if not datos:
+        raise ValueError("AEMET sin URL de datos")
+    _check_url(datos)
+    r = requests.get(datos, timeout=timeout or HTTP_TIMEOUT, allow_redirects=False)
+    r.raise_for_status()
+    return r.content
+
+
 def post_json(url: str, body: dict) -> dict:
     _check_url(url)
     r = requests.post(url, json=body, timeout=HTTP_TIMEOUT, allow_redirects=False)

@@ -8,14 +8,16 @@ from datetime import datetime, timezone
 from pywebpush import WebPushException, Vapid, webpush
 
 from config import (
+    AEMET_API_KEY,
     PUSH_STATE_FILE,
     PUSH_SUBSCRIPTIONS_FILE,
     VAPID_PRIVATE_KEY,
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
 )
+from aemet_alerts import fetch_active_alerts
 from core import read_dashboard, read_json_file
-from geo_es import coords_observacion
+from geo_es import coords_observacion, provincia_nombre_de_municipio
 from sismos import alerta_local
 from test_overlay import build_test_sismo, save_test_overlay
 
@@ -80,11 +82,38 @@ def remove_subscription(endpoint: str) -> int:
 
 
 def _state_ids() -> list[str]:
-    return read_json_file(PUSH_STATE_FILE).get("ids_push", [])
+    data = read_json_file(PUSH_STATE_FILE)
+    if isinstance(data.get("ids_push"), list):
+        # Compatibilidad con formato antiguo (solo sismos).
+        return [str(x) for x in data.get("ids_push", [])]
+    ids_sismo = [str(x) for x in data.get("ids_sismo", [])]
+    ids_meteo = [str(x) for x in data.get("ids_meteo", [])]
+    return sorted(set(ids_sismo + ids_meteo))
+
+
+def _state() -> dict:
+    data = read_json_file(PUSH_STATE_FILE)
+    ids_sismo = [str(x) for x in data.get("ids_sismo", data.get("ids_push", []))]
+    ids_meteo = [str(x) for x in data.get("ids_meteo", [])]
+    return {
+        "ids_sismo": sorted(set(ids_sismo)),
+        "ids_meteo": sorted(set(ids_meteo)),
+    }
 
 
 def _save_state_ids(ids: list[str]) -> None:
     _write_json(PUSH_STATE_FILE, {"ids_push": ids, "updated": datetime.now(timezone.utc).isoformat()})
+
+
+def _save_state(state: dict) -> None:
+    _write_json(
+        PUSH_STATE_FILE,
+        {
+            "ids_sismo": sorted({str(x) for x in state.get("ids_sismo", [])}),
+            "ids_meteo": sorted({str(x) for x in state.get("ids_meteo", [])}),
+            "updated": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
@@ -111,6 +140,14 @@ def _sub_prefers_sismo(sub: dict) -> bool:
     return "sismo" in vals or "all" in vals or "todas" in vals
 
 
+def _sub_prefers_meteo(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("meteo", "aemet", "all", "todas"))
+
+
 def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
     """Alerta si el sismo es perceptible y crítico desde la zona de la suscripción."""
     if not _sub_prefers_sismo(sub):
@@ -123,6 +160,45 @@ def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
         return {**info, "zona": zona}
     except (TypeError, ValueError, KeyError):
         return None
+
+
+def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
+    if not _sub_prefers_meteo(sub):
+        return False
+    area = str(alerta.get("area_desc") or "").lower()
+    if not area:
+        return False
+    provincia_id = sub.get("provincia_id")
+    if provincia_id:
+        from geo_es import provincias
+
+        pname = next((p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)), "")
+        if pname and str(pname).lower() in area:
+            return True
+    municipio_id = sub.get("municipio_id")
+    if municipio_id:
+        prov_name = provincia_nombre_de_municipio(str(municipio_id))
+        if prov_name and prov_name.lower() in area:
+            return True
+    # Sin zona concreta en la suscripción: aplica para todo.
+    return not (provincia_id or municipio_id)
+
+
+def _build_aemet_payload(alerta: dict, dashboard_url: str) -> dict:
+    level = str(alerta.get("level", "amarillo")).lower()
+    nivel = {"amarillo": "MODERADO", "naranja": "ALTO", "rojo": "CRÍTICO"}.get(level, level.upper())
+    fenomeno = alerta.get("fenomeno_desc") or "fenómeno meteorológico"
+    parametro = alerta.get("parametro") or ""
+    zona = alerta.get("area_desc") or "tu zona"
+    return {
+        "title": f"SIRA · Meteo {nivel}",
+        "body": f"AEMET {level.upper()} · {fenomeno} · {zona}" + (f" · {parametro}" if parametro else ""),
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-aemet-{alerta.get('id')}",
+        "renotify": False,
+    }
 
 
 def send_push(subscription: dict, payload: dict) -> bool:
@@ -154,19 +230,19 @@ def notify_new_alerts(dashboard_url: str) -> int:
         _save_state_ids([])
         return 0
 
-    prev = set(_state_ids())
-    if not prev:
-        _save_state_ids(sorted({str(s["id"]) for s in todos if s.get("id")}))
+    state = _state()
+    prev_sismo = set(state["ids_sismo"])
+    if not prev_sismo:
+        state["ids_sismo"] = sorted({str(s["id"]) for s in todos if s.get("id")})
+        _save_state(state)
         return 0
 
-    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev]
-    if not nuevos:
-        return 0
+    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo]
 
     subs = list_subscriptions()
     sent = 0
     invalid_endpoints: set[str] = set()
-    procesados: set[str] = set()
+    procesados_sismo: set[str] = set()
 
     for s in nuevos:
         sid = str(s["id"])
@@ -180,13 +256,43 @@ def notify_new_alerts(dashboard_url: str) -> int:
                 sent += 1
             else:
                 invalid_endpoints.add(sub.get("endpoint", ""))
-        procesados.add(sid)
+        procesados_sismo.add(sid)
+
+    # Avisos meteorológicos AEMET en CAP (opcional según API key)
+    procesados_meteo: set[str] = set()
+    prev_meteo = set(state["ids_meteo"])
+    if AEMET_API_KEY:
+        try:
+            avisos = fetch_active_alerts(AEMET_API_KEY)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("AEMET CAP: %s", exc)
+            avisos = []
+        if avisos and not prev_meteo:
+            state["ids_meteo"] = sorted({str(a.get("id")) for a in avisos if a.get("id")})
+            _save_state(state)
+            return sent
+        nuevos_meteo = [a for a in avisos if str(a.get("id")) not in prev_meteo]
+        for a in nuevos_meteo:
+            aid = str(a.get("id"))
+            if not aid:
+                continue
+            for sub in subs:
+                if not _aemet_match_subscription(a, sub):
+                    continue
+                ok = send_push(sub, _build_aemet_payload(a, dashboard_url))
+                if ok:
+                    sent += 1
+                else:
+                    invalid_endpoints.add(sub.get("endpoint", ""))
+            procesados_meteo.add(aid)
 
     if invalid_endpoints:
         subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
         save_subscriptions(subs)
 
-    _save_state_ids(sorted(prev | procesados))
+    state["ids_sismo"] = sorted(prev_sismo | procesados_sismo)
+    state["ids_meteo"] = sorted(prev_meteo | procesados_meteo)
+    _save_state(state)
     return sent
 
 

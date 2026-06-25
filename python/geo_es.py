@@ -65,6 +65,18 @@ def provincia_de_municipio(municipio_id: str) -> str | None:
     return None
 
 
+def provincia_nombre_de_municipio(municipio_id: str | None) -> str | None:
+    if not municipio_id:
+        return None
+    pid = provincia_de_municipio(str(municipio_id))
+    if not pid:
+        return None
+    for p in provincias():
+        if str(p.get("id")) == str(pid):
+            return p.get("nombre")
+    return None
+
+
 def coords_municipio(municipio_id: str | None) -> tuple[float, float]:
     from config import ZONA
 

@@ -47,7 +47,7 @@ from theme import (
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
-_LOGO_FILE = _ASSETS / "logo-sira.png"
+_LOGO_FILE = _ASSETS / "logo-sira_4.png"
 if not _LOGO_FILE.is_file():
     raise SystemExit(f"Falta el logo: {_LOGO_FILE}")
 
@@ -80,7 +80,7 @@ app.index_string = """
 </html>
 """
 
-_LOGO = app.get_asset_url("logo-sira.png") + "?v=8"
+_LOGO = app.get_asset_url("logo-sira_4.png") + "?v=8"
 
 _DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
 _DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
