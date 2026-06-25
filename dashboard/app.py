@@ -47,7 +47,7 @@ from theme import (
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
-_LOGO_FILE = _ASSETS / "logo_sira_3.png"
+_LOGO_FILE = _ASSETS / "logo-sira.png"
 if not _LOGO_FILE.is_file():
     raise SystemExit(f"Falta el logo: {_LOGO_FILE}")
 
@@ -67,7 +67,7 @@ app.index_string = """
         {%favicon%}
         {%css%}
         <link rel="stylesheet" href="/assets/sira.css?v=20">
-        <link rel="icon" href="/assets/logo_sira_3.png?v=8" type="image/png">
+        <link rel="icon" href="/assets/logo-sira.png?v=8" type="image/png">
     </head>
     <body>
         {%app_entry%}
@@ -80,7 +80,7 @@ app.index_string = """
 </html>
 """
 
-_LOGO = app.get_asset_url("logo_sira_3.png") + "?v=8"
+_LOGO = app.get_asset_url("logo-sira.png") + "?v=8"
 
 _DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
 _DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
@@ -298,6 +298,18 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
         fechas = [_fmt_sismo_fecha(ts) for ts in df_prueba["timestamp"]] if "timestamp" in df_prueba.columns else ["—"] * len(df_prueba)
         dist_loc = df_prueba["dist_local_km"] if "dist_local_km" in df_prueba.columns else [""] * len(df_prueba)
+        # Pulso rojo también para eventos de prueba (paridad visual con "Hoy"/ingesta).
+        halo_prueba = df_prueba["magnitud"] * 2 + 5
+        fig.add_trace(go.Scattergeo(
+            lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Hoy",
+            marker=dict(
+                size=[s * hoy_scale * 2.4 for s in halo_prueba],
+                color="rgba(248, 113, 113, 0.35)",
+                line=dict(width=1.5, color="#f87171"),
+            ),
+            hoverinfo="skip", legendgroup="hoy",
+            showlegend=False,
+        ))
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
             marker=dict(
