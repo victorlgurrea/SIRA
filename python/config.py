@@ -95,10 +95,13 @@ OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.o
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
 AEMET_MUNICIPIO = os.getenv("AEMET_MUNICIPIO", "46250")
-AEMET_PUSH_MIN_LEVEL = os.getenv("AEMET_PUSH_MIN_LEVEL", "naranja").strip().lower()
+AEMET_PUSH_MIN_LEVEL = os.getenv("AEMET_PUSH_MIN_LEVEL", "amarillo").strip().lower()
 AEMET_ALERT_PHENOMENA = tuple(
     p.strip().upper()
-    for p in os.getenv("AEMET_ALERT_PHENOMENA", "AT,VI,TO,PR,CO").split(",")
+    for p in os.getenv(
+        "AEMET_ALERT_PHENOMENA",
+        "AT,BT,VI,TO,PR,CO,NE,VS,NI,DH,GA,RI,AL",
+    ).split(",")
     if p.strip()
 )
 
