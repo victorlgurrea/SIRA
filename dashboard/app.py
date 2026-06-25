@@ -34,7 +34,7 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle
+from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle, icono_alerta
 from sismos import filtrar_perceptibles
 from theme import (
     C_CYAN,
@@ -306,7 +306,7 @@ def _data_refresh_token(d: dict) -> str:
 
 
 def _alerta_meteo_fila(alerta: dict) -> html.Div:
-    icon = alerta.get("icon") or "⚠️"
+    icon = icono_alerta(alerta)
     level = (alerta.get("level") or "amarillo").upper()
     fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
     area = alerta.get("area_desc") or "Zona no definida"

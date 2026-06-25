@@ -1,6 +1,7 @@
 """Avisos AEMET Meteoalerta (CAP) para notificaciones locales."""
 from __future__ import annotations
 
+import re
 import tarfile
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -160,14 +161,51 @@ def fmt_alerta_detalle(alerta: dict) -> str:
     return (alerta.get("description") or "Sin detalle").strip()
 
 
+def _valor_firma(alerta: dict) -> str:
+    """Magnitud normalizada (39|c, 90|km/h) para deduplicar avisos equivalentes."""
+    param = (alerta.get("parametro") or "").strip()
+    raw = ""
+    if ";" in param:
+        parts = [p.strip() for p in param.split(";") if p.strip()]
+        if len(parts) >= 3:
+            raw = parts[2]
+    if not raw:
+        raw = param or fmt_alerta_detalle(alerta)
+    norm = _norm_area(raw)
+    m = re.search(r"(\d+(?:[.,]\d+)?)", norm)
+    if not m:
+        return norm
+    num = m.group(1).replace(",", ".")
+    if "km" in norm:
+        return f"{num}|km/h"
+    if "mm" in norm:
+        return f"{num}|mm"
+    if re.search(r"(^| )m( |$)", norm):
+        return f"{num}|m"
+    if "c" in norm or "oc" in norm:
+        return f"{num}|c"
+    return f"{num}|"
+
+
 def alerta_firma(alerta: dict) -> tuple[str, str, str, str]:
-    """Clave de contenido visible: fenómeno, nivel, zona y valor (ºC, km/h…)."""
+    """Clave de contenido visible: fenómeno, nivel, zona y magnitud."""
     return (
         str(alerta.get("fenomeno") or "").upper().strip(),
         str(alerta.get("level") or "amarillo").lower().strip(),
         _norm_area(alerta.get("area_desc")),
-        _norm(fmt_alerta_detalle(alerta)),
+        _valor_firma(alerta),
     )
+
+
+def icono_alerta(alerta: dict) -> str:
+    """Icono del fenómeno; ignora marcadores inválidos (p. ej. 'x' de pruebas antiguas)."""
+    fen = str(alerta.get("fenomeno") or "").upper().strip()
+    if fen in PHENO_ICON:
+        return PHENO_ICON[fen]
+    icon = str(alerta.get("icon") or "").strip()
+    if icon and icon.lower() not in {"x", "-", "—"}:
+        return icon
+    return "⚠️"
 
 
 def deduplicar_alertas(alertas: list[dict]) -> list[dict]:
@@ -177,6 +215,7 @@ def deduplicar_alertas(alertas: list[dict]) -> list[dict]:
         alertas,
         key=lambda a: (
             -prioridad.get(str(a.get("level", "")).lower(), 0),
+            bool(a.get("is_test")),
             str(a.get("fenomeno", "")),
         ),
     )
