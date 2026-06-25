@@ -307,22 +307,28 @@ def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
             str(a.get("fenomeno", "")),
         ),
     )
-    level_top = (ordenadas[0].get("level") or "amarillo").upper()
+    level_top = (ordenadas[0].get("level") or "amarillo").lower()
+    badge_cls = {
+        "rojo": "sira-alertas-badge sira-alertas-badge--rojo",
+        "naranja": "sira-alertas-badge sira-alertas-badge--naranja",
+        "amarillo": "sira-alertas-badge sira-alertas-badge--amarillo",
+    }.get(level_top, "sira-alertas-badge sira-alertas-badge--naranja")
     filas = [_alerta_meteo_fila(a) for a in ordenadas]
     scroll_cls = "sira-alertas-scroll sira-alertas-scroll--multi" if len(ordenadas) > 1 else "sira-alertas-scroll"
     valor = html.Div(
         className="sira-alertas-wrap",
         children=[
             html.Div(filas, className=scroll_cls),
-            html.Span(str(len(ordenadas)), className="sira-alertas-badge"),
+            html.Span(str(len(ordenadas)), className=badge_cls),
         ],
     )
+    card_accent = {"rojo": "#ef4444", "naranja": C_ORANGE, "amarillo": "#eab308"}.get(level_top, C_ORANGE)
     return card(
         "Avisos meteorológicos",
         valor,
         "",
         "Avisos Meteoalerta activos para tu zona.",
-        accent="#ef4444" if level_top in ("ROJO", "NARANJA") else C_ORANGE,
+        accent=card_accent,
     )
 
 

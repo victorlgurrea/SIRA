@@ -370,9 +370,23 @@ body {
   font-size: 0.82rem;
   font-weight: 700;
   color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.sira-alertas-badge--rojo {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.5);
+}
+
+.sira-alertas-badge--naranja {
   background: linear-gradient(135deg, #ef4444, #f97316);
   box-shadow: 0 2px 10px rgba(239, 68, 68, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.sira-alertas-badge--amarillo {
+  background: linear-gradient(135deg, #ca8a04, #eab308);
+  box-shadow: 0 2px 10px rgba(234, 179, 8, 0.45);
+  color: #1e293b;
 }
 
 .sira-alerta-item {
