@@ -67,7 +67,7 @@ app.index_string = """
         {%favicon%}
         {%css%}
         <link rel="stylesheet" href="/assets/sira.css?v=20">
-        <link rel="icon" href="/assets/logo-sira.png?v=8" type="image/png">
+        <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
     </head>
     <body>
         {%app_entry%}

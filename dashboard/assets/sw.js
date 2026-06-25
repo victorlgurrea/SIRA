@@ -8,8 +8,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "SIRA";
   const options = {
     body: data.body || "Nueva alerta",
-    icon: data.icon || "/assets/logo-sira.png?v=8",
-    badge: data.badge || "/assets/logo-sira.png?v=8",
+    icon: data.icon || "/assets/logo-sira_4.png?v=8",
+    badge: data.badge || "/assets/logo-sira_4.png?v=8",
     tag: data.tag || "sira-alerta",
     data: { url: data.url || "/" },
     renotify: Boolean(data.renotify),

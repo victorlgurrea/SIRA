@@ -95,8 +95,8 @@ def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) ->
     return {
         "title": f"SIRA · Sismo {nivel}",
         "body": f"M{mag} · score {score} · a {dist_km} km de {zona} · {lugar}",
-        "icon": "/assets/logo-sira.png?v=8",
-        "badge": "/assets/logo-sira.png?v=8",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
         "url": dashboard_url,
         "tag": f"sira-{s.get('id')}",
         "renotify": False,
@@ -230,8 +230,8 @@ def send_test_push(
     payload = {
         "title": title or "SIRA · Sismo ALTO",
         "body": body or "M4.2 · score 68 · 12 km al E de Valencia (prueba)",
-        "icon": "/assets/logo-sira.png?v=8",
-        "badge": "/assets/logo-sira.png?v=8",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
         "url": url or dashboard_url,
         "tag": tag,
         "renotify": renotify,
