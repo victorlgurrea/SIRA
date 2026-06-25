@@ -366,6 +366,26 @@ body {
   letter-spacing: 0.03em;
 }
 
+.sira-riesgo-elem-param {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--sira-text);
+  padding-left: 2rem;
+  line-height: 1.35;
+}
+
+.sira-riesgo-elem-ahora {
+  font-size: 0.82rem;
+  color: var(--sira-teal);
+  padding-left: 2rem;
+}
+
+.sira-riesgo-elem-zona {
+  font-size: 0.78rem;
+  color: var(--sira-muted);
+  padding-left: 2rem;
+}
+
 .sira-riesgo-elem-secundario {
   display: flex;
   flex-wrap: wrap;

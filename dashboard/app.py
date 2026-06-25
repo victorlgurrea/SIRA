@@ -35,7 +35,7 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle, icono_alerta
+from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts
 from sismos import filtrar_perceptibles
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
@@ -70,7 +70,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=22">
+        <link rel="stylesheet" href="/assets/sira.css?v=23">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
     </head>
     <body>
@@ -329,64 +329,6 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
         f"Probabilidad según AEMET Meteoalerta y predicción horaria ({h} h). "
         "El índice combinado es orientativo.",
         accent=accent,
-    )
-
-
-def _alerta_meteo_fila(alerta: dict) -> html.Div:
-    icon = icono_alerta(alerta)
-    level = (alerta.get("level") or "amarillo").upper()
-    fenomeno = alerta.get("fenomeno_desc") or "Fenómeno meteorológico"
-    area = alerta.get("area_desc") or "Zona no definida"
-    detalle = fmt_alerta_detalle(alerta)
-    return html.Div(
-        className="sira-meteo-ahora sira-alerta-fila",
-        children=[
-            html.Span(icon, className="sira-meteo-icon"),
-            html.Div(
-                className="sira-meteo-body",
-                children=[
-                    html.Div(f"{level} · {fenomeno}", className="sira-meteo-estado"),
-                    html.Div(area, className="sira-meteo-viento"),
-                    html.Div(detalle, className="sira-card-help"),
-                ],
-            ),
-        ],
-    )
-
-
-def _alerta_meteo_card(alertas: list[dict]) -> html.Div:
-    if not alertas:
-        return card("Avisos meteorológicos", "Sin avisos", "", "", accent=C_ORANGE)
-    prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
-    ordenadas = sorted(
-        alertas,
-        key=lambda a: (
-            -prioridad.get(str(a.get("level", "")).lower(), 0),
-            str(a.get("fenomeno", "")),
-        ),
-    )
-    level_top = (ordenadas[0].get("level") or "amarillo").lower()
-    badge_cls = {
-        "rojo": "sira-alertas-badge sira-alertas-badge--rojo",
-        "naranja": "sira-alertas-badge sira-alertas-badge--naranja",
-        "amarillo": "sira-alertas-badge sira-alertas-badge--amarillo",
-    }.get(level_top, "sira-alertas-badge sira-alertas-badge--naranja")
-    filas = [_alerta_meteo_fila(a) for a in ordenadas]
-    scroll_cls = "sira-alertas-scroll sira-alertas-scroll--multi" if len(ordenadas) > 1 else "sira-alertas-scroll"
-    valor = html.Div(
-        className="sira-alertas-wrap",
-        children=[
-            html.Div(filas, className=scroll_cls),
-            html.Span(str(len(ordenadas)), className=badge_cls),
-        ],
-    )
-    card_accent = {"rojo": "#ef4444", "naranja": C_ORANGE, "amarillo": "#eab308"}.get(level_top, C_ORANGE)
-    return card(
-        "Avisos meteorológicos",
-        valor,
-        "",
-        "Avisos Meteoalerta activos para tu zona.",
-        accent=card_accent,
     )
 
 
@@ -778,8 +720,6 @@ def refresh(n_intervals, clicks, geo, last_ts):
     ]
     riesgo_meteo = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
     cards.append(_riesgo_meteo_card(riesgo_meteo))
-    if alertas_meteo:
-        cards.append(_alerta_meteo_card(alertas_meteo))
     ts = d.get("generado_en", "—")
     try:
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")

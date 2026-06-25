@@ -98,7 +98,6 @@ def dir_compass(grados) -> str:
 def _riesgo_elemento(elem: dict) -> html.Div:
     nivel_key = str(elem.get("nivel_peligro") or "").lower()
     peligro_color = _PELIGRO_COLOR.get(nivel_key, C_MUTED)
-    detalle_extra = elem.get("detalle")
     secundario = [
         html.Span(
             elem.get("nivel_label") or "—",
@@ -107,22 +106,25 @@ def _riesgo_elemento(elem: dict) -> html.Div:
         ),
         html.Span(elem.get("nivel_etiqueta") or "Nivel de peligro", className="sira-riesgo-peligro-lbl"),
     ]
-    if detalle_extra:
-        secundario.append(html.Span(detalle_extra, className="sira-riesgo-elem-detalle"))
-    return html.Div(
-        className="sira-riesgo-elem",
-        children=[
-            html.Div(className="sira-riesgo-elem-top", children=[
-                html.Span(elem.get("icon") or "⚠️", className="sira-meteo-icon"),
-                html.Span(elem.get("desc") or "—", className="sira-riesgo-elem-nombre"),
-            ]),
-            html.Div(className="sira-riesgo-elem-principal", children=[
-                html.Span(elem.get("prob_principal") or "—", className="sira-riesgo-prob-val"),
-                html.Span(elem.get("prob_etiqueta") or "Probabilidad AEMET", className="sira-riesgo-prob-lbl"),
-            ]),
-            html.Div(className="sira-riesgo-elem-secundario", children=secundario),
-        ],
-    )
+    cuerpo: list = [
+        html.Div(className="sira-riesgo-elem-top", children=[
+            html.Span(elem.get("icon") or "⚠️", className="sira-meteo-icon"),
+            html.Span(elem.get("desc") or "—", className="sira-riesgo-elem-nombre"),
+        ]),
+        html.Div(className="sira-riesgo-elem-principal", children=[
+            html.Span(elem.get("prob_principal") or "—", className="sira-riesgo-prob-val"),
+            html.Span(elem.get("prob_etiqueta") or "Probabilidad AEMET", className="sira-riesgo-prob-lbl"),
+        ]),
+    ]
+    if elem.get("parametro"):
+        cuerpo.append(html.Div(elem["parametro"], className="sira-riesgo-elem-param"))
+    if elem.get("tiempo_actual"):
+        cuerpo.append(html.Div(elem["tiempo_actual"], className="sira-riesgo-elem-ahora"))
+    area = elem.get("area")
+    if area:
+        cuerpo.append(html.Div(area, className="sira-riesgo-elem-zona"))
+    cuerpo.append(html.Div(className="sira-riesgo-elem-secundario", children=secundario))
+    return html.Div(className="sira-riesgo-elem", children=cuerpo)
 
 
 def riesgo_meteo_panel(riesgo: dict) -> html.Div:

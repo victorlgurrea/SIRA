@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from aemet_alerts import icono_alerta
+from aemet_alerts import fmt_alerta_detalle, icono_alerta
 from config import RIESGO_METEO_HORAS
 
 _LEVEL_WEIGHT = {"rojo": 100, "naranja": 68, "amarillo": 38, "verde": 10}
@@ -76,15 +76,42 @@ def _nivel_peligro_precip(max_prob: int, acum: float) -> str | None:
     return None
 
 
-def _elemento_alerta(alerta: dict) -> dict:
+def _linea_tiempo_actual(fenomeno: str, resumen: dict) -> str | None:
+    if not resumen:
+        return None
+    fen = str(fenomeno or "").upper()
+    if fen in ("AT", "BT"):
+        temp = resumen.get("temp_c")
+        if temp is not None:
+            return f"Ahora: {temp} °C"
+    if fen == "VI":
+        vel = resumen.get("viento_vel")
+        unidad = resumen.get("viento_unidad") or "m/s"
+        if vel is not None:
+            dir_txt = resumen.get("viento_dir_texto")
+            if not dir_txt and resumen.get("viento_dir_grados") is not None:
+                g = float(resumen["viento_dir_grados"]) % 360
+                puntos = ("N", "NE", "E", "SE", "S", "SO", "O", "NO")
+                dir_txt = f"{g:.0f}° ({puntos[int((g + 22.5) / 45) % 8]})"
+            base = f"Ahora: {vel} {unidad}"
+            return f"{base} · {dir_txt}" if dir_txt else base
+    return None
+
+
+def _elemento_alerta(alerta: dict, resumen: dict | None = None) -> dict:
     nivel = str(alerta.get("level") or "amarillo").lower()
+    fen = str(alerta.get("fenomeno") or "").upper()
     _, _, prob = _parse_prob_aemet(alerta.get("probabilidad"))
+    parametro = fmt_alerta_detalle(alerta)
     return {
-        "fenomeno": str(alerta.get("fenomeno") or "").upper(),
+        "fenomeno": fen,
         "desc": alerta.get("fenomeno_desc") or "Fenómeno adverso",
         "icon": icono_alerta(alerta),
         "prob_principal": prob,
         "prob_etiqueta": "Probabilidad AEMET",
+        "parametro": parametro if parametro and parametro != "Sin detalle" else None,
+        "tiempo_actual": _linea_tiempo_actual(fen, resumen or {}),
+        "area": alerta.get("area_desc"),
         "nivel_peligro": nivel,
         "nivel_label": _NIVEL_AEMET.get(nivel, nivel.upper()),
         "nivel_etiqueta": "Nivel de peligro",
@@ -105,11 +132,12 @@ def _elemento_precip(precip: dict, fuente: str, horas: int, *, indice: int = 0) 
         "icon": "🌧️",
         "prob_principal": f"{max_prob}%",
         "prob_etiqueta": f"Prob. máx. predicción ({horas} h)",
+        "parametro": f"Acumulado: {acum} mm",
+        "tiempo_actual": None,
         "nivel_peligro": nivel,
         "nivel_label": _NIVEL_AEMET.get(nivel, "—") if nivel else "—",
         "nivel_etiqueta": "Nivel estimado",
         "fuente": fuente,
-        "detalle": f"{acum} mm acumulados",
         "indice": indice,
     }
 
@@ -124,8 +152,9 @@ def calcular_riesgo_meteo(
     h = max(1, int(horas or RIESGO_METEO_HORAS))
     meteo = meteo or {}
     serie = meteo.get("serie_horaria") if isinstance(meteo.get("serie_horaria"), list) else []
+    resumen = meteo.get("resumen") if isinstance(meteo.get("resumen"), dict) else {}
 
-    elementos = [_elemento_alerta(a) for a in alertas if isinstance(a, dict)]
+    elementos = [_elemento_alerta(a, resumen) for a in alertas if isinstance(a, dict)]
     tiene_pr = any(e.get("fenomeno") == "PR" for e in elementos)
 
     idx_precip, precip = _indice_precip(serie, h)
