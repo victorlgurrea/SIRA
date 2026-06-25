@@ -284,8 +284,11 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
 
     if not hoy_df.empty:
         halo = (hoy_df["magnitud"] * 2 + 5).tolist()
-        radios = hoy_df["radio_perceptible_km"] if "radio_perceptible_km" in hoy_df.columns else [120.0] * len(hoy_df)
-        max_sizes = [min(base + max(10.0, float(r) * 0.12), 170.0) for base, r in zip(halo, radios)]
+        radios = (
+            hoy_df["radio_perceptible_km"].tolist()
+            if "radio_perceptible_km" in hoy_df.columns
+            else [120.0] * len(hoy_df)
+        )
         fig.add_trace(go.Scattergeo(
             lat=hoy_df["lat"], lon=hoy_df["lon"], mode="markers", name="Hoy",
             marker=dict(
@@ -294,8 +297,8 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 line=dict(width=1.5, color="#f87171"),
             ),
             hoverinfo="skip", legendgroup="hoy",
-            customdata=[[b, m, 1600] for b, m in zip(halo, max_sizes)],
-            meta={"pulse": True, "base_sizes": halo, "max_sizes": max_sizes, "period_ms": 1600},
+            customdata=[[float(r), 1600] for r in radios],
+            meta={"pulse": True, "base_sizes": halo, "period_ms": 1600},
         ))
 
     if not df_prueba.empty:
@@ -312,11 +315,10 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
             # Pulso visual reforzado para eventos de prueba de hoy.
             halo_prueba = (df_prueba_hoy["magnitud"] * 2 + 5).tolist()
             radios_prueba = (
-                df_prueba_hoy["radio_perceptible_km"]
+                df_prueba_hoy["radio_perceptible_km"].tolist()
                 if "radio_perceptible_km" in df_prueba_hoy.columns
                 else [120.0] * len(df_prueba_hoy)
             )
-            max_prueba = [min(base + max(10.0, float(r) * 0.12), 185.0) for base, r in zip(halo_prueba, radios_prueba)]
             fig.add_trace(go.Scattergeo(
                 lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
                 marker=dict(
@@ -326,8 +328,8 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 ),
                 hoverinfo="skip", legendgroup="prueba",
                 showlegend=False,
-                customdata=[[b, m, 1400] for b, m in zip(halo_prueba, max_prueba)],
-                meta={"pulse": True, "base_sizes": halo_prueba, "max_sizes": max_prueba, "period_ms": 1400},
+                customdata=[[float(r), 1400] for r in radios_prueba],
+                meta={"pulse": True, "base_sizes": halo_prueba, "period_ms": 1400},
             ))
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
