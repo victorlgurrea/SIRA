@@ -69,8 +69,19 @@ def _normalize_sub(sub: dict) -> dict:
 
 def list_subscriptions() -> list[dict]:
     data = read_json_file(PUSH_SUBSCRIPTIONS_FILE)
-    subs = data.get("subscriptions", [])
-    return [_normalize_sub(s) for s in subs if isinstance(s, dict) and s.get("endpoint")]
+    raw = data.get("subscriptions", [])
+    subs = [_normalize_sub(s) for s in raw if isinstance(s, dict) and s.get("endpoint")]
+    if any(_needs_normalize(s) for s in raw if isinstance(s, dict)):
+        _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": subs})
+    return subs
+
+
+def _needs_normalize(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return vals <= {"sismo"}
 
 
 def save_subscriptions(subs: list[dict]) -> None:
@@ -170,15 +181,29 @@ def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
         return None
 
 
-def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
+def _meteo_should_notify(alerta: dict, sub: dict, *, target_muni: str | None = None) -> bool:
+    """¿Enviar aviso meteo a esta suscripción?"""
     sub = _normalize_sub(sub)
     if not _sub_prefers_meteo(sub):
         return False
+    if alerta.get("is_test"):
+        if not target_muni:
+            return True
+        raw_mid = sub.get("municipio_id")
+        if not raw_mid:
+            return True
+        return str(raw_mid).zfill(5) == str(target_muni).zfill(5)
     return alerta_coincide_zona(
         alerta,
         provincia_id=sub.get("provincia_id"),
         municipio_id=sub.get("municipio_id"),
     )
+
+
+def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
+    zona = str(alerta.get("zona") or "")
+    target = zona[5:].zfill(5) if alerta.get("is_test") and zona.startswith("test-") else None
+    return _meteo_should_notify(alerta, sub, target_muni=target)
 
 
 def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | None = None) -> dict:
@@ -201,34 +226,28 @@ def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | N
 
 
 def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id: str | None = None) -> dict:
-    """Envía un aviso meteo de prueba con el mismo matcher que AEMET."""
+    """Envía un aviso meteo de prueba."""
     all_subs = list_subscriptions()
-    is_test = bool(alerta.get("is_test"))
-    target_muni = str(only_municipio_id).zfill(5) if only_municipio_id else None
-
-    if is_test:
-        subs = all_subs
-    elif target_muni:
-        subs = [s for s in all_subs if str(s.get("municipio_id") or "").zfill(5) == target_muni]
-    else:
-        subs = all_subs
+    zona = str(alerta.get("zona") or "")
+    target_muni = (
+        str(only_municipio_id).zfill(5)
+        if only_municipio_id
+        else (zona[5:].zfill(5) if zona.startswith("test-") else None)
+    )
 
     diagnostico = []
     for sub in all_subs:
+        match = _meteo_should_notify(alerta, sub, target_muni=target_muni)
         diagnostico.append(
             {
                 "municipio_id": sub.get("municipio_id"),
-                "prefiere_meteo": _sub_prefers_meteo(sub),
-                "coincide": _aemet_match_subscription(alerta, sub),
-                "en_filtro_municipio": (
-                    is_test
-                    or not target_muni
-                    or str(sub.get("municipio_id") or "").zfill(5) == target_muni
-                ),
+                "prefiere_meteo": _sub_prefers_meteo(_normalize_sub(sub)),
+                "coincide": match,
+                "target_municipio": target_muni,
             }
         )
 
-    if not subs:
+    if not all_subs:
         return {
             "ok": False,
             "error": "No hay suscripciones activas",
@@ -239,24 +258,28 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict, *, only_municipio_id:
 
     payload = _build_aemet_payload(alerta, dashboard_url, renotify=True)
     sent = 0
+    errors = 0
     invalid_endpoints: set[str] = set()
-    for sub in subs:
-        if not _aemet_match_subscription(alerta, sub):
+    for sub in all_subs:
+        if not _meteo_should_notify(alerta, sub, target_muni=target_muni):
             continue
         result = send_push(sub, payload)
         if result == "ok":
             sent += 1
         elif result == "gone":
             invalid_endpoints.add(sub.get("endpoint", ""))
+        else:
+            errors += 1
     if invalid_endpoints:
         save_subscriptions([s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints])
     return {
         "ok": sent > 0,
         "enviados": sent,
-        "suscripciones": len(subs),
+        "suscripciones": len(all_subs),
         "payload": payload,
         "diagnostico": diagnostico,
-        "error": None if sent > 0 else "Ninguna suscripción coincide con la zona del aviso de prueba",
+        "errores_transitorios": errors,
+        "error": None if sent > 0 else "Ninguna suscripción recibe avisos meteo (revisa diagnostico)",
     }
 
 
@@ -380,7 +403,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
             if not aid:
                 continue
             for sub in subs:
-                if not _aemet_match_subscription(a, sub):
+                if not _meteo_should_notify(a, sub):
                     continue
                 result = send_push(sub, _build_aemet_payload(a, dashboard_url))
                 if result == "ok":
