@@ -294,6 +294,7 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 line=dict(width=1.5, color="#f87171"),
             ),
             hoverinfo="skip", legendgroup="hoy",
+            customdata=[[b, m, 1600] for b, m in zip(halo, max_sizes)],
             meta={"pulse": True, "base_sizes": halo, "max_sizes": max_sizes, "period_ms": 1600},
         ))
 
@@ -325,6 +326,7 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 ),
                 hoverinfo="skip", legendgroup="prueba",
                 showlegend=False,
+                customdata=[[b, m, 1400] for b, m in zip(halo_prueba, max_prueba)],
                 meta={"pulse": True, "base_sizes": halo_prueba, "max_sizes": max_prueba, "period_ms": 1400},
             ))
         fig.add_trace(go.Scattergeo(
