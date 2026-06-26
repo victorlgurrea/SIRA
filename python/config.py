@@ -51,10 +51,10 @@ ZONA = {
 SISMO_PERCEPCION = {
     "mag_min": _f("SISMO_PERCEPTIBLE_MAG_MIN", "2.5"),
     "factor": _f("SISMO_PERCEPTIBLE_FACTOR", "1.0"),
-    "exp_mag": _f("SISMO_PERCEPTIBLE_EXP_MAG", "0.55"),
-    "exp_base": _f("SISMO_PERCEPTIBLE_EXP_BASE", "0.15"),
+    "exp_mag": _f("SISMO_PERCEPTIBLE_EXP_MAG", "0.34"),
+    "exp_base": _f("SISMO_PERCEPTIBLE_EXP_BASE", "0.30"),
     "prof_km": _f("SISMO_PERCEPTIBLE_PROF_KM", "70"),
-    "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "0"),
+    "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "450"),
 }
 
 MAPA = {

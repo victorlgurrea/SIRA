@@ -1,126 +1,48 @@
 SIRA — Sistema Ibérico de Riesgos y Alerta
 ═══════════════════════════════════════════
 
-Monitorización peninsular: sismos (Mediterráneo, Cantábrico, Atlántico),
-oceanografía costera y previsión meteorológica (AEMET / Open-Meteo).
+Monitorización peninsular: sismos, oceanografía costera, meteo (AEMET / Open-Meteo)
+y alertas push por municipio.
 
-  .env              configuración
-  startup.bat       arranque automático
-  python/
-    config.py       carga .env y constantes
-    core.py         HTTP saliente + JSON
-    ingesta.py      descarga datos
-    api_server.py   API local (solo consulta por defecto)
-    scheduler.py    ingesta periódica (manual)
-    notificaciones.py
-  dashboard/
-    _bootstrap.py   imports compartidos
-    app.py          interfaz Dash (layout + gráficos)
-    theme.py        paleta de colores
-    components.py   tarjetas y bloques UI
-    assets/
-      sira.css      estilos responsive
-      logo_sira_2.png
-  r_analysis/       gráficos R (opcional)
+Estructura
+──────────
+  .env / .env.example     configuración local
+  startup.py / startup.bat arranque API + dashboard
+  python/                 API, ingesta, push, meteo, geo
+  dashboard/              interfaz Dash (app.py, assets/)
+  data/geo/espana.json    catálogo INE (provincia/municipio/localidad)
+  data/processed/         JSON generados en runtime (ignorados por git)
+  r_analysis/             gráficos R opcionales (no usa el dashboard)
+  render.yaml             despliegue Render (sira-api + sira-dashboard)
 
-Uso
-───
-  startup.bat
+  App Android: ../WWW/SIRA_MOVILE/android (WebView del dashboard)
+
+Uso local
+─────────
   py startup.py
-  cd python && py ingesta.py          # actualización manual
-  cd python && py scheduler.py        # ingesta periódica
+  cd python && py ingesta.py     # actualización manual de datos
 
-Seguridad (modo consulta)
-─────────────────────────
-  ALLOW_DATA_REFRESH=false   solo lectura en dashboard y API (por defecto)
-  API_KEY en .env            obligatoria para POST /api/actualizar
-  ENABLE_API_DOCS=false      oculta Swagger en producción (por defecto)
-  API_HOST=127.0.0.1         solo red local por defecto
-  HTTP saliente              whitelist de hosts en config.py
-  .env en .gitignore         no subir credenciales
+Seguridad (modo consulta por defecto)
+─────────────────────────────────────
+  ALLOW_DATA_REFRESH=false   solo lectura en dashboard y API
+  API_KEY                    POST /api/actualizar y /api/push/test
+  CRON_SECRET                POST /api/cron/ingesta (GitHub Actions)
+  .env en .gitignore
 
-Para habilitar actualización desde el dashboard:
-  ALLOW_DATA_REFRESH=true en .env
+Despliegue Render
+─────────────────
+  1. Blueprint desde GitHub (render.yaml).
+  2. Variables en sira-secrets: AEMET_API_KEY, API_KEY, CRON_SECRET, VAPID_*.
+  3. Dashboard: https://sira-dashboard.onrender.com
+  4. API: URL exacta del servicio sira-api en Render (suele llevar sufijo).
 
-Despliegue en Render (gratis para pruebas)
-──────────────────────────────────────────
-  1. Sube los cambios a GitHub (main).
-  2. Entra en https://render.com → Sign up with GitHub.
-  3. New → Blueprint → repositorio victorlgurrea/SIRA.
-  4. En el grupo de variables sira-secrets añade:
-       - AEMET_API_KEY (opcional)
-       - CRON_SECRET (obligatorio para cron externo)
-  5. Apply. Espera 5–10 min (build + ingesta inicial).
-  6. Abre el dashboard público: https://sira-dashboard.onrender.com
+Cron horario (GitHub Actions)
+─────────────────────────────
+  Workflow: .github/workflows/ingesta-hourly.yml
+  Secrets: SIRA_API_URL (servicio API, no el dashboard), SIRA_CRON_SECRET
 
-  render.yaml define dos servicios:
-    sira-api        API FastAPI + ingesta en cada deploy
-    sira-dashboard  interfaz Dash (gunicorn)
-
-  Plan free: se duerme tras ~15 min sin uso; el primer acceso tarda ~1 min.
-  El dashboard recarga la pantalla cada 5 min; los datos nuevos llegan con la ingesta.
-
-Ingesta horaria (GitHub Actions)
-────────────────────────────────
-  Workflow:
-    .github/workflows/ingesta-hourly.yml
-    cron: "0 * * * *"  (cada hora, UTC)
-
-  Endpoint llamado:
-    POST /api/cron/ingesta
-    Header: X-Cron-Secret: <CRON_SECRET>
-
-  Secrets de GitHub (repo → Settings → Secrets and variables → Actions):
-    SIRA_API_URL       URL real del servicio sira-api en Render
-                       (ejemplo: https://sira-api-xxxxx.onrender.com)
-    SIRA_CRON_SECRET   mismo valor que CRON_SECRET en Render
-
-  Importante:
-    - SIRA_API_URL debe apuntar a sira-api, no al dashboard.
-    - En Render free, la URL de sira-api puede incluir sufijo aleatorio.
-
-Verificación rápida de cron
-───────────────────────────
-  1. GitHub → Actions → "Ingesta horaria SIRA" → Run workflow.
-  2. Debe finalizar en verde.
-  3. Abre /api/dashboard y revisa generado_en:
-       <URL_SIRA_API>/api/dashboard
-  4. En el dashboard verás la nueva hora tras el refresco.
-
-URLs públicas actuales
-──────────────────────
-  Dashboard:
-    https://sira-dashboard.onrender.com
-
-  API:
-    usa la URL exacta mostrada en Render para el servicio "sira-api"
-    (puede ser https://sira-api-xxxxx.onrender.com).
-
-App móvil Android (APK): ver ../WWW/SIRA_MOVILE/ (WebView del dashboard + push).
-
-Web Push (MVP)
-──────────────
-  Objetivo:
-    Notificar en móvil/navegador instalado cuando la ingesta detecta
-    sismos con score >= UMBRAL_SCORE_ALERTA.
-    La notificación se envía según la zona seleccionada al activar push
-    (municipio/localidad del selector de España).
-
-  Backend:
-    - GET  /api/push/public-key
-    - POST /api/push/subscribe
-    - POST /api/push/unsubscribe
-    - envío automático en /api/cron/ingesta y /api/actualizar
-
-  Variables necesarias (Render / .env):
-    VAPID_PUBLIC_KEY
-    VAPID_PRIVATE_KEY
-    VAPID_SUBJECT   (ej. mailto:tu-email@dominio.com)
-
-  Frontend:
-    botón "Activar notificaciones" en la barra superior.
-    service worker: dashboard/assets/sw.js
-
-  Importante:
-    si cambias de zona en el selector, vuelve a pulsar "Activar notificaciones"
-    para actualizar la suscripción con la nueva zona.
+Web Push
+────────
+  Activar en el dashboard → notificaciones por municipio (sismos + meteo AEMET).
+  Prueba admin: POST /api/push/test (header X-API-Key o X-Cron-Secret).
+  Variables: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (PEM), VAPID_SUBJECT.

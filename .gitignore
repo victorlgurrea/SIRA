@@ -1,7 +1,19 @@
 .env
 __pycache__/
 *.pyc
+.venv/
+venv/
+.DS_Store
+
+# Datos generados en runtime (no subir)
 data/processed/dashboard_data.json
 data/processed/alertas_estado.json
+data/processed/push_subscriptions.json
+data/processed/push_estado.json
+data/processed/test_*.json
+data/processed/graficos/
+
+# R (opcional)
 .Rhistory
 .RData
+r_analysis/Rplots.pdf

@@ -32,8 +32,6 @@ services:
       - fromGroup: sira-secrets
       - key: PYTHON_VERSION
         value: "3.11.9"
-      - key: SIRA_SERVICE
-        value: api
       - key: API_HOST
         value: 0.0.0.0
       - key: ALLOW_DATA_REFRESH
@@ -61,8 +59,6 @@ services:
       - fromGroup: sira-secrets
       - key: PYTHON_VERSION
         value: "3.11.9"
-      - key: SIRA_SERVICE
-        value: dashboard
       - key: DASHBOARD_HOST
         value: 0.0.0.0
       - key: ALLOW_DATA_REFRESH
