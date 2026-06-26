@@ -1,16 +1,3 @@
 {
-  "alerts": [
-    {
-      "id": "t-ui3",
-      "level": "naranja",
-      "fenomeno": "AT",
-      "fenomeno_desc": "Temperatura maxima",
-      "area_desc": "Silla (Valencia/Valencia)",
-      "parametro": "TA;Temperatura maxima;39 C",
-      "zona": "test-46230",
-      "icon": "x",
-      "expires": "2026-06-25T13:56:00.631902+00:00",
-      "is_test": true
-    }
-  ]
+  "alerts": []
 }

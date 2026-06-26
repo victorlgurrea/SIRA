@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 from dash import Dash, Input, Output, State, callback, clientside_callback, ctx, dcc, html
-from flask import send_from_directory
+from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
 from components import bloque, card, dir_compass, mag_con_riesgo, meteo_ahora, regiones, riesgo_meteo_panel
@@ -72,6 +72,7 @@ app.index_string = """
         {%css%}
         <link rel="stylesheet" href="/assets/sira.css?v=24">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
+        <link rel="manifest" href="/manifest.webmanifest">
     </head>
     <body>
         {%app_entry%}
@@ -759,6 +760,52 @@ def _service_worker():
     resp.headers["Service-Worker-Allowed"] = "/"
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
+
+
+# Huella SHA-256 del keystore debug (añade la de release al publicar en Play Store).
+_ANDROID_SHA256_DEBUG = (
+    "30:20:B7:AC:BD:FB:CF:A4:90:77:A2:20:6F:F0:73:10:"
+    "B3:A0:A7:87:78:8E:E0:48:3F:B1:50:B8:D9:0E:F8:D4"
+)
+
+
+@server.route("/.well-known/assetlinks.json")
+def _assetlinks():
+    return jsonify(
+        [
+            {
+                "relation": ["delegate_permission/common.handle_all_urls"],
+                "target": {
+                    "namespace": "android_app",
+                    "package_name": "es.sira.alertas",
+                    "sha256_cert_fingerprints": [_ANDROID_SHA256_DEBUG],
+                },
+            }
+        ]
+    )
+
+
+@server.route("/manifest.webmanifest")
+def _manifest():
+    return jsonify(
+        {
+            "name": "SIRA — Sistema Ibérico de Riesgos y Alerta",
+            "short_name": "SIRA",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#0a1628",
+            "theme_color": "#0a1628",
+            "icons": [
+                {
+                    "src": app.get_asset_url("logo-sira_4.png"),
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                }
+            ],
+        }
+    )
 
 
 clientside_callback(
