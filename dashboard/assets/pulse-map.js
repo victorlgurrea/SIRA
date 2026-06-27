@@ -53,8 +53,7 @@
       const minR = Math.max(3, maxR * 0.06);
       const r = lerp(minR, maxR, t);
       const perimeter = circlePerimeter(lat, lon, r);
-      const fillOp = lerp(0.06, 0.42, t);
-      const lineOp = lerp(0.3, 0.85, t);
+      const fillOp = lerp(0.05, 0.38, t);
 
       try {
         window.Plotly.restyle(
@@ -63,7 +62,8 @@
             lat: [perimeter[0]],
             lon: [perimeter[1]],
             fillcolor: ["rgba(" + rgb + ", " + fillOp + ")"],
-            "line.color": ["rgba(" + rgb + ", " + lineOp + ")"],
+            "line.color": ["rgba(0, 0, 0, 0)"],
+            "line.width": [0],
           },
           [i]
         );

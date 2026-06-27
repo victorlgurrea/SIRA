@@ -366,8 +366,8 @@ def _add_circulos_perceptibles(
                 legendgroup=legendgroup,
                 showlegend=show_legend and idx == 0,
                 fill="toself",
-                fillcolor=f"rgba({fill_rgb}, 0.08)",
-                line=dict(width=1.5, color=f"rgba({fill_rgb}, 0.45)"),
+                fillcolor=f"rgba({fill_rgb}, 0.06)",
+                line=dict(width=0, color="rgba(0, 0, 0, 0)"),
                 hovertemplate=(
                     f"Zona perceptible (hasta ~{r:.0f} km)<br>"
                     f"Mag {mag:.1f} · epicentro"
