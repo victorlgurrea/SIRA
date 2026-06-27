@@ -27,6 +27,22 @@ def distancia_perceptible_km(magnitud: float, profundidad_km: float) -> float:
     return round(r, 1)
 
 
+def circle_perimeter(lat: float, lon: float, radius_km: float, points: int = 72) -> tuple[list[float], list[float]]:
+    """Polígono aproximado del círculo de radio_km alrededor del epicentro (para mapa geo)."""
+    if radius_km <= 0:
+        return [float(lat)], [float(lon)]
+    lat_rad = math.radians(lat)
+    km_per_deg_lat = 111.2
+    km_per_deg_lon = 111.2 * max(0.2, math.cos(lat_rad))
+    lats: list[float] = []
+    lons: list[float] = []
+    for i in range(points + 1):
+        ang = 2 * math.pi * i / points
+        lats.append(lat + (radius_km * math.sin(ang)) / km_per_deg_lat)
+        lons.append(lon + (radius_km * math.cos(ang)) / km_per_deg_lon)
+    return lats, lons
+
+
 def es_perceptible(magnitud: float, profundidad_km: float, distancia_km: float) -> bool:
     return distancia_km <= distancia_perceptible_km(magnitud, profundidad_km)
 

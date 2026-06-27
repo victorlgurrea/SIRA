@@ -36,7 +36,7 @@ from geo_es import coords_observacion, localidades, municipio_por_id, municipios
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts
-from sismos import filtrar_perceptibles
+from sismos import circle_perimeter, filtrar_perceptibles
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
@@ -333,6 +333,53 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
     )
 
 
+def _add_circulos_perceptibles(
+    fig: go.Figure,
+    rows: pd.DataFrame,
+    *,
+    legend_name: str,
+    legendgroup: str,
+    period_ms: int,
+    fill_rgb: str = "248, 113, 113",
+    show_legend: bool = True,
+) -> None:
+    """Círculos geográficos (km) del radio perceptible; pulso vía pulse-map.js."""
+    if rows.empty:
+        return
+    radios = (
+        rows["radio_perceptible_km"].tolist()
+        if "radio_perceptible_km" in rows.columns
+        else [120.0] * len(rows)
+    )
+    for idx, row in enumerate(rows.itertuples(index=False)):
+        r = float(radios[idx]) if idx < len(radios) else 120.0
+        lat_c, lon_c = circle_perimeter(float(row.lat), float(row.lon), r)
+        mag = float(getattr(row, "magnitud", 0) or 0)
+        fig.add_trace(
+            go.Scattergeo(
+                lat=lat_c,
+                lon=lon_c,
+                mode="lines",
+                name=legend_name,
+                legendgroup=legendgroup,
+                showlegend=show_legend and idx == 0,
+                fill="toself",
+                fillcolor=f"rgba({fill_rgb}, 0.12)",
+                line=dict(width=1.5, color=f"rgba({fill_rgb}, 0.55)"),
+                hovertemplate=(
+                    f"Zona perceptible (~{r:.0f} km)<br>"
+                    f"Mag {mag:.1f} · epicentro"
+                    "<extra></extra>"
+                ),
+                meta={
+                    "pulse": "circle",
+                    "period_ms": period_ms,
+                    "fill_rgb": fill_rgb,
+                },
+            )
+        )
+
+
 def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None = None, obs_nombre: str = "") -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
@@ -385,23 +432,13 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         hoy_df = df[df["timestamp"].map(_es_sismo_hoy)]
 
     if not hoy_df.empty:
-        halo = (hoy_df["magnitud"] * 2 + 5).tolist()
-        radios = (
-            hoy_df["radio_perceptible_km"].tolist()
-            if "radio_perceptible_km" in hoy_df.columns
-            else [120.0] * len(hoy_df)
+        _add_circulos_perceptibles(
+            fig,
+            hoy_df,
+            legend_name="Zona perceptible (hoy)",
+            legendgroup="hoy",
+            period_ms=1600,
         )
-        fig.add_trace(go.Scattergeo(
-            lat=hoy_df["lat"], lon=hoy_df["lon"], mode="markers", name="Hoy",
-            marker=dict(
-                size=halo,
-                color="rgba(248, 113, 113, 0.35)",
-                line=dict(width=1.5, color="#f87171"),
-            ),
-            hoverinfo="skip", legendgroup="hoy",
-            customdata=[[float(r), 1600] for r in radios],
-            meta={"pulse": True, "base_sizes": halo, "period_ms": 1600},
-        ))
 
     if not df_prueba.empty:
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
@@ -414,25 +451,14 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         )
         df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
         if not df_prueba_hoy.empty:
-            # Pulso visual reforzado para eventos de prueba de hoy.
-            halo_prueba = (df_prueba_hoy["magnitud"] * 2 + 5).tolist()
-            radios_prueba = (
-                df_prueba_hoy["radio_perceptible_km"].tolist()
-                if "radio_perceptible_km" in df_prueba_hoy.columns
-                else [120.0] * len(df_prueba_hoy)
+            _add_circulos_perceptibles(
+                fig,
+                df_prueba_hoy,
+                legend_name="Zona perceptible (prueba)",
+                legendgroup="prueba",
+                period_ms=1400,
+                show_legend=False,
             )
-            fig.add_trace(go.Scattergeo(
-                lat=df_prueba_hoy["lat"], lon=df_prueba_hoy["lon"], mode="markers", name="Pulso prueba",
-                marker=dict(
-                    size=halo_prueba,
-                    color="rgba(248, 113, 113, 0.22)",
-                    line=dict(width=2, color="rgba(248, 113, 113, 0.75)"),
-                ),
-                hoverinfo="skip", legendgroup="prueba",
-                showlegend=False,
-                customdata=[[float(r), 1400] for r in radios_prueba],
-                meta={"pulse": True, "base_sizes": halo_prueba, "period_ms": 1400},
-            ))
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
             marker=dict(
