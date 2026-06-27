@@ -352,7 +352,7 @@ def _add_circulos_perceptibles(
         else [120.0] * len(rows)
     )
     border_rgb = "220, 38, 38"
-    wave_offsets = (0.33, 0.66)
+    wave_fractions = (0.4, 0.7)
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
         lat0 = float(row.lat)
@@ -398,10 +398,10 @@ def _add_circulos_perceptibles(
                 fill="none",
                 line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
                 hoverinfo="skip",
-                meta={**pulse_meta, "pulse": "grow", "part": "border", "wave_offset": 0.0, "border_rgb": border_rgb},
+                meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0, "border_rgb": border_rgb},
             )
         )
-        for wave_offset in wave_offsets:
+        for radius_fraction in wave_fractions:
             fig.add_trace(
                 go.Scattergeo(
                     lat=lat_ring,
@@ -417,7 +417,7 @@ def _add_circulos_perceptibles(
                         **pulse_meta,
                         "pulse": "grow",
                         "part": "wave",
-                        "wave_offset": wave_offset,
+                        "radius_fraction": radius_fraction,
                         "border_rgb": border_rgb,
                     },
                 )

@@ -12,17 +12,14 @@
     return a + (b - a) * t;
   }
 
-  function wavePhase(nowMs, periodMs, offset) {
+  function pulseT(nowMs, periodMs) {
     const phase = (nowMs % periodMs) / periodMs;
-    return (phase + (offset || 0)) % 1;
-  }
-
-  function waveT(phase) {
     return Math.sin(phase * Math.PI);
   }
 
-  function radiusAt(phase, minR, maxR) {
-    return lerp(minR, maxR, waveT(phase));
+  function radiusAt(t, minR, maxR, fraction) {
+    const f = fraction > 0 ? fraction : 1;
+    return lerp(minR, maxR, t) * f;
   }
 
   function circlePerimeter(lat, lon, radiusKm) {
@@ -63,13 +60,13 @@
       const lat = Number(meta.center_lat);
       const lon = Number(meta.center_lon);
       const part = meta.part || "fill";
-      const offset = Number(meta.wave_offset) || 0;
+      const fraction = Number(meta.radius_fraction);
+      const radiusFraction = Number.isFinite(fraction) && fraction > 0 ? fraction : 1;
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
       const minR = Math.max(3, maxR * 0.06);
-      const phase = wavePhase(now, period, offset);
-      const t = waveT(phase);
-      const r = radiusAt(phase, minR, maxR);
+      const t = pulseT(now, period);
+      const r = radiusAt(t, minR, maxR, radiusFraction);
 
       try {
         if (part === "border") {
@@ -88,8 +85,8 @@
           );
         } else if (part === "wave") {
           const ring = circlePerimeter(lat, lon, r);
-          const waveOp = lerp(0.15, 0.7, t);
-          const waveW = lerp(1.0, 2.2, t);
+          const waveOp = lerp(0.25, 0.75, t);
+          const waveW = lerp(1.2, 2.4, t);
           window.Plotly.restyle(
             gd,
             {
