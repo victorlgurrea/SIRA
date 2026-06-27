@@ -70,6 +70,7 @@ class TestPushIn(BaseModel):
     profundidad: float | None = None
     lugar: str | None = None
     overlay_minutos: int = 30
+    simular_real: bool = True
 
 
 class DebugAemetIn(BaseModel):
@@ -214,6 +215,7 @@ def push_test(
             profundidad=payload.profundidad,
             lugar=payload.lugar,
             overlay_minutos=payload.overlay_minutos,
+            simular_real=payload.simular_real,
         )
     except Exception as exc:
         log.exception("push/test falló")

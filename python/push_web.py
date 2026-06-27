@@ -14,6 +14,7 @@ from config import (
     VAPID_PRIVATE_KEY,
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
+    ZONA,
 )
 from aemet_alerts import alerta_coincide_zona, fetch_active_alerts, fmt_alerta_detalle
 from core import read_dashboard, read_json_file, clear_meteo_live_cache
@@ -441,12 +442,14 @@ def send_test_push(
     profundidad: float | None = None,
     lugar: str | None = None,
     overlay_minutos: int = 30,
+    simular_real: bool = True,
 ) -> dict:
     """Envía notificación de prueba y opcionalmente un sismo efímero en el mapa."""
     if not vapid_enabled():
         return {"ok": False, "error": "Web Push no configurado", "enviados": 0, "suscripciones": 0}
 
     overlay_meta = None
+    sismo_prueba = None
     if mostrar_en_mapa:
         sismo_prueba = build_test_sismo(
             tag=tag,
@@ -455,6 +458,7 @@ def send_test_push(
             lon=lon,
             profundidad=profundidad if profundidad is not None else 10.0,
             lugar=lugar,
+            simular_real=simular_real,
         )
         overlay_meta = save_test_overlay(sismo_prueba, ttl_min=overlay_minutos)
 
@@ -466,15 +470,26 @@ def send_test_push(
             if not s.get("municipio_id") or str(s["municipio_id"]).zfill(5) == target
         ]
 
-    payload = {
-        "title": title or "SIRA · Sismo ALTO",
-        "body": body or "M4.2 · score 68 · 12 km al E de Valencia (prueba)",
-        "icon": "/assets/logo-sira_4.png?v=8",
-        "badge": "/assets/logo-sira_4.png?v=8",
-        "url": url or dashboard_url,
-        "tag": tag,
-        "renotify": renotify,
-    }
+    if simular_real and sismo_prueba:
+        dist_km = sismo_prueba.get("dist_valencia_km", "—")
+        payload = _build_payload(
+            sismo_prueba,
+            url or dashboard_url,
+            zona=ZONA["ciudad_ref"],
+            dist_km=float(dist_km) if dist_km != "—" else 0.0,
+        )
+        payload["url"] = url or dashboard_url
+        payload["renotify"] = renotify
+    else:
+        payload = {
+            "title": title or "SIRA · Sismo ALTO",
+            "body": body or "M4.2 · score 68 · 12 km al E de Valencia (prueba)",
+            "icon": "/assets/logo-sira_4.png?v=8",
+            "badge": "/assets/logo-sira_4.png?v=8",
+            "url": url or dashboard_url,
+            "tag": tag,
+            "renotify": renotify,
+        }
 
     if not subs:
         if overlay_meta:

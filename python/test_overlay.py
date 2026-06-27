@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from config import TEST_SISMO_OVERLAY_FILE, ZONA
 from core import read_json_file
-from sismos import distancia_km, score_sismo
+from sismos import distancia_km, distancia_perceptible_km, score_sismo
 
 log = logging.getLogger(__name__)
 
@@ -50,27 +50,37 @@ def build_test_sismo(
     lon: float | None = None,
     profundidad: float = 10.0,
     lugar: str | None = None,
+    simular_real: bool = True,
 ) -> dict:
     if lat is None or lon is None:
         lat, lon = _epicentro_por_defecto()
     sub = profundidad < 200
     dist_v = distancia_km(lat, lon, ZONA["lat_ref"], ZONA["lon_ref"])
     scores = score_sismo(magnitud, profundidad, dist_v, sub)
+    radio = distancia_perceptible_km(magnitud, profundidad)
     ahora = datetime.now(timezone.utc).isoformat()
-    return {
-        "id": f"sira-test-{tag}",
+    sismo_id = f"sim{tag.replace('sira-', '')[:12]}" if simular_real else f"sira-test-{tag}"
+    sismo = {
+        "id": sismo_id,
         "magnitud": magnitud,
-        "lugar": lugar or f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']} (prueba)",
+        "lugar": lugar or (
+            f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']}"
+            if simular_real
+            else f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']} (prueba)"
+        ),
         "timestamp": ahora,
         "lat": lat,
         "lon": lon,
         "profundidad": profundidad,
         "dist_valencia_km": dist_v,
+        "radio_perceptible_km": radio,
         "es_submarino": sub,
         "region": _region(lat, lon),
-        "es_prueba": True,
         **scores,
     }
+    if not simular_real:
+        sismo["es_prueba"] = True
+    return sismo
 
 
 def save_test_overlay(sismo: dict, ttl_min: int = 30) -> dict:

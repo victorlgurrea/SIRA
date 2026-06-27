@@ -126,7 +126,8 @@ def read_dashboard() -> dict:
     if overlay:
         sismos = [s for s in data.get("sismos", []) if s.get("id") != overlay.get("id")]
         out["sismos"] = [overlay, *sismos]
-        out["sismo_prueba_activo"] = True
+        if overlay.get("es_prueba"):
+            out["sismo_prueba_activo"] = True
 
     meteo_tests = read_active_test_alerts()
     if meteo_tests:
