@@ -12,9 +12,17 @@
     return a + (b - a) * t;
   }
 
-  function pulseFactor(nowMs, periodMs) {
+  function wavePhase(nowMs, periodMs, offset) {
     const phase = (nowMs % periodMs) / periodMs;
+    return (phase + (offset || 0)) % 1;
+  }
+
+  function waveT(phase) {
     return Math.sin(phase * Math.PI);
+  }
+
+  function radiusAt(phase, minR, maxR) {
+    return lerp(minR, maxR, waveT(phase));
   }
 
   function circlePerimeter(lat, lon, radiusKm) {
@@ -55,17 +63,19 @@
       const lat = Number(meta.center_lat);
       const lon = Number(meta.center_lon);
       const part = meta.part || "fill";
+      const offset = Number(meta.wave_offset) || 0;
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-      const t = pulseFactor(now, period);
       const minR = Math.max(3, maxR * 0.06);
-      const r = lerp(minR, maxR, t);
+      const phase = wavePhase(now, period, offset);
+      const t = waveT(phase);
+      const r = radiusAt(phase, minR, maxR);
 
       try {
         if (part === "border") {
           const ring = circlePerimeter(lat, lon, r);
-          const borderOp = lerp(0.5, 1.0, t);
-          const borderW = lerp(1.8, 3.5, t);
+          const borderOp = lerp(0.55, 1.0, t);
+          const borderW = lerp(2.0, 4.0, t);
           window.Plotly.restyle(
             gd,
             {
@@ -76,9 +86,23 @@
             },
             [i]
           );
+        } else if (part === "wave") {
+          const ring = circlePerimeter(lat, lon, r);
+          const waveOp = lerp(0.15, 0.7, t);
+          const waveW = lerp(1.0, 2.2, t);
+          window.Plotly.restyle(
+            gd,
+            {
+              lat: [ring[0]],
+              lon: [ring[1]],
+              "line.color": ["rgba(" + borderRgb + ", " + waveOp + ")"],
+              "line.width": [waveW],
+            },
+            [i]
+          );
         } else {
           const ring = circleFillRing(lat, lon, r);
-          const fillOp = lerp(0.1, 0.45, t);
+          const fillOp = lerp(0.08, 0.4, t);
           window.Plotly.restyle(
             gd,
             {

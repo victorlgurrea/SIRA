@@ -352,6 +352,7 @@ def _add_circulos_perceptibles(
         else [120.0] * len(rows)
     )
     border_rgb = "220, 38, 38"
+    wave_offsets = (0.33, 0.66)
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
         lat0 = float(row.lat)
@@ -397,9 +398,30 @@ def _add_circulos_perceptibles(
                 fill="none",
                 line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
                 hoverinfo="skip",
-                meta={**pulse_meta, "pulse": "grow", "part": "border", "border_rgb": border_rgb},
+                meta={**pulse_meta, "pulse": "grow", "part": "border", "wave_offset": 0.0, "border_rgb": border_rgb},
             )
         )
+        for wave_offset in wave_offsets:
+            fig.add_trace(
+                go.Scattergeo(
+                    lat=lat_ring,
+                    lon=lon_ring,
+                    mode="lines",
+                    name=legend_name,
+                    legendgroup=legendgroup,
+                    showlegend=False,
+                    fill="none",
+                    line=dict(width=1.5, color=f"rgba({border_rgb}, 0.35)"),
+                    hoverinfo="skip",
+                    meta={
+                        **pulse_meta,
+                        "pulse": "grow",
+                        "part": "wave",
+                        "wave_offset": wave_offset,
+                        "border_rgb": border_rgb,
+                    },
+                )
+            )
 
 
 def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None = None, obs_nombre: str = "") -> go.Figure:
