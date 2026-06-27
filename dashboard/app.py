@@ -353,8 +353,10 @@ def _add_circulos_perceptibles(
     )
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
-        lat_c, lon_c = circle_perimeter(float(row.lat), float(row.lon), r)
+        lat0 = float(row.lat)
+        lon0 = float(row.lon)
         mag = float(getattr(row, "magnitud", 0) or 0)
+        lat_c, lon_c = circle_perimeter(lat0, lon0, max(r * 0.06, 3.0))
         fig.add_trace(
             go.Scattergeo(
                 lat=lat_c,
@@ -364,15 +366,18 @@ def _add_circulos_perceptibles(
                 legendgroup=legendgroup,
                 showlegend=show_legend and idx == 0,
                 fill="toself",
-                fillcolor=f"rgba({fill_rgb}, 0.12)",
-                line=dict(width=1.5, color=f"rgba({fill_rgb}, 0.55)"),
+                fillcolor=f"rgba({fill_rgb}, 0.08)",
+                line=dict(width=1.5, color=f"rgba({fill_rgb}, 0.45)"),
                 hovertemplate=(
-                    f"Zona perceptible (~{r:.0f} km)<br>"
+                    f"Zona perceptible (hasta ~{r:.0f} km)<br>"
                     f"Mag {mag:.1f} · epicentro"
                     "<extra></extra>"
                 ),
                 meta={
-                    "pulse": "circle",
+                    "pulse": "grow",
+                    "center_lat": lat0,
+                    "center_lon": lon0,
+                    "radius_km": r,
                     "period_ms": period_ms,
                     "fill_rgb": fill_rgb,
                 },

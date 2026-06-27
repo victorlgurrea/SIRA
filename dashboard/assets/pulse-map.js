@@ -1,5 +1,6 @@
 (function () {
   const TICK_MS = 120;
+  const CIRCLE_POINTS = 72;
 
   function getPlotDiv() {
     const wrap = document.getElementById("mapa");
@@ -16,24 +17,51 @@
     return Math.sin(phase * Math.PI);
   }
 
+  function circlePerimeter(lat, lon, radiusKm) {
+    if (!radiusKm || radiusKm <= 0) {
+      return [[lat], [lon]];
+    }
+    const latRad = (Number(lat) * Math.PI) / 180;
+    const kmPerDegLat = 111.2;
+    const kmPerDegLon = 111.2 * Math.max(0.2, Math.cos(latRad));
+    const lats = [];
+    const lons = [];
+    for (let i = 0; i <= CIRCLE_POINTS; i++) {
+      const ang = (2 * Math.PI * i) / CIRCLE_POINTS;
+      lats.push(lat + (radiusKm * Math.sin(ang)) / kmPerDegLat);
+      lons.push(lon + (radiusKm * Math.cos(ang)) / kmPerDegLon);
+    }
+    return [lats, lons];
+  }
+
   function animatePulse(gd) {
     if (!gd || !gd.data || !window.Plotly) return;
     const now = Date.now();
     for (let i = 0; i < gd.data.length; i++) {
       const tr = gd.data[i];
       const meta = tr && tr.meta;
-      if (!meta || meta.pulse !== "circle") continue;
+      if (!meta || meta.pulse !== "grow") continue;
 
       const period = Number(meta.period_ms) || 1600;
       const rgb = meta.fill_rgb || "248, 113, 113";
+      const maxR = Number(meta.radius_km) || 120;
+      const lat = Number(meta.center_lat);
+      const lon = Number(meta.center_lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
       const t = pulseFactor(now, period);
-      const fillOp = lerp(0.05, 0.28, t);
-      const lineOp = lerp(0.35, 0.9, t);
+      const minR = Math.max(3, maxR * 0.06);
+      const r = lerp(minR, maxR, t);
+      const perimeter = circlePerimeter(lat, lon, r);
+      const fillOp = lerp(0.06, 0.42, t);
+      const lineOp = lerp(0.3, 0.85, t);
 
       try {
         window.Plotly.restyle(
           gd,
           {
+            lat: [perimeter[0]],
+            lon: [perimeter[1]],
             fillcolor: ["rgba(" + rgb + ", " + fillOp + ")"],
             "line.color": ["rgba(" + rgb + ", " + lineOp + ")"],
           },
