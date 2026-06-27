@@ -34,11 +34,10 @@
     return [lats, lons];
   }
 
-  function circleDisk(lat, lon, radiusKm) {
+  /** Anillo invertido: Plotly geo rellena el interior del disco. */
+  function circleFillRing(lat, lon, radiusKm) {
     const ring = circlePerimeter(lat, lon, radiusKm);
-    const ringLats = ring[0].slice(0, -1);
-    const ringLons = ring[1].slice(0, -1);
-    return [[lat].concat(ringLats, [lat]), [lon].concat(ringLons, [lon])];
+    return [ring[0].slice().reverse(), ring[1].slice().reverse()];
   }
 
   function animatePulse(gd) {
@@ -65,24 +64,26 @@
       try {
         if (part === "border") {
           const ring = circlePerimeter(lat, lon, r);
+          const borderOp = lerp(0.5, 1.0, t);
+          const borderW = lerp(1.8, 3.5, t);
           window.Plotly.restyle(
             gd,
             {
               lat: [ring[0]],
               lon: [ring[1]],
-              "line.color": ["rgb(" + borderRgb + ")"],
-              "line.width": [2.5],
+              "line.color": ["rgba(" + borderRgb + ", " + borderOp + ")"],
+              "line.width": [borderW],
             },
             [i]
           );
         } else {
-          const disk = circleDisk(lat, lon, r);
-          const fillOp = lerp(0.08, 0.42, t);
+          const ring = circleFillRing(lat, lon, r);
+          const fillOp = lerp(0.1, 0.45, t);
           window.Plotly.restyle(
             gd,
             {
-              lat: [disk[0]],
-              lon: [disk[1]],
+              lat: [ring[0]],
+              lon: [ring[1]],
               fillcolor: ["rgba(" + fillRgb + ", " + fillOp + ")"],
               "line.color": ["rgba(0, 0, 0, 0)"],
               "line.width": [0],

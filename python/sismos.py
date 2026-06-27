@@ -44,11 +44,9 @@ def circle_perimeter(lat: float, lon: float, radius_km: float, points: int = 72)
 
 
 def circle_disk_polygon(lat: float, lon: float, radius_km: float, points: int = 72) -> tuple[list[float], list[float]]:
-    """Disco relleno: epicentro + anillo (evita que Plotly geo pinte el exterior)."""
+    """Anillo invertido para que Plotly geo rellene el disco interior (no el exterior)."""
     lat_r, lon_r = circle_perimeter(lat, lon, radius_km, points)
-    ring_lats = lat_r[:-1]
-    ring_lons = lon_r[:-1]
-    return [lat] + ring_lats + [lat], [lon] + ring_lons + [lon]
+    return lat_r[::-1], lon_r[::-1]
 
 
 def es_perceptible(magnitud: float, profundidad_km: float, distancia_km: float) -> bool:

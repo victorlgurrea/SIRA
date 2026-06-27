@@ -395,7 +395,7 @@ def _add_circulos_perceptibles(
                 legendgroup=legendgroup,
                 showlegend=False,
                 fill="none",
-                line=dict(width=2.5, color=f"rgb({border_rgb})"),
+                line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
                 hoverinfo="skip",
                 meta={**pulse_meta, "pulse": "grow", "part": "border", "border_rgb": border_rgb},
             )
