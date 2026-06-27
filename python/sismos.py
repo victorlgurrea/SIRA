@@ -28,7 +28,7 @@ def distancia_perceptible_km(magnitud: float, profundidad_km: float) -> float:
 
 
 def circle_perimeter(lat: float, lon: float, radius_km: float, points: int = 72) -> tuple[list[float], list[float]]:
-    """Polígono aproximado del círculo de radio_km alrededor del epicentro (para mapa geo)."""
+    """Anillo cerrado del círculo de radio_km (solo contorno)."""
     if radius_km <= 0:
         return [float(lat)], [float(lon)]
     lat_rad = math.radians(lat)
@@ -41,6 +41,14 @@ def circle_perimeter(lat: float, lon: float, radius_km: float, points: int = 72)
         lats.append(lat + (radius_km * math.sin(ang)) / km_per_deg_lat)
         lons.append(lon + (radius_km * math.cos(ang)) / km_per_deg_lon)
     return lats, lons
+
+
+def circle_disk_polygon(lat: float, lon: float, radius_km: float, points: int = 72) -> tuple[list[float], list[float]]:
+    """Disco relleno: epicentro + anillo (evita que Plotly geo pinte el exterior)."""
+    lat_r, lon_r = circle_perimeter(lat, lon, radius_km, points)
+    ring_lats = lat_r[:-1]
+    ring_lons = lon_r[:-1]
+    return [lat] + ring_lats + [lat], [lon] + ring_lons + [lon]
 
 
 def es_perceptible(magnitud: float, profundidad_km: float, distancia_km: float) -> bool:

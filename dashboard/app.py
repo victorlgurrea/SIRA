@@ -36,7 +36,7 @@ from geo_es import coords_observacion, localidades, municipio_por_id, municipios
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts
-from sismos import circle_perimeter, filtrar_perceptibles
+from sismos import circle_disk_polygon, circle_perimeter, filtrar_perceptibles
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
@@ -343,7 +343,7 @@ def _add_circulos_perceptibles(
     fill_rgb: str = "248, 113, 113",
     show_legend: bool = True,
 ) -> None:
-    """Círculos geográficos (km) del radio perceptible; pulso vía pulse-map.js."""
+    """Disco + borde del radio perceptible; pulso interior vía pulse-map.js."""
     if rows.empty:
         return
     radios = (
@@ -351,36 +351,53 @@ def _add_circulos_perceptibles(
         if "radio_perceptible_km" in rows.columns
         else [120.0] * len(rows)
     )
+    border_rgb = "220, 38, 38"
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
         lat0 = float(row.lat)
         lon0 = float(row.lon)
         mag = float(getattr(row, "magnitud", 0) or 0)
-        lat_c, lon_c = circle_perimeter(lat0, lon0, max(r * 0.06, 3.0))
+        r0 = max(r * 0.06, 3.0)
+        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r0)
+        lat_ring, lon_ring = circle_perimeter(lat0, lon0, r0)
+        pulse_meta = {
+            "center_lat": lat0,
+            "center_lon": lon0,
+            "radius_km": r,
+            "period_ms": period_ms,
+            "fill_rgb": fill_rgb,
+        }
         fig.add_trace(
             go.Scattergeo(
-                lat=lat_c,
-                lon=lon_c,
+                lat=lat_fill,
+                lon=lon_fill,
                 mode="lines",
                 name=legend_name,
                 legendgroup=legendgroup,
                 showlegend=show_legend and idx == 0,
                 fill="toself",
-                fillcolor=f"rgba({fill_rgb}, 0.06)",
+                fillcolor=f"rgba({fill_rgb}, 0.08)",
                 line=dict(width=0, color="rgba(0, 0, 0, 0)"),
                 hovertemplate=(
                     f"Zona perceptible (hasta ~{r:.0f} km)<br>"
                     f"Mag {mag:.1f} · epicentro"
                     "<extra></extra>"
                 ),
-                meta={
-                    "pulse": "grow",
-                    "center_lat": lat0,
-                    "center_lon": lon0,
-                    "radius_km": r,
-                    "period_ms": period_ms,
-                    "fill_rgb": fill_rgb,
-                },
+                meta={**pulse_meta, "pulse": "grow", "part": "fill"},
+            )
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lat=lat_ring,
+                lon=lon_ring,
+                mode="lines",
+                name=legend_name,
+                legendgroup=legendgroup,
+                showlegend=False,
+                fill="none",
+                line=dict(width=2.5, color=f"rgb({border_rgb})"),
+                hoverinfo="skip",
+                meta={**pulse_meta, "pulse": "grow", "part": "border", "border_rgb": border_rgb},
             )
         )
 
@@ -389,7 +406,6 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
-    hoy_scale = 1.35
 
     if not df.empty and "nivel_local" not in df.columns:
         df = df.copy()
@@ -414,8 +430,8 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
         dist_loc = sub["dist_local_km"] if "dist_local_km" in sub.columns else [""] * len(sub)
         hoy_mask = [_es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
         base = sub["magnitud"] * 2 + 5
-        sizes = [b * hoy_scale if h else b for b, h in zip(base, hoy_mask)]
-        borders = [("#f87171", 2.5) if h else ("white", 0.5) for h in hoy_mask]
+        sizes = [9 if h else b for b, h in zip(base, hoy_mask)]
+        borders = [("white", 1) if h else ("white", 0.5) for h in hoy_mask]
         fig.add_trace(go.Scattergeo(
             lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
             marker=dict(
@@ -464,13 +480,15 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
                 period_ms=1400,
                 show_legend=False,
             )
+        prueba_sizes = [9 if h else (m * 2 + 8) for m, h in zip(df_prueba["magnitud"], hoy_mask_prueba)]
+        prueba_borders = [("white", 1) if h else ("#f87171", 2) for h in hoy_mask_prueba]
         fig.add_trace(go.Scattergeo(
             lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
             marker=dict(
-                size=df_prueba["magnitud"] * 2 + 8,
+                size=prueba_sizes,
                 color="rgba(239, 68, 68, 0.9)",
                 symbol="circle",
-                line=dict(width=2, color="#f87171"),
+                line=dict(width=[b[1] for b in prueba_borders], color=[b[0] for b in prueba_borders]),
             ),
             text=df_prueba["lugar"],
             customdata=list(zip(df_prueba["magnitud"], df_prueba["score_local"], reg_col, fechas, dist_loc)),
