@@ -245,7 +245,7 @@ def anexar_boletin_tsunami(
             "noaa": "https://www.tsunami.gov/",
         },
     }
-    if sismo.get("es_prueba"):
+    if sismo.get("es_prueba") or str(sismo.get("id") or "").startswith("sim"):
         base.update({
             "tsunami_estado": "simulacion",
             "tsunami_texto_ola": "Simulación SIRA — sin boletín oficial",
