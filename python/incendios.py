@@ -81,7 +81,7 @@ def _foco_desde_grupo(grupo: list[dict], idx: int) -> dict:
     ultima = max(ts_vals) if ts_vals else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     sat = max({p["satelite"] for p in grupo}, key=lambda s: sum(1 for p in grupo if p["satelite"] == s))
     return {
-        "id": f"firms-{idx:04d}-{lat:.3f}-{lon:.3f}",
+        "id": f"firms-{lat:.4f}-{lon:.4f}",
         "lat": round(lat, 5),
         "lon": round(lon, 5),
         "radio_km": round(radio, 1),
@@ -140,7 +140,7 @@ def descargar_incendios() -> list[dict]:
         log.warning("FIRMS_MAP_KEY no configurada; incendios omitidos")
         return []
     bbox = _bbox_espana()
-    dias = max(1, min(INCENDIO_DIAS, 10))
+    dias = max(1, min(INCENDIO_DIAS, 5))
     puntos: list[dict] = []
     for source in _FIRMS_SOURCES:
         puntos.extend(_descargar_fuente(source, bbox, dias))
@@ -159,12 +159,13 @@ def enriquecer_local(incendio: dict, lat_obs: float, lon_obs: float) -> dict:
     """Distancia y si la zona afectada llega a la localidad del usuario."""
     d = distancia_km(lat_obs, lon_obs, float(incendio["lat"]), float(incendio["lon"]))
     radio = float(incendio.get("radio_km") or INCENDIO_RADIO_MIN_KM)
-    afecta = d <= (radio + INCENDIO_RADIO_LOCAL_KM * 0.25)
+    margen = INCENDIO_RADIO_LOCAL_KM * 0.25
+    afecta = d <= (radio + margen)
     cerca = d <= INCENDIO_RADIO_LOCAL_KM
     return {
         **incendio,
         "dist_local_km": d,
-        "afecta_local": afecta or cerca,
+        "afecta_local": afecta,
         "cerca_local": cerca,
     }
 

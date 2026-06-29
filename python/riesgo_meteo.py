@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aemet_alerts import fmt_alerta_detalle, icono_alerta
 from config import RIESGO_METEO_HORAS
 
+_MADRID = ZoneInfo("Europe/Madrid")
 _LEVEL_WEIGHT = {"rojo": 100, "naranja": 68, "amarillo": 38, "verde": 10}
 _NIVEL_AEMET = {"amarillo": "AMARILLO", "naranja": "NARANJA", "rojo": "ROJO", "verde": "VERDE"}
 
@@ -34,8 +37,31 @@ def _indice_alerta(alerta: dict) -> int:
     return int(_LEVEL_WEIGHT.get(level, 30) * prob_mid / 100)
 
 
+def _serie_proximas_horas(serie: list[dict], horas: int) -> list[dict]:
+    """Ventana futura desde ahora (evita horas pasadas en series AEMET desde medianoche)."""
+    if not serie:
+        return []
+    ahora = datetime.now(_MADRID)
+    futuras: list[dict] = []
+    for row in serie:
+        raw = str(row.get("timestamp") or "")
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_MADRID)
+            else:
+                dt = dt.astimezone(_MADRID)
+        except ValueError:
+            continue
+        if dt >= ahora.replace(minute=0, second=0, microsecond=0):
+            futuras.append(row)
+        if len(futuras) >= horas:
+            break
+    return futuras if futuras else serie[:horas]
+
+
 def _indice_precip(serie: list[dict], horas: int) -> tuple[int, dict]:
-    ventana = serie[:horas] if serie else []
+    ventana = _serie_proximas_horas(serie, horas)
     probs = [int(x["prob_precip_pct"]) for x in ventana if x.get("prob_precip_pct") is not None]
     precips = [float(x.get("precip_mm") or 0) for x in ventana]
     max_prob = max(probs, default=0)
@@ -166,7 +192,10 @@ def calcular_riesgo_meteo(
     elementos.sort(key=lambda e: e.get("indice", 0), reverse=True)
 
     idx_cap = max((e["indice"] for e in elementos if e.get("fuente") == "AEMET Meteoalerta"), default=0)
-    indice = max(idx_cap, idx_precip) if elementos else idx_precip
+    if tiene_pr:
+        indice = idx_cap if elementos else 0
+    else:
+        indice = max(idx_cap, idx_precip) if elementos else idx_precip
     nivel_global = _nivel_indice(indice)
 
     if elementos:

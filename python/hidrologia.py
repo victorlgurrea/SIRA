@@ -121,11 +121,6 @@ def _merge_registros(v2_list: list[dict], saih_list: list[dict]) -> list[dict]:
         nombre = str(base.get("nombre") or "").strip()
         key = _norm_nombre(nombre)
         live = saih_idx.get(key)
-        if not live:
-            for sk, sv in saih_idx.items():
-                if sk.startswith(key[:6]) or key.startswith(sk[:6]):
-                    live = sv
-                    break
 
         pct_v2 = _num(base.get("porcentaje"))
         var_hm3 = _num(base.get("variacionSemanal"))

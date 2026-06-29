@@ -51,6 +51,7 @@ def lluvia_embalses_valor(precip_mm: float | int | str, resumen_emb: dict) -> ht
     return html.Div(className="sira-lluvia-embalses", children=filas)
 
 
+def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
     children: list = [
         html.Div(titulo, className="sira-card-title"),
         html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,

@@ -106,25 +106,16 @@ def enriquecer_local(sismo: dict, lat: float, lon: float) -> dict:
     lugar = sismo.get("lugar")
     slat = float(sismo["lat"])
     slon = float(sismo["lon"])
-    if "en_mar" in sismo:
-        en_mar = bool(sismo.get("en_mar"))
-    else:
-        en_mar = epicentro_en_mar(
-            slat, slon, lugar=lugar, profundidad_km=prof, usgs_tsunami=sismo.get("usgs_tsunami"),
-        )
-    sub = bool(sismo.get("es_submarino", prof < 200))
+    usgs_ts = sismo.get("usgs_tsunami")
+    en_mar = epicentro_en_mar(
+        slat, slon, lugar=lugar, profundidad_km=prof, usgs_tsunami=usgs_ts,
+    )
+    sub = bool(sismo.get("es_submarino", prof < 200)) and en_mar
     local = score_sismo(mag, prof, d, sub)
     radio = distancia_perceptible_km(mag, prof)
-    usgs_ts = sismo.get("usgs_tsunami")
-    if "alerta_tsunami" in sismo and "en_mar" in sismo:
-        ts_flag = bool(sismo.get("alerta_tsunami"))
-    else:
-        ts_flag = riesgo_tsunami(mag, prof, en_mar, usgs_ts)
-    stored_ts = sismo.get("radio_tsunami_km")
-    if ts_flag and stored_ts is not None:
-        radio_ts = float(stored_ts)
-    elif ts_flag:
-        radio_ts = radio_tsunami_km(mag, prof, en_mar=True)
+    ts_flag = riesgo_tsunami(mag, prof, en_mar, usgs_ts)
+    if ts_flag:
+        radio_ts = float(sismo["radio_tsunami_km"]) if sismo.get("radio_tsunami_km") else radio_tsunami_km(mag, prof, en_mar=True)
     else:
         radio_ts = 0.0
     perceptible = d <= radio

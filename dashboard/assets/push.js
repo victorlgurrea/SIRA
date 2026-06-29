@@ -129,14 +129,9 @@
       throw new Error("Clave VAPID inválida (se esperaban 65 bytes)");
     }
 
-    let sub = await swReg.pushManager.getSubscription();
-    if (sub) {
-      try {
-        await sub.unsubscribe();
-      } catch (e) {
-        console.warn("No se pudo limpiar suscripción previa", e);
-      }
-      sub = null;
+    const existing = await swReg.pushManager.getSubscription();
+    if (existing) {
+      return existing;
     }
 
     return withTimeout(
@@ -175,6 +170,21 @@
         autoRefreshFromPush();
       });
     } catch (e) {}
+
+    async function restorePushState() {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      try {
+        const swReg = await ensureServiceWorker();
+        const sub = await swReg.pushManager.getSubscription();
+        if (!sub) return;
+        pushActive = true;
+        const geo = getGeoPayload();
+        const muniTxt = geo.municipio;
+        setStatus(muniTxt ? "Push activo (" + muniTxt + ")" : "Push activo", true);
+      } catch (e) {
+        console.warn("No se pudo restaurar estado push", e);
+      }
+    }
 
     async function registerOrUpdatePush(skipPermission) {
       if (!skipPermission) {
@@ -242,6 +252,7 @@
     }
 
     pushBound = true;
+    restorePushState();
     return true;
   }
 

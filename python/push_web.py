@@ -16,7 +16,7 @@ from config import (
     VAPID_SUBJECT,
     ZONA,
 )
-from aemet_alerts import alerta_coincide_zona, fetch_active_alerts, fmt_alerta_detalle
+from aemet_alerts import alerta_coincide_zona, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle
 from core import read_dashboard, read_json_file, clear_meteo_live_cache
 from geo_es import coords_observacion, municipio_por_id, provincia_nombre_de_municipio, provincias
 from incendios import alerta_incendio_local
@@ -442,7 +442,12 @@ def notify_new_alerts(dashboard_url: str) -> int:
     if not vapid_enabled():
         return 0
     data = read_dashboard()
-    todos = data.get("sismos", [])
+    todos = [
+        s for s in data.get("sismos", [])
+        if s.get("id")
+        and not str(s["id"]).startswith("sim")
+        and not s.get("es_prueba")
+    ]
     incendios = data.get("incendios", [])
 
     state = _state()
@@ -463,6 +468,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
                 float(s["lon"]),
                 lugar=s.get("lugar"),
                 profundidad_km=float(s.get("profundidad") or 0),
+                usgs_tsunami=s.get("usgs_tsunami"),
             )
         if not en_mar:
             return False
@@ -470,7 +476,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
             return True
         from sismos import riesgo_tsunami as _riesgo
 
-        return _riesgo_tsunami(
+        return _riesgo(
             float(s.get("magnitud") or 0),
             float(s.get("profundidad") or 0),
             True,
@@ -552,7 +558,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
 
     if AEMET_API_KEY:
         try:
-            avisos = fetch_active_alerts(AEMET_API_KEY)
+            avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
         except Exception as exc:  # noqa: BLE001
             log.warning("AEMET CAP: %s", exc)
             avisos = []
@@ -632,7 +638,7 @@ def send_test_push(
         target = str(solo_municipio_id).zfill(5)
         subs = [
             s for s in subs
-            if not s.get("municipio_id") or str(s["municipio_id"]).zfill(5) == target
+            if str(s.get("municipio_id") or "").zfill(5) == target
         ]
 
     if simular_real and sismo_prueba:

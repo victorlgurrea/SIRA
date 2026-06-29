@@ -174,7 +174,14 @@ def alertas_a_capa_costera(alertas: list[dict]) -> list[dict]:
         }
         clave = str(zona["clave"])
         prev = mejor.get(clave)
-        if not prev or prev["radio_tsunami_km"] < radio:
+        if not prev:
+            mejor[clave] = row
+            continue
+        prev_prio = _LEVEL_PRIORIDAD.get(str(prev.get("level") or "").lower(), 0)
+        new_prio = _LEVEL_PRIORIDAD.get(str(row.get("level") or "").lower(), 0)
+        if new_prio > prev_prio or (
+            new_prio == prev_prio and float(prev.get("radio_tsunami_km") or 0) < radio
+        ):
             mejor[clave] = row
     rows = list(mejor.values())
     rows.sort(

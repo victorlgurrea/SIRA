@@ -55,7 +55,7 @@ FIRMS_CSV_COLUMNS = (
     "version", "bright_ti5", "frp", "daynight", "type",
 )
 # scan × track ≈ área del píxel (km²). confidence: 'h'|'n'|'l' o numérico (MODIS).
-# acq_time: HHMM en UTC. Máx. day_range API: 5.
+# acq_time: HHMM en UTC. Máx. day_range API FIRMS: 5.
 
 # --- AEMET CAP 1.2 (Meteoalerta) ---------------------------------------------
 
@@ -95,7 +95,7 @@ def _en_tierra_iberica(lat: float, lon: float) -> bool:
     # Agua mediterránea al E de la costa (excluir del polígono peninsular amplio)
     if 38.2 <= lat <= 40.8 and 0.05 <= lon <= 3.0:
         return False
-    if 36.8 <= lat <= 38.2 and -0.5 <= lon <= 1.5:
+    if 36.8 <= lat <= 38.2 and -2.0 <= lon <= 1.5:
         return False
     if 27.45 <= lat <= 29.65 and -18.55 <= lon <= -12.95:
         return True
@@ -132,12 +132,12 @@ def epicentro_en_mar(
     """Epicentro en el mar (no tierra firme ibérica).
 
     Orden según señales de la API USGS y geografía local:
-    1. place con nombre de mar/océano → True (texto USGS explícito).
-    2. Tierra ibérica por coordenadas → False.
-    3. properties.tsunami=1 → True (USGS: región oceánica).
-    4. place con patrón «X km … of Ciudad» → False (referencia GeoNames en tierra).
-    5. Coordenadas en fajas marítimas del entorno ibérico → True.
-    6. Por defecto → False (no asumir mar fuera de la zona de interés).
+    1. place con nombre de mar/océano → True.
+    2. Tierra ibérica por coordenadas → False (tierra manda sobre USGS tsunami).
+    3. properties.tsunami=1 → True.
+    4. place con patrón «X km … of Ciudad» → False.
+    5. Coordenadas en faja marítima → True.
+    6. Por defecto → False.
     """
     if usgs_lugar_indica_mar(lugar):
         return True

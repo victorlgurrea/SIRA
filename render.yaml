@@ -17,6 +17,8 @@ envVarGroups:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      - key: FIRMS_MAP_KEY
+        sync: false
 
 services:
   - type: web
