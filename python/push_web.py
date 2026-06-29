@@ -19,7 +19,8 @@ from config import (
 from aemet_alerts import alerta_coincide_zona, fetch_active_alerts, fmt_alerta_detalle
 from core import read_dashboard, read_json_file, clear_meteo_live_cache
 from geo_es import coords_observacion, municipio_por_id, provincia_nombre_de_municipio, provincias
-from sismos import alerta_local
+from incendios import alerta_incendio_local
+from sismos import alerta_local, alerta_tsunami_local
 from test_overlay import build_test_sismo, save_test_overlay
 
 log = logging.getLogger(__name__)
@@ -56,11 +57,13 @@ def _normalize_sub(sub: dict) -> dict:
     out = dict(sub)
     alertas = out.get("alertas")
     if not isinstance(alertas, list) or not alertas:
-        out["alertas"] = ["sismo", "meteo"]
+        out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
     else:
         vals = {str(a).lower() for a in alertas}
         if vals <= {"sismo"}:
-            out["alertas"] = ["sismo", "meteo"]
+            out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
+        elif vals <= {"sismo", "meteo"}:
+            out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
     if out.get("municipio_id"):
         out["municipio_id"] = str(out["municipio_id"]).zfill(5)
     if out.get("provincia_id"):
@@ -82,7 +85,7 @@ def _needs_normalize(sub: dict) -> bool:
     if not isinstance(alertas, list) or not alertas:
         return True
     vals = {str(a).lower() for a in alertas}
-    return vals <= {"sismo"}
+    return vals <= {"sismo"} or vals <= {"sismo", "meteo"}
 
 
 def save_subscriptions(subs: list[dict]) -> None:
@@ -115,9 +118,13 @@ def _state() -> dict:
     data = read_json_file(PUSH_STATE_FILE)
     ids_sismo = [str(x) for x in data.get("ids_sismo", data.get("ids_push", []))]
     ids_meteo = [str(x) for x in data.get("ids_meteo", [])]
+    ids_incendio = [str(x) for x in data.get("ids_incendio", [])]
+    ids_tsunami = [str(x) for x in data.get("ids_tsunami", [])]
     return {
         "ids_sismo": sorted(set(ids_sismo)),
         "ids_meteo": sorted(set(ids_meteo)),
+        "ids_incendio": sorted(set(ids_incendio)),
+        "ids_tsunami": sorted(set(ids_tsunami)),
     }
 
 
@@ -127,6 +134,8 @@ def _save_state(state: dict) -> None:
         {
             "ids_sismo": sorted({str(x) for x in state.get("ids_sismo", [])}),
             "ids_meteo": sorted({str(x) for x in state.get("ids_meteo", [])}),
+            "ids_incendio": sorted({str(x) for x in state.get("ids_incendio", [])}),
+            "ids_tsunami": sorted({str(x) for x in state.get("ids_tsunami", [])}),
             "updated": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -152,6 +161,39 @@ def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) ->
     }
 
 
+def _build_tsunami_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
+    mag = s.get("magnitud", "—")
+    lugar = s.get("lugar", "—")
+    radio = s.get("radio_tsunami_km", "—")
+    return {
+        "title": "SIRA · Alerta tsunami",
+        "body": (
+            f"M{mag} · zona de aviso ~{radio} km · a {dist_km:.0f} km de {zona} · {lugar}"
+            if isinstance(radio, (int, float))
+            else f"M{mag} · a {dist_km:.0f} km de {zona} · {lugar}"
+        ),
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-tsunami-{s.get('id')}",
+        "renotify": False,
+    }
+
+
+def _build_incendio_payload(inc: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
+    radio = inc.get("radio_km", "—")
+    frp = inc.get("frp_mw", "—")
+    return {
+        "title": "SIRA · Incendio activo cerca",
+        "body": f"Foco a {dist_km:.0f} km de {zona} · radio ~{radio} km · FRP {frp} MW",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-incendio-{inc.get('id')}",
+        "renotify": False,
+    }
+
+
 def _sub_prefers_sismo(sub: dict) -> bool:
     alertas = sub.get("alertas")
     if not isinstance(alertas, list) or not alertas:
@@ -168,13 +210,57 @@ def _sub_prefers_meteo(sub: dict) -> bool:
     return any(k in vals for k in ("meteo", "aemet", "all", "todas"))
 
 
+def _sub_prefers_incendio(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("incendio", "fuego", "all", "todas"))
+
+
+def _sub_prefers_tsunami(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("tsunami", "mar", "all", "todas"))
+
+
 def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
-    """Alerta si el sismo es perceptible y crítico desde la zona de la suscripción."""
+    """Alerta si el sismo es perceptible desde la zona de la suscripción."""
     if not _sub_prefers_sismo(sub):
         return None
     lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
     try:
         info = alerta_local(sismo, lat, lon)
+        if not info:
+            return None
+        return {**info, "zona": zona}
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _tsunami_match_subscription(sismo: dict, sub: dict) -> dict | None:
+    """Alerta si el aviso tsunami USGS alcanza la zona de la suscripción."""
+    if not _sub_prefers_tsunami(sub):
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
+    try:
+        info = alerta_tsunami_local(sismo, lat, lon)
+        if not info:
+            return None
+        return {**info, "zona": zona}
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _incendio_match_subscription(incendio: dict, sub: dict) -> dict | None:
+    """Alerta si un foco activo afecta la zona de la suscripción."""
+    if not _sub_prefers_incendio(sub):
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
+    try:
+        info = alerta_incendio_local(incendio, lat, lon)
         if not info:
             return None
         return {**info, "zona": zona}
@@ -357,21 +443,41 @@ def notify_new_alerts(dashboard_url: str) -> int:
         return 0
     data = read_dashboard()
     todos = data.get("sismos", [])
+    incendios = data.get("incendios", [])
 
     state = _state()
     prev_sismo = set(state["ids_sismo"])
-    if todos and not prev_sismo:
-        state["ids_sismo"] = sorted({str(s["id"]) for s in todos if s.get("id")})
-        _save_state(state)
-        return 0
+    prev_tsunami = set(state["ids_tsunami"])
+    prev_incendio = set(state["ids_incendio"])
+    prev_meteo = set(state["ids_meteo"])
 
-    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo] if todos else []
+    def _es_tsunami(s: dict) -> bool:
+        if s.get("alerta_tsunami"):
+            return True
+        try:
+            return int(s.get("usgs_tsunami") or 0) == 1
+        except (TypeError, ValueError):
+            return False
+
+    sismos_tsunami = [s for s in todos if _es_tsunami(s)]
+
+    # Semilla inicial por tipo: no notificar el inventario ya presente al desplegar.
+    if todos and not state["ids_sismo"]:
+        prev_sismo = {str(s["id"]) for s in todos if s.get("id")}
+    if sismos_tsunami and not state["ids_tsunami"]:
+        prev_tsunami = {str(s["id"]) for s in sismos_tsunami if s.get("id")}
+    if incendios and not state["ids_incendio"]:
+        prev_incendio = {str(i["id"]) for i in incendios if i.get("id")}
 
     subs = list_subscriptions()
     sent = 0
     invalid_endpoints: set[str] = set()
     procesados_sismo: set[str] = set()
+    procesados_tsunami: set[str] = set()
+    procesados_incendio: set[str] = set()
+    procesados_meteo: set[str] = set()
 
+    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo]
     for s in nuevos:
         sid = str(s["id"])
         for sub in subs:
@@ -386,20 +492,57 @@ def notify_new_alerts(dashboard_url: str) -> int:
                 invalid_endpoints.add(sub.get("endpoint", ""))
         procesados_sismo.add(sid)
 
-    # Avisos meteorológicos AEMET en CAP (opcional según API key)
-    procesados_meteo: set[str] = set()
-    prev_meteo = set(state["ids_meteo"])
+    nuevos_tsunami = [
+        s for s in sismos_tsunami
+        if s.get("id") and str(s["id"]) not in prev_tsunami
+    ]
+    for s in nuevos_tsunami:
+        sid = str(s["id"])
+        for sub in subs:
+            info = _tsunami_match_subscription(s, sub)
+            if not info:
+                continue
+            payload = _build_tsunami_payload(
+                info, dashboard_url, zona=info["zona"], dist_km=float(info["dist_local_km"])
+            )
+            result = send_push(sub, payload)
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_tsunami.add(sid)
+
+    nuevos_incendio = [
+        i for i in incendios
+        if i.get("id") and str(i["id"]) not in prev_incendio
+    ]
+    for inc in nuevos_incendio:
+        iid = str(inc["id"])
+        for sub in subs:
+            info = _incendio_match_subscription(inc, sub)
+            if not info:
+                continue
+            payload = _build_incendio_payload(
+                info, dashboard_url, zona=info["zona"], dist_km=float(info["dist_local_km"])
+            )
+            result = send_push(sub, payload)
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_incendio.add(iid)
+
     if AEMET_API_KEY:
         try:
             avisos = fetch_active_alerts(AEMET_API_KEY)
         except Exception as exc:  # noqa: BLE001
             log.warning("AEMET CAP: %s", exc)
             avisos = []
-        if avisos and not prev_meteo:
-            state["ids_meteo"] = sorted({str(a.get("id")) for a in avisos if a.get("id")})
-            _save_state(state)
-            return sent
-        nuevos_meteo = [a for a in avisos if str(a.get("id")) not in prev_meteo]
+        if avisos and not state["ids_meteo"]:
+            prev_meteo = {str(a.get("id")) for a in avisos if a.get("id")}
+            nuevos_meteo = []
+        else:
+            nuevos_meteo = [a for a in avisos if str(a.get("id")) not in prev_meteo]
         for a in nuevos_meteo:
             aid = str(a.get("id"))
             if not aid:
@@ -421,6 +564,8 @@ def notify_new_alerts(dashboard_url: str) -> int:
         save_subscriptions(subs)
 
     state["ids_sismo"] = sorted(prev_sismo | procesados_sismo)
+    state["ids_tsunami"] = sorted(prev_tsunami | procesados_tsunami)
+    state["ids_incendio"] = sorted(prev_incendio | procesados_incendio)
     state["ids_meteo"] = sorted(prev_meteo | procesados_meteo)
     _save_state(state)
     return sent
@@ -473,13 +618,21 @@ def send_test_push(
         ]
 
     if simular_real and sismo_prueba:
-        dist_km = sismo_prueba.get("dist_valencia_km", "—")
-        payload = _build_payload(
-            sismo_prueba,
-            url or dashboard_url,
-            zona=ZONA["ciudad_ref"],
-            dist_km=float(dist_km) if dist_km != "—" else 0.0,
-        )
+        dist_km = float(sismo_prueba.get("dist_valencia_km") or 0)
+        if tsunami and sismo_prueba.get("alerta_tsunami"):
+            payload = _build_tsunami_payload(
+                sismo_prueba,
+                url or dashboard_url,
+                zona=ZONA["ciudad_ref"],
+                dist_km=dist_km,
+            )
+        else:
+            payload = _build_payload(
+                sismo_prueba,
+                url or dashboard_url,
+                zona=ZONA["ciudad_ref"],
+                dist_km=dist_km,
+            )
         payload["url"] = url or dashboard_url
         payload["renotify"] = renotify
     else:

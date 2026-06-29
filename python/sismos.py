@@ -123,6 +123,19 @@ def alerta_local(sismo: dict, lat: float, lon: float) -> dict | None:
     return info
 
 
+def alerta_tsunami_local(sismo: dict, lat: float, lon: float) -> dict | None:
+    """Aviso tsunami si el epicentro está dentro del radio calculado desde el usuario."""
+    info = enriquecer_local(sismo, lat, lon)
+    if not info.get("alerta_tsunami"):
+        return None
+    radio = float(info.get("radio_tsunami_km") or 0)
+    if radio <= 0:
+        return None
+    if float(info.get("dist_local_km") or 0) > radio:
+        return None
+    return info
+
+
 def filtrar_perceptibles(sismos: list, lat: float, lon: float) -> list[dict]:
     out: list[dict] = []
     for s in sismos:

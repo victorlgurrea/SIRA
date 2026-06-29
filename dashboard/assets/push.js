@@ -198,7 +198,7 @@
         provincia_id: geo.provincia_id,
         municipio_id: geo.municipio_id,
         localidad_id: geo.localidad_id,
-        alertas: ["sismo", "meteo"],
+        alertas: ["sismo", "meteo", "incendio", "tsunami"],
       });
 
       setStatus("Guardando suscripción…", false);

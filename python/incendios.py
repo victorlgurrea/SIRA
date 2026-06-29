@@ -214,6 +214,14 @@ def filtrar_locales(incendios: list[dict], lat_obs: float, lon_obs: float) -> li
     return [i for i in (enriquecer_local(x, lat_obs, lon_obs) for x in incendios) if i["afecta_local"]]
 
 
+def alerta_incendio_local(incendio: dict, lat: float, lon: float) -> dict | None:
+    """Foco que afecta la localidad del usuario (mismo criterio que el mapa)."""
+    info = enriquecer_local(incendio, lat, lon)
+    if not info.get("afecta_local"):
+        return None
+    return info
+
+
 def poligono_foco(lat: float, lon: float, radio_km: float) -> tuple[list[float], list[float]]:
     """Anillo del foco (solo contorno; relleno vía circle_disk en dashboard)."""
     return circle_perimeter(lat, lon, radio_km)
