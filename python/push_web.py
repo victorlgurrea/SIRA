@@ -22,6 +22,7 @@ from geo_es import coords_observacion, municipio_por_id, provincia_nombre_de_mun
 from incendios import alerta_incendio_local
 from sismos import alerta_local, alerta_tsunami_local
 from test_overlay import build_test_sismo, save_test_overlay
+from tsunami_oficial import anexar_boletin_tsunami, texto_push_tsunami
 
 log = logging.getLogger(__name__)
 
@@ -162,16 +163,10 @@ def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) ->
 
 
 def _build_tsunami_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
-    mag = s.get("magnitud", "—")
     lugar = s.get("lugar", "—")
-    radio = s.get("radio_tsunami_km", "—")
     return {
         "title": "SIRA · Alerta tsunami",
-        "body": (
-            f"M{mag} · zona de aviso ~{radio} km · a {dist_km:.0f} km de {zona} · {lugar}"
-            if isinstance(radio, (int, float))
-            else f"M{mag} · a {dist_km:.0f} km de {zona} · {lugar}"
-        ),
+        "body": texto_push_tsunami(s, zona=zona, dist_km=dist_km) + f" · {lugar}",
         "icon": "/assets/logo-sira_4.png?v=8",
         "badge": "/assets/logo-sira_4.png?v=8",
         "url": dashboard_url,
@@ -246,7 +241,7 @@ def _tsunami_match_subscription(sismo: dict, sub: dict) -> dict | None:
         return None
     lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
     try:
-        info = alerta_tsunami_local(sismo, lat, lon)
+        info = alerta_tsunami_local(sismo, lat, lon, sub.get("municipio_id"))
         if not info:
             return None
         return {**info, "zona": zona}
@@ -644,6 +639,12 @@ def send_test_push(
     if simular_real and sismo_prueba:
         dist_km = float(sismo_prueba.get("dist_valencia_km") or 0)
         if sismo_prueba.get("en_mar") and sismo_prueba.get("alerta_tsunami"):
+            sismo_prueba = anexar_boletin_tsunami(
+                sismo_prueba,
+                ZONA["lat_ref"],
+                ZONA["lon_ref"],
+                None,
+            )
             payload = _build_tsunami_payload(
                 sismo_prueba,
                 url or dashboard_url,

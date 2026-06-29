@@ -48,6 +48,7 @@ from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
 from hidrologia import embalses_para_mapa, resumen_embalses
 from aforos import aforos_para_mapa, resumen_aforos
+from tsunami_oficial import anexar_boletin_tsunami
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
@@ -380,6 +381,8 @@ def _add_circulos_perceptibles(
         area = getattr(row, "area_desc", "") or ""
         if mag > 0:
             hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>Mag {mag:.1f} · epicentro"
+            if area:
+                hover_body += f"<br>{area}"
         elif area:
             hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>{area}"
         else:
@@ -978,6 +981,15 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     sismos_all = d.get("sismos", [])
     sismos_mapa = [enriquecer_local(s, lat_obs, lon_obs) for s in sismos_all]
+    sismos_mapa = [
+        anexar_boletin_tsunami(s, lat_obs, lon_obs, muni_id)
+        if s.get("alerta_tsunami")
+        else s
+        for s in sismos_mapa
+    ]
+    for s in sismos_mapa:
+        if s.get("alerta_tsunami") and s.get("tsunami_texto_ola"):
+            s["area_desc"] = str(s["tsunami_texto_ola"])
     sismos = [s for s in sismos_mapa if s.get("perceptible_local")]
     incendios_all = d.get("incendios", [])
     incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in incendios_all]

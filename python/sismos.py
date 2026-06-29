@@ -140,7 +140,12 @@ def alerta_local(sismo: dict, lat: float, lon: float) -> dict | None:
     return info
 
 
-def alerta_tsunami_local(sismo: dict, lat: float, lon: float) -> dict | None:
+def alerta_tsunami_local(
+    sismo: dict,
+    lat: float,
+    lon: float,
+    municipio_id: str | None = None,
+) -> dict | None:
     """Sismo en el mar con riesgo de ola que alcanza la localidad del usuario."""
     info = enriquecer_local(sismo, lat, lon)
     if not info.get("en_mar") or not info.get("alerta_tsunami"):
@@ -150,7 +155,7 @@ def alerta_tsunami_local(sismo: dict, lat: float, lon: float) -> dict | None:
         return None
     if float(info.get("dist_local_km") or 0) > radio:
         return None
-    return info
+    return anexar_boletin_tsunami(info, lat, lon, municipio_id)
 
 
 def filtrar_perceptibles(sismos: list, lat: float, lon: float) -> list[dict]:

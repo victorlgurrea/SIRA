@@ -69,6 +69,12 @@ TSUNAMI = {
     "max_km": _f("TSUNAMI_MAX_KM", "1200"),
 }
 
+TSUNAMI_GOV_FEED_URL = os.getenv(
+    "TSUNAMI_GOV_FEED_URL",
+    "https://www.tsunami.gov/php/esri.php?a=t&format=json",
+)
+TSUNAMI_GOV_CACHE_SEC = _i("TSUNAMI_GOV_CACHE_SEC", "300")
+
 # Círculos azules en mapa para avisos costeros AEMET (CO oleaje / RI rissaga)
 COSTERO_MAPA = {
     "radio_base": _f("COSTERO_RADIO_BASE_KM", "75"),
@@ -203,4 +209,6 @@ ALLOWED_HOSTS = frozenset({
     "firms.modaps.eosdis.nasa.gov",
     "volcjmdnsxfuekvehwte.supabase.co",
     "saih.chj.es",
+    "tsunami.gov",
+    "www.tsunami.gov",
 }) | {h.strip() for h in os.getenv("ALLOWED_HTTP_HOSTS", "").split(",") if h.strip()}
