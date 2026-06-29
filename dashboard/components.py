@@ -36,18 +36,30 @@ def mag_con_riesgo(mag: float, nivel: str | None) -> html.Div:
     ])
 
 
-def lluvia_embalses_valor(precip_mm: float | int | str, resumen_emb: dict) -> html.Div:
-    """Bloque principal de la tarjeta Lluvia 24h con línea de embalses."""
-    n = int(resumen_emb.get("n_alertas_local") or 0)
-    linea = str(resumen_emb.get("texto_linea") or "")
-    filas = [
-        html.Div(f"{precip_mm} mm", className="sira-card-value-num"),
-        html.Div(
-            linea,
+def lluvia_embalses_valor(
+    precip_mm: float | int | str,
+    resumen_emb: dict,
+    resumen_afor: dict | None = None,
+) -> html.Div:
+    """Bloque principal de la tarjeta Lluvia 24h con líneas de embalses y aforos."""
+    n_emb = int(resumen_emb.get("n_alertas_local") or 0)
+    linea_emb = str(resumen_emb.get("texto_linea") or "")
+    filas = [html.Div(f"{precip_mm} mm", className="sira-card-value-num")]
+    if linea_emb:
+        filas.append(html.Div(
+            linea_emb,
             className="sira-card-detail sira-embalses-linea",
-            style={"color": "#38bdf8" if n else None},
-        ),
-    ]
+            style={"color": "#38bdf8" if n_emb else None},
+        ))
+    if resumen_afor:
+        n_afor = int(resumen_afor.get("n_alertas_local") or 0)
+        linea_afor = str(resumen_afor.get("texto_linea") or "")
+        if linea_afor:
+            filas.append(html.Div(
+                linea_afor,
+                className="sira-card-detail sira-aforos-linea",
+                style={"color": "#14b8a6" if n_afor else None},
+            ))
     return html.Div(className="sira-lluvia-embalses", children=filas)
 
 

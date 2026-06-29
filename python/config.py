@@ -143,6 +143,11 @@ EMBALSE_UMBRAL_ALERTA = _f("EMBALSE_UMBRAL_ALERTA", "95")
 EMBALSE_UMBRAL_CRITICO = _f("EMBALSE_UMBRAL_CRITICO", "98")
 EMBALSE_RADIO_LOCAL_KM = _f("EMBALSE_RADIO_LOCAL_KM", "120")
 EMBALSE_MAP_MAX = _i("EMBALSE_MAP_MAX", "15")
+# Aforos — SAIH CHJ (https://saih.chj.es) · red MITECO cuenca Júcar
+CHJ_SAIH_BASE = os.getenv("CHJ_SAIH_BASE", "https://saih.chj.es")
+AFORO_RADIO_LOCAL_KM = _f("AFORO_RADIO_LOCAL_KM", "100")
+AFORO_MAP_MAX = _i("AFORO_MAP_MAX", "20")
+AFORO_CAUDAL_VIGILANCIA_M3S = _f("AFORO_CAUDAL_VIGILANCIA_M3S", "1.0")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
@@ -197,4 +202,5 @@ ALLOWED_HOSTS = frozenset({
     "opendata.aemet.es", "api.telegram.org",
     "firms.modaps.eosdis.nasa.gov",
     "volcjmdnsxfuekvehwte.supabase.co",
+    "saih.chj.es",
 }) | {h.strip() for h in os.getenv("ALLOWED_HTTP_HOSTS", "").split(",") if h.strip()}

@@ -25,6 +25,8 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
+    AFORO_MAP_MAX,
+    AFORO_RADIO_LOCAL_KM,
     EMBALSE_MAP_MAX,
     EMBALSE_RADIO_LOCAL_KM,
     INCENDIO_MAP_MAX,
@@ -45,6 +47,7 @@ from costa_mapa import alertas_a_capa_costera
 from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
 from hidrologia import embalses_para_mapa, resumen_embalses
+from aforos import aforos_para_mapa, resumen_aforos
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
@@ -178,12 +181,12 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
-                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = sismo en tierra · azul = tsunami/mar/embalses.",
+                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = tierra · azul = mar/embalses · diamante = aforos CHJ.",
                         map_chart=True, accent=C_ORANGE,
                     ),
                     bloque(
                         "lluvia", "Previsión de lluvia",
-                        "Según la localidad seleccionada · AEMET o Open-Meteo · embalses embals.es.",
+                        "Según la localidad seleccionada · AEMET o Open-Meteo · embalses y aforos SAIH.",
                         accent=C_TEAL,
                     ),
                 ]),
@@ -315,7 +318,7 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         for r in alertas_a_capa_costera(src)
     )
     return (
-        f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}"
+        f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}|{len(d.get('aforos', []))}"
         f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|costa:{costa_sig}"
     )
 
@@ -545,6 +548,49 @@ def _add_marcadores_embalses(fig: go.Figure, embalses: list[dict]) -> None:
         leyenda = True
 
 
+def _add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
+    """Puntos verdes/teal para aforos CHJ con caudal en alerta."""
+    if not aforos:
+        return
+    colores = {
+        "critico": "#dc2626",
+        "alerta": "#f97316",
+        "vigilancia": "#14b8a6",
+    }
+    leyenda = False
+    for af in aforos:
+        lat = float(af.get("lat") or 0)
+        lon = float(af.get("lon") or 0)
+        if not lat and not lon:
+            continue
+        nivel = str(af.get("nivel_riesgo") or "vigilancia")
+        color = colores.get(nivel, "#14b8a6")
+        size = {"critico": 12, "alerta": 10, "vigilancia": 8}.get(nivel, 8)
+        q = af.get("caudal_m3s")
+        h = af.get("nivel_m")
+        dist = af.get("dist_local_km", "—")
+        q_txt = f"{q} m³/s" if q is not None else "—"
+        h_txt = f"{h} m" if h is not None else "—"
+        fig.add_trace(go.Scattergeo(
+            lat=[lat],
+            lon=[lon],
+            mode="markers",
+            name="Aforo CHJ en alerta" if not leyenda else None,
+            legendgroup="aforos",
+            showlegend=not leyenda,
+            marker=dict(size=size, color=color, symbol="diamond", line=dict(width=1.2, color="white")),
+            text=[af.get("nombre", "Aforo")],
+            hovertemplate=(
+                "%{text}<br>"
+                f"Nivel: {h_txt} · Caudal: {q_txt}<br>"
+                f"Riesgo: {nivel.title()}<br>"
+                f"Distancia: {dist} km"
+                "<extra></extra>"
+            ),
+        ))
+        leyenda = True
+
+
 def _fig_mapa(
     sismos: list,
     incendios: list | None = None,
@@ -553,6 +599,7 @@ def _fig_mapa(
     obs_nombre: str = "",
     zonas_costeras: list | None = None,
     embalses_mapa: list | None = None,
+    aforos_mapa: list | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
@@ -682,6 +729,9 @@ def _fig_mapa(
 
     if embalses_mapa:
         _add_marcadores_embalses(fig, embalses_mapa)
+
+    if aforos_mapa:
+        _add_marcadores_aforos(fig, aforos_mapa)
 
     if not df_prueba.empty:
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
@@ -933,12 +983,15 @@ def refresh(n_intervals, clicks, geo, last_ts):
     incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in incendios_all]
     incendios_local = [i for i in incendios_mapa if i.get("afecta_local")]
     embalses_all = d.get("embalses", [])
+    aforos_all = d.get("aforos", [])
     oce = d.get("oceanografia", {})
     met = meteo_localidad(muni_id, localidad)
     res_met = met.get("resumen", {})
     lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
     res_emb = resumen_embalses(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
+    res_afor = resumen_aforos(aforos_all, lat_obs, lon_obs)
     embalses_mapa = embalses_para_mapa(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
+    aforos_mapa = aforos_para_mapa(aforos_all, lat_obs, lon_obs)
     alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
     zonas_costeras = alertas_a_capa_costera(alertas_fuente)
 
@@ -970,9 +1023,9 @@ def refresh(n_intervals, clicks, geo, last_ts):
         ),
         card(
             "Lluvia 24h",
-            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb),
+            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            f"{loc_label} · embals.es (SAIH) · radio {EMBALSE_RADIO_LOCAL_KM:.0f} km",
+            f"{loc_label} · SAIH CHJ · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
             accent=C_TEAL,
         ),
         card(
@@ -999,7 +1052,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa),
+        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa, aforos_mapa),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),

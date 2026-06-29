@@ -19,6 +19,7 @@ from config import (
 )
 from core import fetch_aemet, fetch_json, write_dashboard
 from hidrologia import descargar_embalses
+from aforos import descargar_aforos
 from incendios import descargar_incendios
 from fuentes import parse_usgs_feature
 from sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
@@ -219,6 +220,7 @@ def ejecutar_ingesta():
     sismos = descargar_sismos()
     incendios = descargar_incendios()
     embalses = descargar_embalses()
+    aforos = descargar_aforos()
     por_region: dict[str, int] = {}
     for s in sismos:
         por_region[s["region"]] = por_region.get(s["region"], 0) + 1
@@ -228,6 +230,7 @@ def ejecutar_ingesta():
         "sismos": sismos,
         "incendios": incendios,
         "embalses": embalses,
+        "aforos": aforos,
         "oceanografia": descargar_oceanografia(),
         "meteorologia": descargar_meteo(),
         "estadisticas": {
@@ -236,6 +239,10 @@ def ejecutar_ingesta():
             "n_embalses": len(embalses),
             "n_embalses_vigilancia": sum(
                 1 for e in embalses if e.get("nivel_riesgo") in ("vigilancia", "alerta", "critico")
+            ),
+            "n_aforos": len(aforos),
+            "n_aforos_alerta": sum(
+                1 for a in aforos if a.get("nivel_riesgo") in ("vigilancia", "alerta", "critico")
             ),
             "mag_max": max((s["magnitud"] for s in sismos), default=0),
             "score_max": max((s["score_total"] for s in sismos), default=0),
