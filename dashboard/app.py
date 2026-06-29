@@ -13,7 +13,7 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, dir_compass, mag_con_riesgo, meteo_ahora, regiones, riesgo_meteo_panel
+from components import bloque, card, card_doble, card_sismos_combinada, dir_compass, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
@@ -25,6 +25,7 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
+    INCENDIO_MAP_MAX,
     INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
     MARES,
@@ -72,7 +73,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=25">
+        <link rel="stylesheet" href="/assets/sira.css?v=26">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
     </head>
@@ -171,17 +172,10 @@ app.layout = html.Div(className="sira-page", children=[
             html.Div(className="sira-charts", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
-                        "mapa", "Mapa sísmico — España",
-                        f"Últimos {ZONA['dias_atras']} días · M≥{ZONA['magnitud_min']} · círculos = perceptibles desde tu zona.",
+                        "mapa", "Mapa de riesgos — España",
+                        f"Sismos M≥{ZONA['magnitud_min']} · incendios activos (solo España) · círculos = zona perceptible.",
                         map_chart=True, accent=C_ORANGE,
                     ),
-                    bloque(
-                        "mapa_incendios", "Incendios activos — España",
-                        f"NASA FIRMS · últimos días · radio ∝ área afectada · resalte cerca de tu localidad.",
-                        map_chart=True, accent="#ea580c",
-                    ),
-                ]),
-                html.Div(className="sira-charts-row", children=[
                     bloque(
                         "lluvia", "Previsión de lluvia",
                         "Según la localidad seleccionada · AEMET o Open-Meteo.",
@@ -364,7 +358,6 @@ def _add_circulos_perceptibles(
         else [120.0] * len(rows)
     )
     border_rgb = "220, 38, 38"
-    wave_fractions = (0.4, 0.7)
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
         lat0 = float(row.lat)
@@ -413,27 +406,6 @@ def _add_circulos_perceptibles(
                 meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0, "border_rgb": border_rgb},
             )
         )
-        for radius_fraction in wave_fractions:
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lat_ring,
-                    lon=lon_ring,
-                    mode="lines",
-                    name=legend_name,
-                    legendgroup=legendgroup,
-                    showlegend=False,
-                    fill="none",
-                    line=dict(width=1.5, color=f"rgba({border_rgb}, 0.35)"),
-                    hoverinfo="skip",
-                    meta={
-                        **pulse_meta,
-                        "pulse": "grow",
-                        "part": "wave",
-                        "radius_fraction": radius_fraction,
-                        "border_rgb": border_rgb,
-                    },
-                )
-            )
 
 
 def _geo_layout(fig: go.Figure) -> None:
@@ -471,82 +443,59 @@ def _add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_nam
     lat = float(inc["lat"])
     lon = float(inc["lon"])
     r = float(inc.get("radio_km") or 2)
-    r0 = max(r * 0.06, 1.5)
-    lat_fill, lon_fill = circle_disk_polygon(lat, lon, r0)
-    lat_ring, lon_ring = circle_perimeter(lat, lon, r0)
     fill_rgb = "239, 68, 68" if destacado else "249, 115, 22"
     border_rgb = "220, 38, 38" if destacado else "234, 88, 12"
-    period_ms = 1800
-    wave_fractions = (0.4, 0.7)
-    pulse_meta = {
-        "center_lat": lat,
-        "center_lon": lon,
-        "radius_km": r,
-        "period_ms": period_ms,
-        "fill_rgb": fill_rgb,
-        "border_rgb": border_rgb,
-    }
+    if destacado:
+        r_draw = max(r * 0.06, 1.5)
+        fill_op = 0.12
+        border_op = 0.75
+        pulse_meta = {
+            "center_lat": lat,
+            "center_lon": lon,
+            "radius_km": r,
+            "period_ms": 2000,
+            "fill_rgb": fill_rgb,
+            "border_rgb": border_rgb,
+        }
+        fill_meta = {**pulse_meta, "pulse": "grow", "part": "fill"}
+        border_meta = {**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0}
+    else:
+        r_draw = r
+        fill_op = 0.16
+        border_op = 1.0
+        fill_meta = None
+        border_meta = None
+    lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw)
+    lat_ring, lon_ring = circle_perimeter(lat, lon, r_draw)
     fig.add_trace(go.Scattergeo(
         lat=lat_fill, lon=lon_fill, mode="lines", name=legend_name or "Foco",
         legendgroup="inc", showlegend=bool(legend_name),
-        fill="toself", fillcolor=f"rgba({fill_rgb}, 0.12)",
+        fill="toself", fillcolor=f"rgba({fill_rgb}, {fill_op})",
         line=dict(width=0, color="rgba(0, 0, 0, 0)"),
         hovertemplate=(
             f"Foco activo<br>"
             f"Radio ~{r:.1f} km · área ~{inc.get('area_km2', '—')} km²<br>"
             f"FRP {inc.get('frp_mw', '—')} MW · {inc.get('n_detecciones', 1)} detecciones"
-            "<extra></extra>"
+            + (" · cerca de tu zona<extra></extra>" if destacado else "<extra></extra>")
         ),
-        meta={**pulse_meta, "pulse": "grow", "part": "fill"},
+        meta=fill_meta,
     ))
     fig.add_trace(go.Scattergeo(
         lat=lat_ring, lon=lon_ring, mode="lines", showlegend=False,
         fill="none",
-        line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
+        line=dict(width=2 if destacado else 1.6, color=f"rgba({border_rgb}, {border_op})"),
         hoverinfo="skip",
-        meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0},
-    ))
-    for frac in wave_fractions:
-        fig.add_trace(go.Scattergeo(
-            lat=lat_ring, lon=lon_ring, mode="lines", showlegend=False,
-            fill="none",
-            line=dict(width=1.5, color=f"rgba({border_rgb}, 0.35)"),
-            hoverinfo="skip",
-            meta={**pulse_meta, "pulse": "grow", "part": "wave", "radius_fraction": frac},
-        ))
-    fig.add_trace(go.Scattergeo(
-        lat=[lat], lon=[lon], mode="markers", showlegend=False,
-        marker=dict(size=7 if destacado else 5, color=f"rgb({border_rgb})", symbol="circle"),
-        hoverinfo="skip",
+        meta=border_meta,
     ))
 
 
-def _fig_mapa_incendios(
-    incendios: list,
+def _fig_mapa(
+    sismos: list,
+    incendios: list | None = None,
     lat_obs: float | None = None,
     lon_obs: float | None = None,
     obs_nombre: str = "",
 ) -> go.Figure:
-    fig = go.Figure()
-    if not incendios:
-        _add_marcador_observacion(fig, lat_obs, lon_obs, obs_nombre)
-        _geo_layout(fig)
-        return fig
-    leyenda = False
-    for inc in sorted(incendios, key=lambda x: (not x.get("afecta_local"), -float(x.get("frp_mw") or 0))):
-        destacado = bool(inc.get("afecta_local"))
-        _add_zona_incendio(
-            fig, inc, destacado=destacado,
-            legend_name="Zona afectada" if not leyenda else None,
-        )
-        leyenda = True
-    _add_marcador_observacion(fig, lat_obs, lon_obs, obs_nombre)
-    _geo_layout(fig)
-    fig.update_layout(uirevision="sira-incendios", legend=dict(title="Incendio"))
-    return fig
-
-
-def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None = None, obs_nombre: str = "") -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
@@ -567,20 +516,18 @@ def _fig_mapa(sismos: list, lat_obs: float | None = None, lon_obs: float | None 
 
     if not df.empty and "perceptible_local" in df.columns:
         df_per = df[df["perceptible_local"].fillna(False)]
-        df_rest = df[~df["perceptible_local"].fillna(False)]
     else:
         df_per = df
-        df_rest = pd.DataFrame()
 
-    if not df_rest.empty:
-        fechas_r = [_fmt_sismo_fecha(ts) for ts in df_rest["timestamp"]] if "timestamp" in df_rest.columns else ["—"] * len(df_rest)
-        fig.add_trace(go.Scattergeo(
-            lat=df_rest["lat"], lon=df_rest["lon"], mode="markers", name="No perceptible",
-            marker=dict(size=5, color="rgba(148, 163, 184, 0.55)", line=dict(width=0)),
-            text=df_rest["lugar"],
-            customdata=list(zip(df_rest["magnitud"], fechas_r)),
-            hovertemplate="%{text}<br>Mag %{customdata[0]} · %{customdata[1]}<extra></extra>",
-        ))
+    inc_list = incendios or []
+    if inc_list:
+        leyenda_inc = False
+        for inc in sorted(inc_list, key=lambda x: (-float(x.get("frp_mw") or 0),))[:INCENDIO_MAP_MAX]:
+            _add_zona_incendio(
+                fig, inc, destacado=bool(inc.get("afecta_local")),
+                legend_name="Incendio activo" if not leyenda_inc else None,
+            )
+            leyenda_inc = True
 
     for nivel, color in COLORES.items():
         sub = df_per[df_per["nivel_local"] == nivel] if not df_per.empty else pd.DataFrame()
@@ -839,7 +786,7 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
 
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
-    Output("mapa", "figure"), Output("mapa_incendios", "figure"), Output("lluvia", "figure"),
+    Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"), Input("geo-store", "data"),
@@ -885,13 +832,14 @@ def refresh(n_intervals, clicks, geo, last_ts):
     loc_label = f"{localidad}, {geo.get('municipio') or ''}".strip(", ")
 
     cards = [
-        card_doble(
-            "Sismos",
+        card_sismos_combinada(
             len(sismos_all),
-            "España",
             len(sismos),
-            f"perceptibles · {localidad}",
-            f"M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días · círculos = perceptibles desde tu zona.",
+            localidad,
+            float(mag_max),
+            nivel_max,
+            _detalle_sismo(sismo_max),
+            f"M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días · mapa: perceptibles + incendios España.",
             accent=C_ORANGE,
         ),
         card_doble(
@@ -902,13 +850,6 @@ def refresh(n_intervals, clicks, geo, last_ts):
             f"cerca · {localidad}",
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
-        ),
-        card(
-            "Magnitud máx.",
-            mag_con_riesgo(float(mag_max), nivel_max),
-            _detalle_sismo(sismo_max),
-            "Eventos críticos (score local ≥ 55 desde tu zona).",
-            accent="#ef4444",
         ),
         card(
             "Lluvia 24h", f"{res_met.get('precip_prox_24h_mm', '—')} mm",
@@ -940,8 +881,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(sismos_mapa, lat_obs, lon_obs, localidad),
-        _fig_mapa_incendios(incendios_mapa, lat_obs, lon_obs, localidad),
+        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),

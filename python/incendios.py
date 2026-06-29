@@ -16,7 +16,6 @@ from config import (
     INCENDIO_RADIO_LOCAL_KM,
     INCENDIO_RADIO_MAX_KM,
     INCENDIO_RADIO_MIN_KM,
-    MAPA,
 )
 from core import fetch_text
 from sismos import circle_perimeter, distancia_km
@@ -155,22 +154,45 @@ def _descargar_fuente(source: str, bbox: str, dias: int) -> list[dict]:
     return out
 
 
+def en_espana(lat: float, lon: float) -> bool:
+    """Península, Baleares y Canarias; excluye Portugal y Francia."""
+    if 27.4 <= lat <= 29.6 and -18.6 <= lon <= -13.0:
+        return True
+    if 38.4 <= lat <= 40.2 and 0.9 <= lon <= 4.6:
+        return True
+    if lat < 35.8 or lat > 43.9 or lon < -9.55 or lon > 4.55:
+        return False
+    if lon < -8.85:
+        return False
+    if lon < -7.15 and lat < 42.4:
+        return False
+    if lon < -6.95 and lat < 41.7:
+        return False
+    return True
+
+
+def _bbox_espana() -> str:
+    return "-9.4,35.9,4.4,43.85"
+
+
 def descargar_incendios() -> list[dict]:
     """Agrupa detecciones VIIRS en focos con radio proporcional al área estimada."""
     if not FIRMS_MAP_KEY:
         log.warning("FIRMS_MAP_KEY no configurada; incendios omitidos")
         return []
-    bbox = f"{MAPA['lon_min']},{MAPA['lat_min']},{MAPA['lon_max']},{MAPA['lat_max']}"
+    bbox = _bbox_espana()
     dias = max(1, min(INCENDIO_DIAS, 10))
     puntos: list[dict] = []
     for source in _FIRMS_SOURCES:
         puntos.extend(_descargar_fuente(source, bbox, dias))
+    puntos = [p for p in puntos if en_espana(p["lat"], p["lon"])]
     if not puntos:
         return []
     grupos = _agrupar_focos(puntos, INCENDIO_CLUSTER_KM)
     focos = [_foco_desde_grupo(g, i) for i, g in enumerate(grupos)]
+    focos = [f for f in focos if en_espana(f["lat"], f["lon"])]
     focos.sort(key=lambda x: (-x["frp_mw"], -x["area_km2"]))
-    log.info("Incendios: %d focos (%d detecciones FIRMS)", len(focos), len(puntos))
+    log.info("Incendios España: %d focos (%d detecciones FIRMS)", len(focos), len(puntos))
     return focos
 
 

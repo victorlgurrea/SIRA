@@ -224,6 +224,19 @@ body {
   opacity: 0.7;
 }
 
+.sira-card-sismos-combo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sira-card-sismos-mag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+
 .sira-riesgo-badge {
   font-size: 1rem;
   font-weight: 600;

@@ -74,6 +74,36 @@ def card_doble(
     return card(titulo, valor, "", ayuda, accent)
 
 
+def card_sismos_combinada(
+    n_esp: int,
+    n_loc: int,
+    localidad: str,
+    mag_max: float,
+    nivel_max: str | None,
+    detalle: str,
+    ayuda: str,
+    accent: str = C_ORANGE,
+) -> html.Div:
+    valor = html.Div(className="sira-card-sismos-combo", children=[
+        html.Div(className="sira-card-dual", children=[
+            html.Div(className="sira-card-dual-part", children=[
+                html.Span(str(n_esp), className="sira-card-value-num"),
+                html.Span("España", className="sira-card-dual-lbl"),
+            ]),
+            html.Span("·", className="sira-card-dual-sep"),
+            html.Div(className="sira-card-dual-part", children=[
+                html.Span(str(n_loc), className="sira-card-value-num"),
+                html.Span(f"perceptibles · {localidad}", className="sira-card-dual-lbl"),
+            ]),
+        ]),
+        html.Div(className="sira-card-sismos-mag", children=[
+            mag_con_riesgo(mag_max, nivel_max),
+            html.Div(detalle, className="sira-card-detail") if detalle else None,
+        ]),
+    ])
+    return card("Sismos", valor, "", ayuda, accent)
+
+
 def regiones(reg: dict) -> html.Div:
     items = [
         ("Mediterráneo", reg.get("MEDITERRÁNEO", 0), C_ORANGE),
