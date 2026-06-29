@@ -452,12 +452,30 @@ def notify_new_alerts(dashboard_url: str) -> int:
     prev_meteo = set(state["ids_meteo"])
 
     def _es_tsunami(s: dict) -> bool:
+        if not s.get("id"):
+            return False
+        en_mar = s.get("en_mar")
+        if en_mar is None:
+            from sismos import epicentro_en_mar as _en_mar
+
+            en_mar = _en_mar(
+                float(s["lat"]),
+                float(s["lon"]),
+                lugar=s.get("lugar"),
+                profundidad_km=float(s.get("profundidad") or 0),
+            )
+        if not en_mar:
+            return False
         if s.get("alerta_tsunami"):
             return True
-        try:
-            return int(s.get("usgs_tsunami") or 0) == 1
-        except (TypeError, ValueError):
-            return False
+        from sismos import riesgo_tsunami as _riesgo
+
+        return _riesgo_tsunami(
+            float(s.get("magnitud") or 0),
+            float(s.get("profundidad") or 0),
+            True,
+            s.get("usgs_tsunami"),
+        )
 
     sismos_tsunami = [s for s in todos if _es_tsunami(s)]
 
@@ -619,7 +637,7 @@ def send_test_push(
 
     if simular_real and sismo_prueba:
         dist_km = float(sismo_prueba.get("dist_valencia_km") or 0)
-        if tsunami and sismo_prueba.get("alerta_tsunami"):
+        if sismo_prueba.get("en_mar") and sismo_prueba.get("alerta_tsunami"):
             payload = _build_tsunami_payload(
                 sismo_prueba,
                 url or dashboard_url,

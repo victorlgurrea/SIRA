@@ -13,7 +13,7 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, card_sismos_combinada, dir_compass, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
+from components import bloque, card, card_doble, card_sismos_combinada, dir_compass, lluvia_embalses_valor, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
@@ -25,6 +25,8 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
+    EMBALSE_MAP_MAX,
+    EMBALSE_RADIO_LOCAL_KM,
     INCENDIO_MAP_MAX,
     INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
@@ -42,6 +44,7 @@ from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas
 from costa_mapa import alertas_a_capa_costera
 from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
+from hidrologia import embalses_para_mapa, resumen_embalses
 from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
@@ -175,12 +178,12 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
-                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = perceptible · azul = tsunami/mar.",
+                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = sismo en tierra · azul = tsunami/mar/embalses.",
                         map_chart=True, accent=C_ORANGE,
                     ),
                     bloque(
                         "lluvia", "Previsión de lluvia",
-                        "Según la localidad seleccionada · AEMET o Open-Meteo.",
+                        "Según la localidad seleccionada · AEMET o Open-Meteo · embalses embals.es.",
                         accent=C_TEAL,
                     ),
                 ]),
@@ -312,7 +315,7 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         for r in alertas_a_capa_costera(src)
     )
     return (
-        f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}"
+        f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}"
         f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|costa:{costa_sig}"
     )
 
@@ -501,6 +504,47 @@ def _add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_nam
     ))
 
 
+def _add_marcadores_embalses(fig: go.Figure, embalses: list[dict]) -> None:
+    """Puntos azules para embalses en vigilancia (no círculos de radio)."""
+    if not embalses:
+        return
+    colores = {
+        "critico": "#1d4ed8",
+        "alerta": "#2563eb",
+        "vigilancia": "#38bdf8",
+    }
+    leyenda = False
+    for emb in embalses:
+        lat = float(emb.get("lat") or 0)
+        lon = float(emb.get("lon") or 0)
+        if not lat and not lon:
+            continue
+        nivel = str(emb.get("nivel_riesgo") or "vigilancia")
+        color = colores.get(nivel, "#38bdf8")
+        size = {"critico": 13, "alerta": 11, "vigilancia": 9}.get(nivel, 9)
+        pct = emb.get("porcentaje", "—")
+        vol = emb.get("volumen_hm3", "—")
+        dist = emb.get("dist_local_km", "—")
+        fig.add_trace(go.Scattergeo(
+            lat=[lat],
+            lon=[lon],
+            mode="markers",
+            name="Embalse en vigilancia" if not leyenda else None,
+            legendgroup="embalses",
+            showlegend=not leyenda,
+            marker=dict(size=size, color=color, symbol="circle", line=dict(width=1.2, color="white")),
+            text=[emb.get("nombre", "Embalse")],
+            hovertemplate=(
+                "%{text}<br>"
+                f"Nivel: {pct}% · {vol} hm³<br>"
+                f"Riesgo: {nivel.title()}<br>"
+                f"Distancia: {dist} km"
+                "<extra></extra>"
+            ),
+        ))
+        leyenda = True
+
+
 def _fig_mapa(
     sismos: list,
     incendios: list | None = None,
@@ -508,6 +552,7 @@ def _fig_mapa(
     lon_obs: float | None = None,
     obs_nombre: str = "",
     zonas_costeras: list | None = None,
+    embalses_mapa: list | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
@@ -528,9 +573,14 @@ def _fig_mapa(
         df_prueba = pd.DataFrame()
 
     if not df.empty and "perceptible_local" in df.columns:
-        mask_mapa = df["perceptible_local"].fillna(False)
-        if "alerta_tsunami" in df.columns:
-            mask_mapa = mask_mapa | df["alerta_tsunami"].fillna(False)
+        en_mar_col = df["en_mar"].fillna(False) if "en_mar" in df.columns else False
+        perceptible_tierra = df["perceptible_local"].fillna(False)
+        tsunami_mar = (
+            df["alerta_tsunami"].fillna(False) & en_mar_col
+            if "alerta_tsunami" in df.columns
+            else False
+        )
+        mask_mapa = perceptible_tierra | tsunami_mar
         df_per = df[mask_mapa]
     else:
         df_per = df
@@ -580,9 +630,14 @@ def _fig_mapa(
 
     if not hoy_df.empty:
         if "perceptible_local" in hoy_df.columns:
-            hoy_perceptible = hoy_df[hoy_df["perceptible_local"].fillna(False)]
+            if "en_mar" in hoy_df.columns:
+                hoy_perceptible = hoy_df[
+                    hoy_df["perceptible_local"].fillna(False) & ~hoy_df["en_mar"].fillna(False)
+                ]
+            else:
+                hoy_perceptible = hoy_df[hoy_df["perceptible_local"].fillna(False)]
         else:
-            hoy_perceptible = hoy_df
+            hoy_perceptible = pd.DataFrame()
         if not hoy_perceptible.empty:
             _add_circulos_perceptibles(
                 fig,
@@ -593,7 +648,10 @@ def _fig_mapa(
             )
 
     if not df.empty and "alerta_tsunami" in df.columns and "timestamp" in df.columns:
-        df_tsunami = df[df["alerta_tsunami"].fillna(False) & df["timestamp"].map(_es_sismo_hoy)]
+        mask_tsunami = df["alerta_tsunami"].fillna(False) & df["timestamp"].map(_es_sismo_hoy)
+        if "en_mar" in df.columns:
+            mask_tsunami = mask_tsunami & df["en_mar"].fillna(False)
+        df_tsunami = df[mask_tsunami]
         if not df_tsunami.empty:
             _add_circulos_perceptibles(
                 fig,
@@ -621,6 +679,9 @@ def _fig_mapa(
                 radio_col="radio_tsunami_km",
                 hover_label="Aviso mar",
             )
+
+    if embalses_mapa:
+        _add_marcadores_embalses(fig, embalses_mapa)
 
     if not df_prueba.empty:
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
@@ -871,15 +932,19 @@ def refresh(n_intervals, clicks, geo, last_ts):
     incendios_all = d.get("incendios", [])
     incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in incendios_all]
     incendios_local = [i for i in incendios_mapa if i.get("afecta_local")]
+    embalses_all = d.get("embalses", [])
     oce = d.get("oceanografia", {})
     met = meteo_localidad(muni_id, localidad)
+    res_met = met.get("resumen", {})
+    lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
+    res_emb = resumen_embalses(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
+    embalses_mapa = embalses_para_mapa(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
     alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
     zonas_costeras = alertas_a_capa_costera(alertas_fuente)
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
     nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
-    res_met = met.get("resumen", {})
 
     loc_label = f"{localidad}, {geo.get('municipio') or ''}".strip(", ")
 
@@ -904,9 +969,10 @@ def refresh(n_intervals, clicks, geo, last_ts):
             accent="#ea580c",
         ),
         card(
-            "Lluvia 24h", f"{res_met.get('precip_prox_24h_mm', '—')} mm",
+            "Lluvia 24h",
+            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb),
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            loc_label,
+            f"{loc_label} · embals.es (SAIH) · radio {EMBALSE_RADIO_LOCAL_KM:.0f} km",
             accent=C_TEAL,
         ),
         card(
@@ -933,7 +999,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras),
+        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),

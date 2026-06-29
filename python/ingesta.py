@@ -18,8 +18,10 @@ from config import (
     ZONA,
 )
 from core import fetch_aemet, fetch_json, write_dashboard
+from hidrologia import descargar_embalses
 from incendios import descargar_incendios
-from sismos import alerta_tsunami, distancia_km, radio_tsunami_km, score_sismo
+from fuentes import parse_usgs_feature
+from sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
 from test_overlay import clear_test_overlay
 
 log = logging.getLogger(__name__)
@@ -98,22 +100,30 @@ def descargar_sismos() -> list[dict]:
 
     sismos = []
     for f in features:
-        p, c = f.get("properties", {}), f.get("geometry", {}).get("coordinates", [])
-        if len(c) < 3 or p.get("mag") is None:
+        row = parse_usgs_feature(f)
+        if not row:
             continue
-        lon, lat, prof = float(c[0]), float(c[1]), float(c[2] or 0)
-        sub, dist = prof < 200, _dist_km(lat, lon)
-        mag = float(p["mag"])
-        ts_flag = alerta_tsunami(p.get("tsunami"))
+        lat, lon = row["lat"], row["lon"]
+        mag, prof = row["magnitud"], row["profundidad"]
+        en_mar = row["en_mar"]
+        sub = row["es_submarino"]
+        dist = _dist_km(lat, lon)
+        ts_flag = riesgo_tsunami(mag, prof, en_mar, row.get("_tsunami_raw"))
         sismos.append({
-            "id": f.get("id"), "magnitud": mag,
-            "lugar": str(p.get("place", ""))[:200],
-            "timestamp": datetime.fromtimestamp(p["time"] / 1000, tz=timezone.utc).isoformat(),
-            "lat": lat, "lon": lon, "profundidad": prof,
-            "dist_valencia_km": dist, "es_submarino": sub, "region": _region(lat, lon),
-            "usgs_tsunami": 1 if ts_flag else 0,
+            "id": row["id"],
+            "magnitud": mag,
+            "lugar": row["lugar"],
+            "timestamp": row["timestamp"],
+            "lat": lat,
+            "lon": lon,
+            "profundidad": prof,
+            "dist_valencia_km": dist,
+            "en_mar": en_mar,
+            "es_submarino": sub,
+            "region": _region(lat, lon),
+            "usgs_tsunami": row["usgs_tsunami"],
             "alerta_tsunami": ts_flag,
-            "radio_tsunami_km": radio_tsunami_km(mag, prof, sub) if ts_flag else 0.0,
+            "radio_tsunami_km": radio_tsunami_km(mag, prof, en_mar=True) if ts_flag else 0.0,
             **score_sismo(mag, prof, dist, sub),
         })
     log.info("Sismos: %d", len(sismos))
@@ -208,6 +218,7 @@ def ejecutar_ingesta():
     clear_test_overlay()
     sismos = descargar_sismos()
     incendios = descargar_incendios()
+    embalses = descargar_embalses()
     por_region: dict[str, int] = {}
     for s in sismos:
         por_region[s["region"]] = por_region.get(s["region"], 0) + 1
@@ -216,11 +227,16 @@ def ejecutar_ingesta():
         "generado_en": datetime.now(timezone.utc).isoformat(),
         "sismos": sismos,
         "incendios": incendios,
+        "embalses": embalses,
         "oceanografia": descargar_oceanografia(),
         "meteorologia": descargar_meteo(),
         "estadisticas": {
             "n_sismos": len(sismos),
             "n_incendios": len(incendios),
+            "n_embalses": len(embalses),
+            "n_embalses_vigilancia": sum(
+                1 for e in embalses if e.get("nivel_riesgo") in ("vigilancia", "alerta", "critico")
+            ),
             "mag_max": max((s["magnitud"] for s in sismos), default=0),
             "score_max": max((s["score_total"] for s in sismos), default=0),
             "n_alto_critico": sum(1 for s in sismos if s["nivel_alerta"] in ("ALTO", "CRÍTICO")),

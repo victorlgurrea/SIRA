@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from config import TEST_SISMO_OVERLAY_FILE, ZONA
 from core import read_json_file
-from sismos import alerta_tsunami, distancia_km, distancia_perceptible_km, radio_tsunami_km, score_sismo
+from sismos import distancia_km, distancia_perceptible_km, epicentro_en_mar, radio_tsunami_km, riesgo_tsunami, score_sismo
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,13 @@ def _epicentro_por_defecto() -> tuple[float, float]:
     return round(lat, 5), round(lon, 5)
 
 
+def _epicentro_tsunami_prueba() -> tuple[float, float, str]:
+    """Epicentro en agua (SE de Valencia) para pruebas de tsunami azul."""
+    lat, lon = 38.45, 0.55
+    lugar = f"Mediterranean Sea, 55 km SE of {ZONA['ciudad_ref']}"
+    return round(lat, 5), round(lon, 5), lugar
+
+
 def build_test_sismo(
     *,
     tag: str,
@@ -53,31 +60,46 @@ def build_test_sismo(
     simular_real: bool = True,
     tsunami: bool = False,
 ) -> dict:
+    lugar_txt = lugar
     if lat is None or lon is None:
-        lat, lon = _epicentro_por_defecto()
+        if tsunami:
+            lat, lon, lugar_txt = _epicentro_tsunami_prueba()
+        else:
+            lat, lon = _epicentro_por_defecto()
     sub = profundidad < 200
     dist_v = distancia_km(lat, lon, ZONA["lat_ref"], ZONA["lon_ref"])
     scores = score_sismo(magnitud, profundidad, dist_v, sub)
     radio = distancia_perceptible_km(magnitud, profundidad)
-    ts_flag = bool(tsunami)
-    radio_ts = radio_tsunami_km(magnitud, profundidad, sub) if ts_flag else 0.0
+    usgs_flag = 1 if tsunami else 0
+    if not lugar_txt:
+        borrador_mar = epicentro_en_mar(
+            lat, lon, profundidad_km=profundidad, usgs_tsunami=usgs_flag,
+        )
+        if borrador_mar:
+            lugar_txt = f"Mediterranean Sea, near {ZONA['ciudad_ref']}"
+        elif simular_real:
+            lugar_txt = f"{dist_v:.0f} km al E of {ZONA['ciudad_ref']}, Spain"
+        else:
+            lugar_txt = f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']} (prueba)"
+    en_mar = epicentro_en_mar(
+        lat, lon, lugar=lugar_txt, profundidad_km=profundidad, usgs_tsunami=usgs_flag,
+    )
+    ts_flag = riesgo_tsunami(magnitud, profundidad, en_mar, usgs_flag)
+    radio_ts = radio_tsunami_km(magnitud, profundidad, en_mar=True) if ts_flag else 0.0
     ahora = datetime.now(timezone.utc).isoformat()
     sismo_id = f"sim{tag.replace('sira-', '')[:12]}" if simular_real else f"sira-test-{tag}"
     sismo = {
         "id": sismo_id,
         "magnitud": magnitud,
-        "lugar": lugar or (
-            f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']}"
-            if simular_real
-            else f"{dist_v:.0f} km al E de {ZONA['ciudad_ref']} (prueba)"
-        ),
+        "lugar": lugar_txt,
         "timestamp": ahora,
         "lat": lat,
         "lon": lon,
         "profundidad": profundidad,
         "dist_valencia_km": dist_v,
         "radio_perceptible_km": radio,
-        "usgs_tsunami": 1 if ts_flag else 0,
+        "en_mar": en_mar,
+        "usgs_tsunami": usgs_flag,
         "alerta_tsunami": ts_flag,
         "radio_tsunami_km": radio_ts,
         "es_submarino": sub,

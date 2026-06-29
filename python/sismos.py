@@ -53,26 +53,40 @@ def es_perceptible(magnitud: float, profundidad_km: float, distancia_km: float) 
     return distancia_km <= distancia_perceptible_km(magnitud, profundidad_km)
 
 
-def alerta_tsunami(usgs_tsunami: int | bool | None) -> bool:
-    """True si USGS asocia aviso o generación de tsunami (campo properties.tsunami)."""
-    try:
-        return int(usgs_tsunami or 0) == 1
-    except (TypeError, ValueError):
-        return bool(usgs_tsunami)
+from fuentes import epicentro_en_mar, usgs_tsunami_flag
 
 
-def radio_tsunami_km(magnitud: float, profundidad_km: float, es_submarino: bool) -> float:
-    """Radio estimado (km) de zona de aviso/propagación desde el epicentro."""
+def riesgo_tsunami(
+    magnitud: float,
+    profundidad_km: float,
+    en_mar: bool,
+    usgs_tsunami: int | bool | None,
+) -> bool:
+    """Sismo en el mar que puede generar ola hacia la costa."""
+    if not en_mar:
+        return False
+    if usgs_tsunami_flag(usgs_tsunami):
+        return True
+    p = TSUNAMI
+    return magnitud >= p["mag_min"] and profundidad_km <= p["prof_km"]
+
+
+def radio_tsunami_km(magnitud: float, profundidad_km: float, *, en_mar: bool = True) -> float:
+    """Radio estimado (km) de zona de aviso desde epicentro marino."""
+    if not en_mar:
+        return 0.0
     p = TSUNAMI
     mag = max(float(magnitud), p["mag_ref"])
     r = p["factor"] * (10 ** (p["exp_mag"] * (mag - p["mag_ref"])))
-    if not es_submarino:
-        r *= p["factor_terrestre"]
     if profundidad_km > p["prof_km"]:
         r *= max(0.3, 1.0 - min(profundidad_km, 400) / 500)
     if p["max_km"] > 0:
         r = min(r, p["max_km"])
     return round(max(r, p["min_km"]), 1)
+
+
+# Compatibilidad con imports antiguos
+alerta_tsunami = usgs_tsunami_flag
 
 
 def score_sismo(mag: float, prof: float, dist: float, sub: bool) -> dict:
@@ -89,44 +103,56 @@ def enriquecer_local(sismo: dict, lat: float, lon: float) -> dict:
     d = distancia_km(lat, lon, float(sismo["lat"]), float(sismo["lon"]))
     mag = float(sismo["magnitud"])
     prof = float(sismo.get("profundidad") or 0)
-    sub = bool(sismo.get("es_submarino"))
+    lugar = sismo.get("lugar")
+    slat = float(sismo["lat"])
+    slon = float(sismo["lon"])
+    if "en_mar" in sismo:
+        en_mar = bool(sismo.get("en_mar"))
+    else:
+        en_mar = epicentro_en_mar(
+            slat, slon, lugar=lugar, profundidad_km=prof, usgs_tsunami=sismo.get("usgs_tsunami"),
+        )
+    sub = bool(sismo.get("es_submarino", prof < 200))
     local = score_sismo(mag, prof, d, sub)
     radio = distancia_perceptible_km(mag, prof)
-    if "alerta_tsunami" in sismo:
+    usgs_ts = sismo.get("usgs_tsunami")
+    if "alerta_tsunami" in sismo and "en_mar" in sismo:
         ts_flag = bool(sismo.get("alerta_tsunami"))
     else:
-        ts_flag = alerta_tsunami(sismo.get("usgs_tsunami"))
+        ts_flag = riesgo_tsunami(mag, prof, en_mar, usgs_ts)
     stored_ts = sismo.get("radio_tsunami_km")
     if ts_flag and stored_ts is not None:
         radio_ts = float(stored_ts)
     elif ts_flag:
-        radio_ts = radio_tsunami_km(mag, prof, sub)
+        radio_ts = radio_tsunami_km(mag, prof, en_mar=True)
     else:
         radio_ts = 0.0
+    perceptible = d <= radio
     return {
         **sismo,
+        "en_mar": en_mar,
         "dist_local_km": d,
         "radio_perceptible_km": radio,
         "alerta_tsunami": ts_flag,
         "radio_tsunami_km": radio_ts,
         "score_local": local["score_total"],
         "nivel_local": local["nivel_alerta"],
-        "perceptible_local": d <= radio,
+        "perceptible_local": perceptible and not en_mar,
     }
 
 
 def alerta_local(sismo: dict, lat: float, lon: float) -> dict | None:
-    """Perceptible desde el punto de observación; None si no aplica."""
+    """Sismo en tierra perceptible desde el usuario (push rojo / mapa rojo)."""
     info = enriquecer_local(sismo, lat, lon)
-    if not info["perceptible_local"]:
+    if info.get("en_mar") or not info["perceptible_local"]:
         return None
     return info
 
 
 def alerta_tsunami_local(sismo: dict, lat: float, lon: float) -> dict | None:
-    """Aviso tsunami si el epicentro está dentro del radio calculado desde el usuario."""
+    """Sismo en el mar con riesgo de ola que alcanza la localidad del usuario."""
     info = enriquecer_local(sismo, lat, lon)
-    if not info.get("alerta_tsunami"):
+    if not info.get("en_mar") or not info.get("alerta_tsunami"):
         return None
     radio = float(info.get("radio_tsunami_km") or 0)
     if radio <= 0:

@@ -57,14 +57,14 @@ SISMO_PERCEPCION = {
     "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "450"),
 }
 
-# Radio de aviso tsunami (km) desde el epicentro · solo si USGS marca tsunami=1
+# Radio de aviso tsunami (km) · solo sismos con epicentro en el mar
 # radio ≈ TSUNAMI_FACTOR × 10^(TSUNAMI_EXP_MAG × (M − TSUNAMI_MAG_REF))
 TSUNAMI = {
     "mag_ref": _f("TSUNAMI_MAG_REF", "6.5"),
+    "mag_min": _f("TSUNAMI_MAG_MIN", "6.5"),
     "factor": _f("TSUNAMI_FACTOR", "100.0"),
     "exp_mag": _f("TSUNAMI_EXP_MAG", "0.55"),
     "prof_km": _f("TSUNAMI_PROF_KM", "50"),
-    "factor_terrestre": _f("TSUNAMI_FACTOR_TERRESTRE", "0.4"),
     "min_km": _f("TSUNAMI_MIN_KM", "80"),
     "max_km": _f("TSUNAMI_MAX_KM", "1200"),
 }
@@ -127,6 +127,22 @@ INCENDIO_RADIO_LOCAL_KM = _f("INCENDIO_RADIO_LOCAL_KM", "75.0")
 INCENDIO_MAP_MAX = _i("INCENDIO_MAP_MAX", "18")
 COSTERO_MAP_MAX = _i("COSTERO_MAP_MAX", "12")
 MAP_CIRCLE_POINTS = _i("MAP_CIRCLE_POINTS", "40")
+# Embalses — embals.es (SAIH + MITECO) · https://embals.es/docs/api
+EMBALS_API_BASE = os.getenv(
+    "EMBALS_API_BASE",
+    "https://volcjmdnsxfuekvehwte.supabase.co/functions/v1",
+)
+EMBALS_API_KEY = os.getenv("EMBALS_API_KEY", "")
+EMBALSE_CUENCAS = tuple(
+    c.strip().lower()
+    for c in os.getenv("EMBALSE_CUENCAS", "jucar,segura,ebro").split(",")
+    if c.strip()
+)
+EMBALSE_UMBRAL_VIGILANCIA = _f("EMBALSE_UMBRAL_VIGILANCIA", "85")
+EMBALSE_UMBRAL_ALERTA = _f("EMBALSE_UMBRAL_ALERTA", "95")
+EMBALSE_UMBRAL_CRITICO = _f("EMBALSE_UMBRAL_CRITICO", "98")
+EMBALSE_RADIO_LOCAL_KM = _f("EMBALSE_RADIO_LOCAL_KM", "120")
+EMBALSE_MAP_MAX = _i("EMBALSE_MAP_MAX", "15")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
@@ -180,4 +196,5 @@ ALLOWED_HOSTS = frozenset({
     "raw.githubusercontent.com", "huggingface.co",
     "opendata.aemet.es", "api.telegram.org",
     "firms.modaps.eosdis.nasa.gov",
+    "volcjmdnsxfuekvehwte.supabase.co",
 }) | {h.strip() for h in os.getenv("ALLOWED_HTTP_HOSTS", "").split(",") if h.strip()}

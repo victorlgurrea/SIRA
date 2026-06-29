@@ -36,7 +36,21 @@ def mag_con_riesgo(mag: float, nivel: str | None) -> html.Div:
     ])
 
 
-def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
+def lluvia_embalses_valor(precip_mm: float | int | str, resumen_emb: dict) -> html.Div:
+    """Bloque principal de la tarjeta Lluvia 24h con línea de embalses."""
+    n = int(resumen_emb.get("n_alertas_local") or 0)
+    linea = str(resumen_emb.get("texto_linea") or "")
+    filas = [
+        html.Div(f"{precip_mm} mm", className="sira-card-value-num"),
+        html.Div(
+            linea,
+            className="sira-card-detail sira-embalses-linea",
+            style={"color": "#38bdf8" if n else None},
+        ),
+    ]
+    return html.Div(className="sira-lluvia-embalses", children=filas)
+
+
     children: list = [
         html.Div(titulo, className="sira-card-title"),
         html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,

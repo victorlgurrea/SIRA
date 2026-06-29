@@ -18,6 +18,7 @@ from config import (
     INCENDIO_RADIO_MIN_KM,
 )
 from core import fetch_text
+from fuentes import parse_firms_row
 from sismos import circle_perimeter, distancia_km
 
 log = logging.getLogger(__name__)
@@ -33,48 +34,6 @@ def radio_desde_area_km2(area_km2: float) -> float:
     """Radio equivalente del foco a partir del área afectada estimada."""
     area = max(float(area_km2), 0.01)
     return _clamp(math.sqrt(area / math.pi), INCENDIO_RADIO_MIN_KM, INCENDIO_RADIO_MAX_KM)
-
-
-def _parse_frp(raw: str | None) -> float:
-    try:
-        return max(0.0, float(raw or 0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _parse_scan_track(raw: str | None, default: float = 1.0) -> float:
-    try:
-        v = float(raw or default)
-        return v if v > 0 else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _deteccion_desde_fila(row: dict) -> dict | None:
-    try:
-        lat = float(row.get("latitude", ""))
-        lon = float(row.get("longitude", ""))
-    except (TypeError, ValueError):
-        return None
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        return None
-    scan = _parse_scan_track(row.get("scan"), 1.0)
-    track = _parse_scan_track(row.get("track"), 1.0)
-    frp = _parse_frp(row.get("frp"))
-    acq_date = str(row.get("acq_date") or "").strip()
-    acq_time = str(row.get("acq_time") or "").strip().zfill(4)
-    ts = f"{acq_date}T{acq_time[:2]}:{acq_time[2:4]}:00" if acq_date and acq_time else ""
-    return {
-        "lat": lat,
-        "lon": lon,
-        "scan_km": scan,
-        "track_km": track,
-        "area_km2": scan * track,
-        "frp_mw": frp,
-        "satelite": str(row.get("satellite") or row.get("instrument") or "VIIRS"),
-        "timestamp": ts,
-        "confianza": str(row.get("confidence") or ""),
-    }
 
 
 def _agrupar_focos(puntos: list[dict], sep_km: float) -> list[list[dict]]:
@@ -148,7 +107,7 @@ def _descargar_fuente(source: str, bbox: str, dias: int) -> list[dict]:
     reader = csv.DictReader(io.StringIO(text))
     out: list[dict] = []
     for row in reader:
-        det = _deteccion_desde_fila(row)
+        det = parse_firms_row(row)
         if det:
             out.append(det)
     return out
