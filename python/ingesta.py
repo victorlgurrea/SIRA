@@ -19,7 +19,7 @@ from config import (
 )
 from core import fetch_aemet, fetch_json, write_dashboard
 from incendios import descargar_incendios
-from sismos import distancia_km, score_sismo
+from sismos import alerta_tsunami, distancia_km, radio_tsunami_km, score_sismo
 from test_overlay import clear_test_overlay
 
 log = logging.getLogger(__name__)
@@ -103,13 +103,18 @@ def descargar_sismos() -> list[dict]:
             continue
         lon, lat, prof = float(c[0]), float(c[1]), float(c[2] or 0)
         sub, dist = prof < 200, _dist_km(lat, lon)
+        mag = float(p["mag"])
+        ts_flag = alerta_tsunami(p.get("tsunami"))
         sismos.append({
-            "id": f.get("id"), "magnitud": float(p["mag"]),
+            "id": f.get("id"), "magnitud": mag,
             "lugar": str(p.get("place", ""))[:200],
             "timestamp": datetime.fromtimestamp(p["time"] / 1000, tz=timezone.utc).isoformat(),
             "lat": lat, "lon": lon, "profundidad": prof,
             "dist_valencia_km": dist, "es_submarino": sub, "region": _region(lat, lon),
-            **score_sismo(float(p["mag"]), prof, dist, sub),
+            "usgs_tsunami": 1 if ts_flag else 0,
+            "alerta_tsunami": ts_flag,
+            "radio_tsunami_km": radio_tsunami_km(mag, prof, sub) if ts_flag else 0.0,
+            **score_sismo(mag, prof, dist, sub),
         })
     log.info("Sismos: %d", len(sismos))
     return sismos

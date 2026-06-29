@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from config import TEST_SISMO_OVERLAY_FILE, ZONA
 from core import read_json_file
-from sismos import distancia_km, distancia_perceptible_km, score_sismo
+from sismos import alerta_tsunami, distancia_km, distancia_perceptible_km, radio_tsunami_km, score_sismo
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ def build_test_sismo(
     profundidad: float = 10.0,
     lugar: str | None = None,
     simular_real: bool = True,
+    tsunami: bool = False,
 ) -> dict:
     if lat is None or lon is None:
         lat, lon = _epicentro_por_defecto()
@@ -58,6 +59,8 @@ def build_test_sismo(
     dist_v = distancia_km(lat, lon, ZONA["lat_ref"], ZONA["lon_ref"])
     scores = score_sismo(magnitud, profundidad, dist_v, sub)
     radio = distancia_perceptible_km(magnitud, profundidad)
+    ts_flag = bool(tsunami)
+    radio_ts = radio_tsunami_km(magnitud, profundidad, sub) if ts_flag else 0.0
     ahora = datetime.now(timezone.utc).isoformat()
     sismo_id = f"sim{tag.replace('sira-', '')[:12]}" if simular_real else f"sira-test-{tag}"
     sismo = {
@@ -74,6 +77,9 @@ def build_test_sismo(
         "profundidad": profundidad,
         "dist_valencia_km": dist_v,
         "radio_perceptible_km": radio,
+        "usgs_tsunami": 1 if ts_flag else 0,
+        "alerta_tsunami": ts_flag,
+        "radio_tsunami_km": radio_ts,
         "es_submarino": sub,
         "region": _region(lat, lon),
         **scores,

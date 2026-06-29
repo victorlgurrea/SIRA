@@ -443,6 +443,7 @@ def send_test_push(
     lugar: str | None = None,
     overlay_minutos: int = 30,
     simular_real: bool = True,
+    tsunami: bool = False,
 ) -> dict:
     """Envía notificación de prueba y opcionalmente un sismo efímero en el mapa."""
     if not vapid_enabled():
@@ -459,6 +460,7 @@ def send_test_push(
             profundidad=profundidad if profundidad is not None else 10.0,
             lugar=lugar,
             simular_real=simular_real,
+            tsunami=tsunami,
         )
         overlay_meta = save_test_overlay(sismo_prueba, ttl_min=overlay_minutos)
 

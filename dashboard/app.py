@@ -15,11 +15,11 @@ from dash.exceptions import PreventUpdate
 
 from components import bloque, card, card_doble, card_sismos_combinada, dir_compass, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
-    AEMET_API_KEY,
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
     API_KEY,
+    COSTERO_MAP_MAX,
     DASHBOARD_HOST,
     DASHBOARD_PORT,
     DASHBOARD_REFRESH_MS,
@@ -28,6 +28,7 @@ from config import (  # noqa: E402
     INCENDIO_MAP_MAX,
     INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
+    MAP_CIRCLE_POINTS,
     MARES,
     MAPA,
     RIESGO_METEO_HORAS,
@@ -37,7 +38,8 @@ from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas, fetch_active_alerts
+from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas
+from costa_mapa import alertas_a_capa_costera
 from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
 from riesgo_meteo import calcular_riesgo_meteo
@@ -173,7 +175,7 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
-                        f"Sismos M≥{ZONA['magnitud_min']} · incendios activos (solo España) · círculos = zona perceptible.",
+                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = perceptible · azul = tsunami/mar.",
                         map_chart=True, accent=C_ORANGE,
                     ),
                     bloque(
@@ -277,20 +279,16 @@ def _bloque_oce(oce: dict, clave: str) -> dict:
 
 
 def _alertas_meteo_fuente(d: dict) -> list[dict]:
+    """Avisos de prueba + live ya resueltos por read_dashboard/API (caché AEMET 90 s)."""
     local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
     live = list(d.get("meteo_alertas_live", [])) if isinstance(d.get("meteo_alertas_live"), list) else []
-    if not live and AEMET_API_KEY:
-        try:
-            live = fetch_active_alerts(AEMET_API_KEY)
-        except Exception:
-            live = []
     return [*local, *live]
 
 
-def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
+def _alertas_meteo_locales(geo: dict, alertas: list[dict]) -> list[dict]:
     geo = _geo_resuelto(geo)
     filtradas = [
-        a for a in _alertas_meteo_fuente(d)
+        a for a in alertas
         if alerta_coincide_zona(
             a,
             provincia_id=geo.get("provincia_id"),
@@ -302,15 +300,20 @@ def _alertas_meteo_locales(geo: dict, d: dict) -> list[dict]:
     return deduplicar_alertas(filtradas)
 
 
-def _data_refresh_token(d: dict) -> str:
+def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
+    src = alertas if alertas is not None else _alertas_meteo_fuente(d)
     firmas = sorted(
         "|".join(alerta_firma(a))
-        for a in _alertas_meteo_fuente(d)
+        for a in src
         if isinstance(a, dict)
+    )
+    costa_sig = "|".join(
+        f"{r['lat']:.2f},{r['lon']:.2f},{r['radio_tsunami_km']}"
+        for r in alertas_a_capa_costera(src)
     )
     return (
         f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}"
-        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}"
+        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|costa:{costa_sig}"
     )
 
 
@@ -347,31 +350,44 @@ def _add_circulos_perceptibles(
     legendgroup: str,
     period_ms: int,
     fill_rgb: str = "248, 113, 113",
+    border_rgb: str = "220, 38, 38",
+    radio_col: str = "radio_perceptible_km",
+    hover_label: str = "Zona perceptible",
     show_legend: bool = True,
 ) -> None:
-    """Disco + borde del radio perceptible; pulso interior vía pulse-map.js."""
+    """Disco + borde pulsante; animación vía pulse-map.js (meta.pulse=grow)."""
     if rows.empty:
         return
     radios = (
-        rows["radio_perceptible_km"].tolist()
-        if "radio_perceptible_km" in rows.columns
+        rows[radio_col].tolist()
+        if radio_col in rows.columns
         else [120.0] * len(rows)
     )
-    border_rgb = "220, 38, 38"
     for idx, row in enumerate(rows.itertuples(index=False)):
         r = float(radios[idx]) if idx < len(radios) else 120.0
+        if r <= 0:
+            continue
         lat0 = float(row.lat)
         lon0 = float(row.lon)
         mag = float(getattr(row, "magnitud", 0) or 0)
+        row_hover = getattr(row, "hover_label", None) or hover_label
+        area = getattr(row, "area_desc", "") or ""
+        if mag > 0:
+            hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>Mag {mag:.1f} · epicentro"
+        elif area:
+            hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>{area}"
+        else:
+            hover_body = f"{row_hover} (hasta ~{r:.0f} km)"
         r0 = max(r * 0.06, 3.0)
-        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r0)
-        lat_ring, lon_ring = circle_perimeter(lat0, lon0, r0)
+        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r0, MAP_CIRCLE_POINTS)
+        lat_ring, lon_ring = circle_perimeter(lat0, lon0, r0, MAP_CIRCLE_POINTS)
         pulse_meta = {
             "center_lat": lat0,
             "center_lon": lon0,
             "radius_km": r,
             "period_ms": period_ms,
             "fill_rgb": fill_rgb,
+            "border_rgb": border_rgb,
         }
         fig.add_trace(
             go.Scattergeo(
@@ -384,11 +400,7 @@ def _add_circulos_perceptibles(
                 fill="toself",
                 fillcolor=f"rgba({fill_rgb}, 0.08)",
                 line=dict(width=0, color="rgba(0, 0, 0, 0)"),
-                hovertemplate=(
-                    f"Zona perceptible (hasta ~{r:.0f} km)<br>"
-                    f"Mag {mag:.1f} · epicentro"
-                    "<extra></extra>"
-                ),
+                hovertemplate=hover_body + "<extra></extra>",
                 meta={**pulse_meta, "pulse": "grow", "part": "fill"},
             )
         )
@@ -403,7 +415,7 @@ def _add_circulos_perceptibles(
                 fill="none",
                 line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
                 hoverinfo="skip",
-                meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0, "border_rgb": border_rgb},
+                meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0},
             )
         )
 
@@ -465,8 +477,8 @@ def _add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_nam
         border_op = 1.0
         fill_meta = None
         border_meta = None
-    lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw)
-    lat_ring, lon_ring = circle_perimeter(lat, lon, r_draw)
+    lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw, MAP_CIRCLE_POINTS)
+    lat_ring, lon_ring = circle_perimeter(lat, lon, r_draw, MAP_CIRCLE_POINTS)
     fig.add_trace(go.Scattergeo(
         lat=lat_fill, lon=lon_fill, mode="lines", name=legend_name or "Foco",
         legendgroup="inc", showlegend=bool(legend_name),
@@ -495,6 +507,7 @@ def _fig_mapa(
     lat_obs: float | None = None,
     lon_obs: float | None = None,
     obs_nombre: str = "",
+    zonas_costeras: list | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
@@ -515,7 +528,10 @@ def _fig_mapa(
         df_prueba = pd.DataFrame()
 
     if not df.empty and "perceptible_local" in df.columns:
-        df_per = df[df["perceptible_local"].fillna(False)]
+        mask_mapa = df["perceptible_local"].fillna(False)
+        if "alerta_tsunami" in df.columns:
+            mask_mapa = mask_mapa | df["alerta_tsunami"].fillna(False)
+        df_per = df[mask_mapa]
     else:
         df_per = df
 
@@ -563,13 +579,48 @@ def _fig_mapa(
         hoy_df = pd.DataFrame()
 
     if not hoy_df.empty:
-        _add_circulos_perceptibles(
-            fig,
-            hoy_df,
-            legend_name="Zona perceptible (hoy)",
-            legendgroup="hoy",
-            period_ms=1600,
-        )
+        if "perceptible_local" in hoy_df.columns:
+            hoy_perceptible = hoy_df[hoy_df["perceptible_local"].fillna(False)]
+        else:
+            hoy_perceptible = hoy_df
+        if not hoy_perceptible.empty:
+            _add_circulos_perceptibles(
+                fig,
+                hoy_perceptible,
+                legend_name="Zona perceptible (hoy)",
+                legendgroup="hoy",
+                period_ms=1600,
+            )
+
+    if not df.empty and "alerta_tsunami" in df.columns and "timestamp" in df.columns:
+        df_tsunami = df[df["alerta_tsunami"].fillna(False) & df["timestamp"].map(_es_sismo_hoy)]
+        if not df_tsunami.empty:
+            _add_circulos_perceptibles(
+                fig,
+                df_tsunami,
+                legend_name="Alerta tsunami (hoy)",
+                legendgroup="tsunami",
+                period_ms=1800,
+                fill_rgb="96, 165, 250",
+                border_rgb="37, 99, 235",
+                radio_col="radio_tsunami_km",
+                hover_label="Alerta tsunami",
+            )
+
+    if zonas_costeras:
+        df_costa = pd.DataFrame(zonas_costeras)
+        if not df_costa.empty:
+            _add_circulos_perceptibles(
+                fig,
+                df_costa,
+                legend_name="Aviso mar AEMET",
+                legendgroup="costa_aemet",
+                period_ms=2000,
+                fill_rgb="96, 165, 250",
+                border_rgb="37, 99, 235",
+                radio_col="radio_tsunami_km",
+                hover_label="Aviso mar",
+            )
 
     if not df_prueba.empty:
         reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
@@ -804,8 +855,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
             pass
 
     d = _load()
-    ts_raw = d.get("generado_en", "—")
-    refresh_token = _data_refresh_token(d)
+    alertas_fuente = _alertas_meteo_fuente(d)
+    refresh_token = _data_refresh_token(d, alertas_fuente)
     if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
         raise PreventUpdate
 
@@ -822,7 +873,8 @@ def refresh(n_intervals, clicks, geo, last_ts):
     incendios_local = [i for i in incendios_mapa if i.get("afecta_local")]
     oce = d.get("oceanografia", {})
     met = meteo_localidad(muni_id, localidad)
-    alertas_meteo = _alertas_meteo_locales(geo, d)
+    alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
+    zonas_costeras = alertas_a_capa_costera(alertas_fuente)
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
@@ -881,7 +933,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad),
+        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),

@@ -57,6 +57,31 @@ SISMO_PERCEPCION = {
     "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "450"),
 }
 
+# Radio de aviso tsunami (km) desde el epicentro · solo si USGS marca tsunami=1
+# radio ≈ TSUNAMI_FACTOR × 10^(TSUNAMI_EXP_MAG × (M − TSUNAMI_MAG_REF))
+TSUNAMI = {
+    "mag_ref": _f("TSUNAMI_MAG_REF", "6.5"),
+    "factor": _f("TSUNAMI_FACTOR", "100.0"),
+    "exp_mag": _f("TSUNAMI_EXP_MAG", "0.55"),
+    "prof_km": _f("TSUNAMI_PROF_KM", "50"),
+    "factor_terrestre": _f("TSUNAMI_FACTOR_TERRESTRE", "0.4"),
+    "min_km": _f("TSUNAMI_MIN_KM", "80"),
+    "max_km": _f("TSUNAMI_MAX_KM", "1200"),
+}
+
+# Círculos azules en mapa para avisos costeros AEMET (CO oleaje / RI rissaga)
+COSTERO_MAPA = {
+    "radio_base": _f("COSTERO_RADIO_BASE_KM", "75"),
+    "min_km": _f("COSTERO_RADIO_MIN_KM", "45"),
+    "max_km": _f("COSTERO_RADIO_MAX_KM", "160"),
+    "oleaje_ref_m": _f("COSTERO_OLEAJE_REF_M", "3.0"),
+    "factor_nivel": {
+        "amarillo": _f("COSTERO_FACTOR_AMARILLO", "1.0"),
+        "naranja": _f("COSTERO_FACTOR_NARANJA", "1.35"),
+        "rojo": _f("COSTERO_FACTOR_ROJO", "1.7"),
+    },
+}
+
 MAPA = {
     "lat_centro": _f("MAPA_LAT_CENTRO", "40.4168"),
     "lon_centro": _f("MAPA_LON_CENTRO", "-3.7038"),
@@ -100,6 +125,8 @@ INCENDIO_RADIO_MIN_KM = _f("INCENDIO_RADIO_MIN_KM", "1.5")
 INCENDIO_RADIO_MAX_KM = _f("INCENDIO_RADIO_MAX_KM", "35.0")
 INCENDIO_RADIO_LOCAL_KM = _f("INCENDIO_RADIO_LOCAL_KM", "75.0")
 INCENDIO_MAP_MAX = _i("INCENDIO_MAP_MAX", "18")
+COSTERO_MAP_MAX = _i("COSTERO_MAP_MAX", "12")
+MAP_CIRCLE_POINTS = _i("MAP_CIRCLE_POINTS", "40")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")

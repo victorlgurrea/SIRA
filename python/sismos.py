@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from config import SISMO_PERCEPCION
+from config import SISMO_PERCEPCION, TSUNAMI
 
 
 def distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -53,6 +53,28 @@ def es_perceptible(magnitud: float, profundidad_km: float, distancia_km: float) 
     return distancia_km <= distancia_perceptible_km(magnitud, profundidad_km)
 
 
+def alerta_tsunami(usgs_tsunami: int | bool | None) -> bool:
+    """True si USGS asocia aviso o generación de tsunami (campo properties.tsunami)."""
+    try:
+        return int(usgs_tsunami or 0) == 1
+    except (TypeError, ValueError):
+        return bool(usgs_tsunami)
+
+
+def radio_tsunami_km(magnitud: float, profundidad_km: float, es_submarino: bool) -> float:
+    """Radio estimado (km) de zona de aviso/propagación desde el epicentro."""
+    p = TSUNAMI
+    mag = max(float(magnitud), p["mag_ref"])
+    r = p["factor"] * (10 ** (p["exp_mag"] * (mag - p["mag_ref"])))
+    if not es_submarino:
+        r *= p["factor_terrestre"]
+    if profundidad_km > p["prof_km"]:
+        r *= max(0.3, 1.0 - min(profundidad_km, 400) / 500)
+    if p["max_km"] > 0:
+        r = min(r, p["max_km"])
+    return round(max(r, p["min_km"]), 1)
+
+
 def score_sismo(mag: float, prof: float, dist: float, sub: bool) -> dict:
     mag_p = next((p for m, p in [(7, 40), (6.5, 32), (6, 22), (5.5, 14), (5, 8), (4.5, 4)] if mag >= m), 1)
     prof_p = next((p for d, p in [(10, 30), (30, 25), (70, 18), (150, 8)] if prof <= d), 2)
@@ -70,10 +92,23 @@ def enriquecer_local(sismo: dict, lat: float, lon: float) -> dict:
     sub = bool(sismo.get("es_submarino"))
     local = score_sismo(mag, prof, d, sub)
     radio = distancia_perceptible_km(mag, prof)
+    if "alerta_tsunami" in sismo:
+        ts_flag = bool(sismo.get("alerta_tsunami"))
+    else:
+        ts_flag = alerta_tsunami(sismo.get("usgs_tsunami"))
+    stored_ts = sismo.get("radio_tsunami_km")
+    if ts_flag and stored_ts is not None:
+        radio_ts = float(stored_ts)
+    elif ts_flag:
+        radio_ts = radio_tsunami_km(mag, prof, sub)
+    else:
+        radio_ts = 0.0
     return {
         **sismo,
         "dist_local_km": d,
         "radio_perceptible_km": radio,
+        "alerta_tsunami": ts_flag,
+        "radio_tsunami_km": radio_ts,
         "score_local": local["score_total"],
         "nivel_local": local["nivel_alerta"],
         "perceptible_local": d <= radio,
