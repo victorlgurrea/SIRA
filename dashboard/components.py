@@ -50,6 +50,30 @@ def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
     return html.Div(className="sira-card", style={"borderLeftColor": accent}, children=children)
 
 
+def card_doble(
+    titulo: str,
+    valor_esp: int | str,
+    etiqueta_esp: str,
+    valor_loc: int | str,
+    etiqueta_loc: str,
+    ayuda: str,
+    accent: str = C_CYAN,
+) -> html.Div:
+    """Tarjeta con dos cifras: España / localidad."""
+    valor = html.Div(className="sira-card-dual", children=[
+        html.Div(className="sira-card-dual-part", children=[
+            html.Span(str(valor_esp), className="sira-card-value-num"),
+            html.Span(etiqueta_esp, className="sira-card-dual-lbl"),
+        ]),
+        html.Span("·", className="sira-card-dual-sep"),
+        html.Div(className="sira-card-dual-part", children=[
+            html.Span(str(valor_loc), className="sira-card-value-num"),
+            html.Span(etiqueta_loc, className="sira-card-dual-lbl"),
+        ]),
+    ])
+    return card(titulo, valor, "", ayuda, accent)
+
+
 def regiones(reg: dict) -> html.Div:
     items = [
         ("Mediterráneo", reg.get("MEDITERRÁNEO", 0), C_ORANGE),

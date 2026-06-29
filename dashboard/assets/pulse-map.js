@@ -1,9 +1,10 @@
 (function () {
   const TICK_MS = 120;
   const CIRCLE_POINTS = 72;
+  const MAP_IDS = ["mapa", "mapa_incendios"];
 
-  function getPlotDiv() {
-    const wrap = document.getElementById("mapa");
+  function getPlotDiv(mapId) {
+    const wrap = document.getElementById(mapId);
     if (!wrap) return null;
     return wrap.querySelector(".js-plotly-plot");
   }
@@ -45,6 +46,10 @@
     return [ring[0].slice().reverse(), ring[1].slice().reverse()];
   }
 
+  function minRadius(maxR) {
+    return Math.max(maxR < 20 ? 1.5 : 3, maxR * 0.06);
+  }
+
   function animatePulse(gd) {
     if (!gd || !gd.data || !window.Plotly) return;
     const now = Date.now();
@@ -64,7 +69,7 @@
       const radiusFraction = Number.isFinite(fraction) && fraction > 0 ? fraction : 1;
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-      const minR = Math.max(3, maxR * 0.06);
+      const minR = minRadius(maxR);
       const t = pulseT(now, period);
       const r = radiusAt(t, minR, maxR, radiusFraction);
 
@@ -120,9 +125,10 @@
 
   function boot() {
     window.setInterval(function () {
-      const gd = getPlotDiv();
-      if (!gd) return;
-      animatePulse(gd);
+      for (let m = 0; m < MAP_IDS.length; m++) {
+        const gd = getPlotDiv(MAP_IDS[m]);
+        if (gd) animatePulse(gd);
+      }
     }, TICK_MS);
   }
 

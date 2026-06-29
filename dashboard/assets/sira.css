@@ -197,6 +197,33 @@ body {
   line-height: 1.1;
 }
 
+.sira-card-dual {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  min-height: 2.2rem;
+}
+
+.sira-card-dual-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.sira-card-dual-lbl {
+  color: var(--sira-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.sira-card-dual-sep {
+  color: var(--sira-help);
+  font-size: 1.1rem;
+  font-weight: 300;
+  opacity: 0.7;
+}
+
 .sira-riesgo-badge {
   font-size: 1rem;
   font-weight: 600;

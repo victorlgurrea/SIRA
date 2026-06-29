@@ -18,6 +18,7 @@ from config import (
     ZONA,
 )
 from core import fetch_aemet, fetch_json, write_dashboard
+from incendios import descargar_incendios
 from sismos import distancia_km, score_sismo
 from test_overlay import clear_test_overlay
 
@@ -201,6 +202,7 @@ def descargar_meteo() -> dict:
 def ejecutar_ingesta():
     clear_test_overlay()
     sismos = descargar_sismos()
+    incendios = descargar_incendios()
     por_region: dict[str, int] = {}
     for s in sismos:
         por_region[s["region"]] = por_region.get(s["region"], 0) + 1
@@ -208,10 +210,12 @@ def ejecutar_ingesta():
     payload = {
         "generado_en": datetime.now(timezone.utc).isoformat(),
         "sismos": sismos,
+        "incendios": incendios,
         "oceanografia": descargar_oceanografia(),
         "meteorologia": descargar_meteo(),
         "estadisticas": {
             "n_sismos": len(sismos),
+            "n_incendios": len(incendios),
             "mag_max": max((s["magnitud"] for s in sismos), default=0),
             "score_max": max((s["score_total"] for s in sismos), default=0),
             "n_alto_critico": sum(1 for s in sismos if s["nivel_alerta"] in ("ALTO", "CRÍTICO")),

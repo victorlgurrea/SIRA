@@ -91,6 +91,14 @@ MARES = {
 }
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
+# NASA FIRMS — focos activos (clave gratuita: https://firms.modaps.eosdis.nasa.gov/api/map_key)
+FIRMS_MAP_KEY = os.getenv("FIRMS_MAP_KEY", "")
+FIRMS_BASE_URL = os.getenv("FIRMS_BASE_URL", "https://firms.modaps.eosdis.nasa.gov/api")
+INCENDIO_DIAS = _i("INCENDIO_DIAS", "3")
+INCENDIO_CLUSTER_KM = _f("INCENDIO_CLUSTER_KM", "4.0")
+INCENDIO_RADIO_MIN_KM = _f("INCENDIO_RADIO_MIN_KM", "1.5")
+INCENDIO_RADIO_MAX_KM = _f("INCENDIO_RADIO_MAX_KM", "35.0")
+INCENDIO_RADIO_LOCAL_KM = _f("INCENDIO_RADIO_LOCAL_KM", "75.0")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
@@ -143,4 +151,5 @@ ALLOWED_HOSTS = frozenset({
     "geocoding-api.open-meteo.com", "datasets-server.huggingface.co",
     "raw.githubusercontent.com", "huggingface.co",
     "opendata.aemet.es", "api.telegram.org",
+    "firms.modaps.eosdis.nasa.gov",
 }) | {h.strip() for h in os.getenv("ALLOWED_HTTP_HOSTS", "").split(",") if h.strip()}

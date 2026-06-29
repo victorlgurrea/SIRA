@@ -36,6 +36,13 @@ def fetch_json(url: str, params: dict | None = None, headers: dict | None = None
     return _get_json(url, params=params, headers=headers)
 
 
+def fetch_text(url: str, params: dict | None = None, headers: dict | None = None) -> str:
+    _check_url(url)
+    r = requests.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT, allow_redirects=False)
+    r.raise_for_status()
+    return r.text
+
+
 def fetch_aemet(path: str, api_key: str) -> dict | list:
     meta = _get_json(f"{AEMET_BASE}/{path.lstrip('/')}", headers={"api_key": api_key})
     datos = meta.get("datos") if isinstance(meta, dict) else None
