@@ -10,6 +10,7 @@ data/processed/dashboard_data.json
 data/processed/alertas_estado.json
 data/processed/push_subscriptions.json
 data/processed/push_estado.json
+data/processed/sira.db
 data/processed/test_*.json
 data/processed/graficos/
 

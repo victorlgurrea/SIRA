@@ -11,7 +11,7 @@ Estructura
   python/                 API, ingesta, push, meteo, geo
   dashboard/              interfaz Dash (app.py, assets/)
   data/geo/espana.json    catálogo INE (provincia/municipio/localidad)
-  data/processed/         JSON generados en runtime (ignorados por git)
+  data/processed/         JSON generados en runtime + SQLite (ignorados por git)
   r_analysis/             gráficos R opcionales (no usa el dashboard)
   render.yaml             despliegue Render (sira-api + sira-dashboard)
 
@@ -39,7 +39,21 @@ Despliegue Render
 Cron horario (GitHub Actions)
 ─────────────────────────────
   Workflow: .github/workflows/ingesta-hourly.yml
+  Tests CI: .github/workflows/tests.yml (pytest en cada push/PR a main)
   Secrets: SIRA_API_URL (servicio API, no el dashboard), SIRA_CRON_SECRET
+
+Persistencia SQLite (push + historial)
+──────────────────────────────────────
+  DB_PATH=data/processed/sira.db (configurable en .env)
+  Suscripciones Web Push, estado de notificaciones e historial municipal
+  viven en SQLite, no en JSON efímero del disco de Render.
+  Migración única: cd python && py migrar_json_a_sqlite.py
+  En Render (disco efímero):
+    1. Añade un volumen persistente (p. ej. montado en /data).
+    2. Variable DB_PATH=/data/sira.db en sira-api y sira-dashboard.
+    3. Alternativa: Postgres gratuito en Render y adaptar db.py (futuro).
+  Sin volumen, cada deploy borra la base local; la migración reimporta JSON
+  legacy si aún existen en el primer arranque.
 
 Web Push
 ────────

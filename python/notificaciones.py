@@ -1,13 +1,11 @@
 """Alertas email/Telegram."""
 from __future__ import annotations
 
-import json
 import logging
 import smtplib
 from email.mime.text import MIMEText
 
 from config import (
-    ALERTAS_STATE_FILE,
     ALERT_EMAIL,
     HTTP_TIMEOUT,
     SMTP_HOST,
@@ -18,7 +16,8 @@ from config import (
     TELEGRAM_CHAT_ID,
     ZONA,
 )
-from core import post_json, read_dashboard, read_json_file
+from core import post_json, read_dashboard
+from db import ids_ya_notificados, marcar_notificado
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +27,9 @@ def evaluar_alertas() -> bool:
     criticos = [s for s in data.get("sismos", []) if s.get("score_total", 0) >= ZONA["umbral_score_alerta"]]
     ids = sorted({str(s["id"]) for s in criticos if s.get("id")})
     if not ids:
-        ALERTAS_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        ALERTAS_STATE_FILE.write_text('{"ids_alertados":[]}', encoding="utf-8")
+        marcar_notificado([])
         return False
-    if ids == read_json_file(ALERTAS_STATE_FILE).get("ids_alertados", []):
+    if ids == ids_ya_notificados():
         return False
 
     top = max(criticos, key=lambda s: s["score_total"])
@@ -59,5 +57,5 @@ def evaluar_alertas() -> bool:
         except (OSError, ValueError) as exc:
             log.warning("Telegram: %s", exc)
 
-    ALERTAS_STATE_FILE.write_text(json.dumps({"ids_alertados": ids}), encoding="utf-8")
+    marcar_notificado(ids)
     return True

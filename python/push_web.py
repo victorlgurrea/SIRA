@@ -9,15 +9,20 @@ from pywebpush import WebPushException, Vapid, webpush
 
 from config import (
     AEMET_API_KEY,
-    PUSH_STATE_FILE,
-    PUSH_SUBSCRIPTIONS_FILE,
     VAPID_PRIVATE_KEY,
     VAPID_PUBLIC_KEY,
     VAPID_SUBJECT,
     ZONA,
 )
 from aemet_alerts import alerta_coincide_zona, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle
-from core import read_dashboard, read_json_file, clear_meteo_live_cache
+from core import read_dashboard, clear_meteo_live_cache
+from db import (
+    get_push_state,
+    list_subscriptions as db_list_subscriptions,
+    remove_subscription as db_remove_subscription,
+    save_push_state,
+    save_subscriptions as db_save_subscriptions,
+)
 from geo_es import coords_observacion, municipio_por_id, provincia_nombre_de_municipio, provincias
 from incendios import alerta_incendio_local
 from sismos import alerta_local, alerta_tsunami_local
@@ -38,11 +43,6 @@ def _get_vapid_signer() -> Vapid:
     if _vapid_signer is None:
         _vapid_signer = Vapid.from_pem(VAPID_PRIVATE_KEY.encode("utf-8"))
     return _vapid_signer
-
-
-def _write_json(path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def vapid_enabled() -> bool:
@@ -73,11 +73,10 @@ def _normalize_sub(sub: dict) -> dict:
 
 
 def list_subscriptions() -> list[dict]:
-    data = read_json_file(PUSH_SUBSCRIPTIONS_FILE)
-    raw = data.get("subscriptions", [])
-    subs = [_normalize_sub(s) for s in raw if isinstance(s, dict) and s.get("endpoint")]
-    if any(_needs_normalize(s) for s in raw if isinstance(s, dict)):
-        _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": subs})
+    raw = db_list_subscriptions()
+    subs = [_normalize_sub(s) for s in raw]
+    if any(_needs_normalize(s) for s in raw):
+        db_save_subscriptions(subs)
     return subs
 
 
@@ -90,7 +89,7 @@ def _needs_normalize(sub: dict) -> bool:
 
 
 def save_subscriptions(subs: list[dict]) -> None:
-    _write_json(PUSH_SUBSCRIPTIONS_FILE, {"subscriptions": [_normalize_sub(s) for s in subs]})
+    db_save_subscriptions([_normalize_sub(s) for s in subs])
 
 
 def add_subscription(sub: dict) -> int:
@@ -110,36 +109,27 @@ def add_subscription(sub: dict) -> int:
 
 
 def remove_subscription(endpoint: str) -> int:
-    subs = [s for s in list_subscriptions() if s.get("endpoint") != endpoint]
-    save_subscriptions(subs)
-    return len(subs)
+    return db_remove_subscription(endpoint)
 
 
 def _state() -> dict:
-    data = read_json_file(PUSH_STATE_FILE)
-    ids_sismo = [str(x) for x in data.get("ids_sismo", data.get("ids_push", []))]
-    ids_meteo = [str(x) for x in data.get("ids_meteo", [])]
-    ids_incendio = [str(x) for x in data.get("ids_incendio", [])]
-    ids_tsunami = [str(x) for x in data.get("ids_tsunami", [])]
+    data = get_push_state()
     return {
-        "ids_sismo": sorted(set(ids_sismo)),
-        "ids_meteo": sorted(set(ids_meteo)),
-        "ids_incendio": sorted(set(ids_incendio)),
-        "ids_tsunami": sorted(set(ids_tsunami)),
+        "ids_sismo": sorted(set(data.get("ids_sismo", []))),
+        "ids_meteo": sorted(set(data.get("ids_meteo", []))),
+        "ids_incendio": sorted(set(data.get("ids_incendio", []))),
+        "ids_tsunami": sorted(set(data.get("ids_tsunami", []))),
     }
 
 
 def _save_state(state: dict) -> None:
-    _write_json(
-        PUSH_STATE_FILE,
-        {
-            "ids_sismo": sorted({str(x) for x in state.get("ids_sismo", [])}),
-            "ids_meteo": sorted({str(x) for x in state.get("ids_meteo", [])}),
-            "ids_incendio": sorted({str(x) for x in state.get("ids_incendio", [])}),
-            "ids_tsunami": sorted({str(x) for x in state.get("ids_tsunami", [])}),
-            "updated": datetime.now(timezone.utc).isoformat(),
-        },
-    )
+    save_push_state({
+        "ids_sismo": sorted({str(x) for x in state.get("ids_sismo", [])}),
+        "ids_meteo": sorted({str(x) for x in state.get("ids_meteo", [])}),
+        "ids_incendio": sorted({str(x) for x in state.get("ids_incendio", [])}),
+        "ids_tsunami": sorted({str(x) for x in state.get("ids_tsunami", [])}),
+        "updated": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 def _fmt_parametro_push(parametro: str) -> str:
