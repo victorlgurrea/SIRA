@@ -24,12 +24,12 @@ from aforos import descargar_aforos
 from incendios import descargar_incendios
 from fuentes import parse_usgs_feature
 from historial import guardar_snapshots_diarios
+from meteo_parse import VACIO_METEO, hourly as _hourly, num as _num, pack_meteo as _pack_meteo, parse_aemet as _parse_aemet
 from sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
 from test_overlay import clear_test_overlay
 
 log = logging.getLogger(__name__)
 VACIO_OCE = {"serie_horaria": [], "resumen": {}}
-VACIO_METEO = {"fuente": "—", "serie_horaria": [], "resumen": {}}
 
 
 def _region(lat: float, lon: float) -> str:
@@ -45,46 +45,6 @@ def _region(lat: float, lon: float) -> str:
 def _dist_km(lat: float, lon: float) -> float:
     rlat, rlon = ZONA["lat_ref"], ZONA["lon_ref"]
     return distancia_km(lat, lon, rlat, rlon)
-
-
-def _hourly(data: dict, mapping: dict[str, str]) -> list[dict]:
-    h = data.get("hourly", {})
-    times = h.get("time", [])
-    return [
-        {"timestamp": t, **{out: h.get(src, [None] * len(times))[i] for out, src in mapping.items()}}
-        for i, t in enumerate(times)
-    ]
-
-
-def _aemet_val(obj) -> str | int | float | None:
-    return obj.get("value") if isinstance(obj, dict) else obj
-
-
-def _num(val, default: float = 0.0) -> float:
-    if val is None:
-        return default
-    s = str(val).strip().lower()
-    if s in ("", "ip", "0"):
-        return default
-    try:
-        return float(s.replace(",", "."))
-    except ValueError:
-        return default
-
-
-def _resumen_lluvia(serie: list[dict]) -> dict:
-    s24 = serie[:24]
-    probs = [x["prob_precip_pct"] for x in s24 if x.get("prob_precip_pct") is not None]
-    return {
-        "precip_prox_24h_mm": round(sum(x.get("precip_mm", 0) for x in s24), 1),
-        "prob_max_pct": max(probs, default=0),
-        "prob_actual_pct": s24[0].get("prob_precip_pct") if s24 else None,
-    }
-
-
-def _pack_meteo(fuente: str, municipio: str, serie: list[dict]) -> dict:
-    serie = serie[:48]
-    return {"fuente": fuente, "municipio": municipio, "serie_horaria": serie, "resumen": _resumen_lluvia(serie)}
 
 
 def _estado_fuente(nombre: str, fn: Callable[..., Any], *args, default=None, **kwargs) -> tuple[Any, dict]:
@@ -176,23 +136,6 @@ def descargar_oceanografia() -> dict:
         }
     log.info("Oceanografía: %d zonas", len(resultado))
     return resultado
-
-
-def _parse_aemet(data: dict | list) -> list[dict]:
-    item = (data[0] if isinstance(data, list) else data) or {}
-    serie = []
-    for dia in item.get("prediccion", {}).get("dia", []):
-        fecha = dia.get("fecha", "")
-        for h in dia.get("hora", []):
-            periodo = str(h.get("periodo", ""))
-            ts = f"{fecha}T{periodo.zfill(2)}:00" if periodo.isdigit() else fecha
-            prob = _aemet_val(h.get("probPrecipitacion"))
-            serie.append({
-                "timestamp": ts,
-                "precip_mm": _num(_aemet_val(h.get("precipitacion"))),
-                "prob_precip_pct": int(prob) if prob is not None and str(prob).strip().isdigit() else None,
-            })
-    return serie
 
 
 def descargar_meteo() -> dict:

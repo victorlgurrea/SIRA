@@ -8,7 +8,14 @@ import requests
 from config import AEMET_API_KEY, FORECAST_DAYS, OPEN_METEO_WEATHER_URL, ZONA
 from core import fetch_aemet, fetch_json
 from geo_es import coords_municipio, municipio_por_id
-from ingesta import VACIO_METEO, _aemet_val, _hourly, _num, _pack_meteo, _parse_aemet, _resumen_lluvia
+from meteo_parse import (
+    VACIO_METEO,
+    aemet_val as _aemet_val,
+    hourly as _hourly,
+    num as _num,
+    parse_aemet as _parse_aemet,
+    resumen_lluvia as _resumen_lluvia,
+)
 
 log = logging.getLogger(__name__)
 

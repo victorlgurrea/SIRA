@@ -153,6 +153,7 @@ def _geo_resuelto(geo: dict | None) -> dict:
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
 app.layout = html.Div(className="sira-page", children=[
+    dcc.Location(id="url", refresh=False),
     html.Div(id="sira-meta", **{"data-api-base": API_BASE_URL}, style={"display": "none"}),
     html.Div(id="push-geo", style={"display": "none"}),
     html.Header(className="sira-header", children=[
@@ -176,27 +177,25 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Interval(id="geo-locate-poll", interval=1000, n_intervals=0),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
-            html.Div(className="sira-toolbar", children=[
-                html.Div(className="sira-ts-wrap", children=[
-                    html.Span(id="ts", className="sira-ts"),
+            html.Div(id="page-home", children=[
+                html.Div(className="sira-toolbar", children=[
+                    html.Div(className="sira-ts-wrap", children=[
+                        html.Span(id="ts", className="sira-ts"),
                         html.Span(
                             f" · pantalla cada {DASHBOARD_REFRESH_MIN} min · datos cada {INGESTA_INTERVAL_MIN} min",
                             className="sira-ts-hint",
                         ),
+                    ]),
+                    html.Div(className="sira-toolbar-actions", children=[
+                        html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
+                        html.A("Estado", href="/status", className="sira-link-nav"),
+                        html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
+                        html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
+                        html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
+                    ]),
                 ]),
-                html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
-                html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
-                html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
-            ]),
-            html.Div(id="cards", className="sira-cards"),
-            html.Div(className="sira-charts-row sira-charts-row--historial", children=[
-                bloque(
-                    "historial", "Evolución 30 días — municipio seleccionado",
-                    "Score sísmico máximo diario e índice de riesgo meteorológico.",
-                    accent=C_CYAN,
-                ),
-            ]),
-            html.Div(className="sira-charts", children=[
+                html.Div(id="cards", className="sira-cards"),
+                html.Div(className="sira-charts", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
@@ -240,6 +239,20 @@ app.layout = html.Div(className="sira-page", children=[
                     bloque(
                         "cor_atl", "Corrientes — Atlántico",
                         f"Velocidad y dirección · {MARES['ATLÁNTICO']['punto']}.",
+                        accent=C_CYAN,
+                    ),
+                ]),
+            ]),
+            ]),
+            html.Div(id="page-historial", style={"display": "none"}, children=[
+                html.Div(className="sira-historial-nav", children=[
+                    html.A("← Volver al dashboard", href="/", className="sira-link-nav"),
+                    html.A("Estado del sistema", href="/status", className="sira-link-nav"),
+                ]),
+                html.Div(className="sira-charts-row sira-charts-row--historial", children=[
+                    bloque(
+                        "historial", "Evolución 30 días — municipio seleccionado",
+                        "Score sísmico máximo diario e índice de riesgo meteorológico.",
                         accent=C_CYAN,
                     ),
                 ]),
@@ -1056,8 +1069,31 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
 
 
 @callback(
-    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
+    Output("page-home", "style"),
+    Output("page-historial", "style"),
+    Input("url", "pathname"),
+)
+def route_pages(pathname):
+    if pathname == "/historial":
+        return {"display": "none"}, {"display": "block"}
+    return {"display": "block"}, {"display": "none"}
+
+
+@callback(
     Output("historial", "figure"),
+    Input("geo-store", "data"),
+    Input("url", "pathname"),
+)
+def refresh_historial(geo, pathname):
+    if pathname != "/historial":
+        raise PreventUpdate
+    geo = _geo_resuelto(geo)
+    muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
+    return _fig_historial(muni_id, f"sira-hist-{muni_id}")
+
+
+@callback(
+    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
     Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
@@ -1171,7 +1207,6 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_historial(muni_id, f"sira-hist-{muni_id}"),
         _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa, aforos_mapa),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
