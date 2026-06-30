@@ -9,6 +9,7 @@ from typing import Any
 
 from config import (
     AFORO_CAUDAL_VIGILANCIA_M3S,
+    AFORO_DATOS_MAX_MIN,
     AFORO_MAP_MAX,
     AFORO_RADIO_LOCAL_KM,
     CHJ_SAIH_BASE,
@@ -18,6 +19,8 @@ from core import fetch_text
 from sismos import distancia_km
 
 log = logging.getLogger(__name__)
+
+_FENOMENOS_LLUVIA_TORMENTA = frozenset({"PR", "TO"})
 
 _NIVEL_PRIORIDAD = {"critico": 4, "alerta": 3, "vigilancia": 2, "fallo": 1, "normal": 0}
 _NIVEL_ETIQUETA = {
@@ -100,7 +103,7 @@ def _variable_reciente(var: dict | None) -> bool:
     diff = var.get("diferenciaHoraria") or [99, 99]
     if not isinstance(diff, list) or len(diff) < 2:
         return False
-    return int(diff[1]) <= 25
+    return int(diff[1]) <= AFORO_DATOS_MAX_MIN
 
 
 def _variable_fallo(var: dict | None) -> bool:
@@ -148,6 +151,27 @@ def _primera_variable(items: list[dict] | None) -> dict | None:
     return items[0] if isinstance(items[0], dict) else None
 
 
+def alerta_lluvia_tormenta_zona(provincia: str | None, alertas: list[dict] | None) -> bool:
+    """¿Hay aviso AEMET PR/TO activo que afecte a la provincia del aforo?"""
+    if not alertas or not provincia:
+        return False
+    from aemet_alerts import alerta_coincide_zona
+
+    prov_norm = str(provincia).strip().lower()
+    for alerta in alertas:
+        if not isinstance(alerta, dict):
+            continue
+        fen = str(alerta.get("fenomeno") or "").upper()
+        if fen not in _FENOMENOS_LLUVIA_TORMENTA:
+            continue
+        if alerta_coincide_zona(alerta, provincia=provincia):
+            return True
+        area = str(alerta.get("area_desc") or "").lower()
+        if prov_norm and prov_norm in area:
+            return True
+    return False
+
+
 def nivel_riesgo_aforo(
     *,
     caudal_m3s: float | None,
@@ -155,28 +179,32 @@ def nivel_riesgo_aforo(
     datos_recientes: bool,
     en_fallo: bool,
     es_rambla: bool = False,
-) -> str:
+    alerta_lluvia_tormenta: bool = False,
+) -> tuple[str, bool]:
+    """Devuelve (nivel_riesgo, sin_datos_recientes)."""
     if en_fallo:
-        return "fallo"
+        return "fallo", False
     if not datos_recientes:
-        return "normal"
+        if alerta_lluvia_tormenta:
+            return "vigilancia", True
+        return "normal", False
     q = float(caudal_m3s or 0)
     u = umbrales or {}
     alto = _num(u.get("umbral_alto"))
     medio = _num(u.get("umbral_medio"))
     bajo = _num(u.get("umbral_bajo"))
     if alto > 0 and q >= alto:
-        return "critico"
+        return "critico", False
     if medio > 0 and q >= medio:
-        return "alerta"
+        return "alerta", False
     if bajo > 0 and q > bajo:
-        return "vigilancia"
+        return "vigilancia", False
     if es_rambla and q >= AFORO_CAUDAL_VIGILANCIA_M3S:
-        return "vigilancia"
-    return "normal"
+        return "vigilancia", False
+    return "normal", False
 
 
-def _normalizar_estacion(est: dict, umbrales_idx: dict[str, dict]) -> dict | None:
+def _normalizar_estacion(est: dict, umbrales_idx: dict[str, dict], alertas_meteo: list[dict] | None = None) -> dict | None:
     east = _num(est.get("latitud"))
     north = _num(est.get("longitud"))
     if east == 0.0 and north == 0.0:
@@ -204,12 +232,15 @@ def _normalizar_estacion(est: dict, umbrales_idx: dict[str, dict]) -> dict | Non
     caudal = _num(ca.get("ultimoValor")) if ca else None
     nivel = _num(nv.get("ultimoValor")) if nv else None
 
-    nivel_riesgo = nivel_riesgo_aforo(
+    provincia = str(est.get("provincia") or "")
+    alerta_meteo = alerta_lluvia_tormenta_zona(provincia, alertas_meteo)
+    nivel_riesgo, sin_datos = nivel_riesgo_aforo(
         caudal_m3s=caudal,
         umbrales=umbrales,
         datos_recientes=datos_recientes,
         en_fallo=en_fallo,
         es_rambla=es_rambla,
+        alerta_lluvia_tormenta=alerta_meteo,
     )
 
     est_id = str(est.get("idEstacion") or nombre)
@@ -234,12 +265,13 @@ def _normalizar_estacion(est: dict, umbrales_idx: dict[str, dict]) -> dict | Non
         "umbral_caudal_medio": umbrales.get("umbral_medio"),
         "umbral_caudal_alto": umbrales.get("umbral_alto"),
         "datos_recientes": datos_recientes,
+        "sin_datos_recientes": sin_datos,
         "nivel_riesgo": nivel_riesgo,
         "fuente": "SAIH CHJ / MITECO",
     }
 
 
-def descargar_aforos() -> list[dict]:
+def descargar_aforos(alertas_meteo: list[dict] | None = None) -> list[dict]:
     """Estaciones CHJ con nivel y caudal (mapa-niveles + umbrales de mapa-aforos)."""
     try:
         html_niveles = _fetch_pagina("mapa-niveles")
@@ -258,7 +290,7 @@ def descargar_aforos() -> list[dict]:
     for est in estaciones:
         if not isinstance(est, dict):
             continue
-        row = _normalizar_estacion(est, umbrales_idx)
+        row = _normalizar_estacion(est, umbrales_idx, alertas_meteo)
         if row:
             out.append(row)
 
@@ -285,7 +317,7 @@ def enriquecer_local(aforo: dict, lat_obs: float, lon_obs: float) -> dict:
         **aforo,
         "dist_local_km": round(d, 1),
         "cerca_local": cerca,
-        "en_mapa": en_alerta and cerca and bool(aforo.get("datos_recientes")),
+        "en_mapa": (en_alerta or aforo.get("sin_datos_recientes")) and cerca,
         "mostrar_alerta": en_alerta and cerca,
     }
 
@@ -331,7 +363,12 @@ def _texto_resumen(top: list[dict], n_alertas: int) -> str:
         return f"{n_alertas} aforo(s) en vigilancia"
     a = top[0]
     nom = a.get("nombre", "Aforo")
-    nivel = _NIVEL_ETIQUETA.get(str(a.get("nivel_riesgo")), "Vigilancia")
+    if a.get("sin_datos_recientes"):
+        nivel = "Sensor sin datos"
+        icon = "📡"
+    else:
+        nivel = _NIVEL_ETIQUETA.get(str(a.get("nivel_riesgo")), "Vigilancia")
+        icon = ""
     q = a.get("caudal_m3s")
     n = a.get("nivel_m")
     partes: list[str] = []
@@ -341,4 +378,5 @@ def _texto_resumen(top: list[dict], n_alertas: int) -> str:
         partes.append(f"h={n} m")
     med = " · ".join(partes) if partes else "—"
     extra = f" · +{n_alertas - 1} más" if n_alertas > 1 else ""
-    return f"{nivel}: {nom} {med}{extra}"
+    pref = f"{icon} " if icon else ""
+    return f"{pref}{nivel}: {nom} {med}{extra}"

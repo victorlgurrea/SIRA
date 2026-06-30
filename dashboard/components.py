@@ -55,10 +55,14 @@ def lluvia_embalses_valor(
         n_afor = int(resumen_afor.get("n_alertas_local") or 0)
         linea_afor = str(resumen_afor.get("texto_linea") or "")
         if linea_afor:
+            tiene_sensor_caido = any(
+                a.get("sin_datos_recientes") for a in (resumen_afor.get("principales") or [])
+            )
             filas.append(html.Div(
                 linea_afor,
-                className="sira-card-detail sira-aforos-linea",
-                style={"color": "#14b8a6" if n_afor else None},
+                className="sira-card-detail sira-aforos-linea"
+                + (" sira-aforos-linea--sensor" if tiene_sensor_caido else ""),
+                style={"color": "#f59e0b" if tiene_sensor_caido else ("#14b8a6" if n_afor else None)},
             ))
     return html.Div(className="sira-lluvia-embalses", children=filas)
 
