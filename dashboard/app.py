@@ -174,7 +174,7 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
             dcc.Store(id="geo-store", data=_default_geo()),
-            dcc.Interval(id="geo-locate-poll", interval=1000, n_intervals=0),
+            dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
             html.Div(id="page-home", children=[
@@ -1071,25 +1071,35 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
 @callback(
     Output("page-home", "style"),
     Output("page-historial", "style"),
+    Output("tick", "disabled"),
+    Output("geo-locate-poll", "disabled"),
     Input("url", "pathname"),
 )
 def route_pages(pathname):
-    if pathname == "/historial":
-        return {"display": "none"}, {"display": "block"}
-    return {"display": "block"}, {"display": "none"}
+    on_historial = pathname == "/historial"
+    if on_historial:
+        return {"display": "none"}, {"display": "block"}, True, True
+    return {"display": "block"}, {"display": "none"}, False, True
+
+
+@callback(
+    Output("geo-locate-poll", "disabled", allow_duplicate=True),
+    Input("geo-locate-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def _activar_poll_geo(_n):
+    return False
 
 
 @callback(
     Output("historial", "figure"),
-    Input("geo-store", "data"),
     Input("url", "pathname"),
+    Input("geo-municipio", "value"),
 )
-def refresh_historial(geo, pathname):
+def refresh_historial(pathname, municipio_id):
     if pathname != "/historial":
         raise PreventUpdate
-    geo = _geo_resuelto(geo)
-    muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
-    return _fig_historial(muni_id, f"sira-hist-{muni_id}")
+    return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial")
 
 
 @callback(
@@ -1099,8 +1109,11 @@ def refresh_historial(geo, pathname):
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"), Input("geo-store", "data"),
     State("data-ts-store", "data"),
+    State("url", "pathname"),
 )
-def refresh(n_intervals, clicks, geo, last_ts):
+def refresh(n_intervals, clicks, geo, last_ts, pathname):
+    if pathname == "/historial":
+        raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:
             requests.post(
@@ -1349,6 +1362,7 @@ clientside_callback(
                 window.dash_clientside.no_update,
                 window.dash_clientside.no_update,
                 window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
             ];
         }
         window.__siraGeoLocateResult = null;
@@ -1364,14 +1378,17 @@ clientside_callback(
                 municipio: d.municipio,
                 localidad: d.localidad,
             },
+            true,
         ];
     }
     """,
     Output("geo-provincia", "value"),
     Output("geo-municipio", "value"),
     Output("geo-localidad", "value"),
-    Output("geo-store", "data"),
+    Output("geo-store", "data", allow_duplicate=True),
+    Output("geo-locate-poll", "disabled", allow_duplicate=True),
     Input("geo-locate-poll", "n_intervals"),
+    prevent_initial_call=True,
 )
 
 
