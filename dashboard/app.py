@@ -62,6 +62,16 @@ from theme import (
     PLOTLY_BG,
 )
 
+SEMAFORO_COLORES = {
+    "VERDE": "#22c55e",
+    "AMARILLO": "#eab308",
+    "NARANJA": "#f97316",
+    "ROJO": "#ef4444",
+}
+
+SST_ESCALA_TEXTO = "Escala SST (orientativa tipo AEMET): <20 verde · 20-23 amarillo · 23-26 naranja · >=26 rojo"
+COR_ESCALA_TEXTO = "Escala corrientes (orientativa tipo AEMET): <0.30 verde · 0.30-0.60 amarillo · 0.60-1.00 naranja · >=1.00 rojo"
+
 _ASSETS = Path(__file__).resolve().parent / "assets"
 _LOGO_FILE = _ASSETS / "logo-sira_4.png"
 if not _LOGO_FILE.is_file():
@@ -794,6 +804,7 @@ def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
     fig = go.Figure()
     dir_txt = "—"
     ult_txt = "Última: — m/s"
+    ult_color = C_TEXT
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
@@ -803,7 +814,9 @@ def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
         ))
         vel = s["corriente_vel_ms"].dropna()
         if not vel.empty:
-            ult_txt = f"Última: {float(vel.iloc[-1]):.2f} m/s"
+            ult_val = float(vel.iloc[-1])
+            nivel, ult_color = _nivel_corriente(ult_val)
+            ult_txt = f"Última: {ult_val:.2f} m/s ● {nivel}"
         if s["corriente_dir_grados"].notna().any():
             dir_txt = dir_compass(s["corriente_dir_grados"].dropna().iloc[-1])
     fig.update_layout(
@@ -818,10 +831,16 @@ def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
                 showarrow=False, font=dict(color=C_GREEN, size=11),
             ),
             dict(
+                text=COR_ESCALA_TEXTO,
+                xref="paper", yref="paper", x=0.5, y=1.12,
+                xanchor="center",
+                showarrow=False, font=dict(color=C_MUTED, size=10),
+            ),
+            dict(
                 text=ult_txt,
                 xref="paper", yref="paper", x=1, y=1.12,
                 xanchor="right",
-                showarrow=False, font=dict(color=C_TEXT, size=11),
+                showarrow=False, font=dict(color=ult_color, size=11),
             ),
         ],
         **PLOTLY_BG,
@@ -837,29 +856,72 @@ def _stats_region(sismos: list) -> dict[str, int]:
     return reg
 
 
-def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str) -> go.Figure:
+def _nivel_sst(temp_c: float | None) -> tuple[str, str]:
+    if temp_c is None:
+        return "SIN DATO", C_MUTED
+    if temp_c >= 26:
+        return "ROJO", SEMAFORO_COLORES["ROJO"]
+    if temp_c >= 23:
+        return "NARANJA", SEMAFORO_COLORES["NARANJA"]
+    if temp_c >= 20:
+        return "AMARILLO", SEMAFORO_COLORES["AMARILLO"]
+    return "VERDE", SEMAFORO_COLORES["VERDE"]
+
+
+def _nivel_corriente(vel_ms: float | None) -> tuple[str, str]:
+    if vel_ms is None:
+        return "SIN DATO", C_MUTED
+    if vel_ms >= 1.0:
+        return "ROJO", SEMAFORO_COLORES["ROJO"]
+    if vel_ms >= 0.6:
+        return "NARANJA", SEMAFORO_COLORES["NARANJA"]
+    if vel_ms >= 0.3:
+        return "AMARILLO", SEMAFORO_COLORES["AMARILLO"]
+    return "VERDE", SEMAFORO_COLORES["VERDE"]
+
+
+def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, con_semaforo_sst: bool = False) -> go.Figure:
     fig = go.Figure()
     ult_txt = f"Última: — {unidad}"
+    ult_color = C_TEXT
+    escala_txt = None
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
         fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
         vals = s[campo].dropna()
         if not vals.empty:
-            ult_txt = f"Última: {float(vals.iloc[-1]):.2f} {unidad}"
+            ult_val = float(vals.iloc[-1])
+            if con_semaforo_sst:
+                nivel, ult_color = _nivel_sst(ult_val)
+                ult_txt = f"Última: {ult_val:.2f} {unidad} ● {nivel}"
+                escala_txt = SST_ESCALA_TEXTO
+            else:
+                ult_txt = f"Última: {ult_val:.2f} {unidad}"
+    annotations = [dict(
+        text=ult_txt,
+        xref="paper", yref="paper",
+        x=1, y=1.12,
+        xanchor="right",
+        showarrow=False,
+        font=dict(color=ult_color, size=11),
+    )]
+    if escala_txt:
+        annotations.append(
+            dict(
+                text=escala_txt,
+                xref="paper", yref="paper",
+                x=0, y=1.12,
+                showarrow=False,
+                font=dict(color=C_MUTED, size=10),
+            )
+        )
     fig.update_layout(
         margin=dict(t=28, b=0, l=0, r=0),
         autosize=True,
         yaxis_title=unidad,
         uirevision=uirev,
-        annotations=[dict(
-            text=ult_txt,
-            xref="paper", yref="paper",
-            x=1, y=1.12,
-            xanchor="right",
-            showarrow=False,
-            font=dict(color=C_TEXT, size=11),
-        )],
+        annotations=annotations,
         **PLOTLY_BG,
     )
     return fig
@@ -1066,9 +1128,9 @@ def refresh(n_intervals, clicks, geo, last_ts):
         cards, f"Actualizado: {ts}", refresh_token,
         _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa, aforos_mapa),
         _fig_lluvia(met.get("serie_horaria", [])),
-        _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med"),
-        _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant"),
-        _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl"),
+        _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
+        _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
+        _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),
         _fig_corrientes(oce_med.get("serie_horaria", []), "sira-cor-med"),
         _fig_corrientes(oce_cant.get("serie_horaria", []), "sira-cor-cant"),
         _fig_corrientes(oce_atl.get("serie_horaria", []), "sira-cor-atl"),
