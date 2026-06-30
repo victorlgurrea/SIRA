@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable
 
 import requests
 
@@ -22,6 +23,7 @@ from hidrologia import descargar_embalses
 from aforos import descargar_aforos
 from incendios import descargar_incendios
 from fuentes import parse_usgs_feature
+from historial import guardar_snapshots_diarios
 from sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
 from test_overlay import clear_test_overlay
 
@@ -85,6 +87,16 @@ def _pack_meteo(fuente: str, municipio: str, serie: list[dict]) -> dict:
     return {"fuente": fuente, "municipio": municipio, "serie_horaria": serie, "resumen": _resumen_lluvia(serie)}
 
 
+def _estado_fuente(nombre: str, fn: Callable[..., Any], *args, default=None, **kwargs) -> tuple[Any, dict]:
+    try:
+        out = fn(*args, **kwargs)
+        n = len(out) if isinstance(out, (list, dict)) else 1
+        return out, {"ok": True, "registros": n, "error": None}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("%s: %s", nombre, exc)
+        return default, {"ok": False, "registros": 0, "error": str(exc)}
+
+
 def descargar_sismos() -> list[dict]:
     fin, inicio = date.today(), date.today() - timedelta(days=ZONA["dias_atras"])
     params = {
@@ -93,11 +105,7 @@ def descargar_sismos() -> list[dict]:
         "minlongitude": MAPA["lon_min"], "maxlongitude": MAPA["lon_max"],
         "minmagnitude": ZONA["magnitud_min"], "orderby": "time",
     }
-    try:
-        features = fetch_json(USGS_URL, params).get("features", [])
-    except (requests.RequestException, ValueError, OSError) as exc:
-        log.warning("USGS: %s", exc)
-        return []
+    features = fetch_json(USGS_URL, params).get("features", [])
 
     sismos = []
     for f in features:
@@ -199,28 +207,79 @@ def descargar_meteo() -> dict:
         except (requests.RequestException, ValueError, OSError) as exc:
             log.warning("AEMET: %s — fallback Open-Meteo", exc)
 
-    try:
-        data = fetch_json(OPEN_METEO_WEATHER_URL, {
-            "latitude": ZONA["lat_ref"], "longitude": ZONA["lon_ref"],
-            "hourly": "precipitation,precipitation_probability",
-            "timezone": "Europe/Madrid", "forecast_days": FORECAST_DAYS,
-        })
-        serie = _hourly(data, {"precip_mm": "precipitation", "prob_precip_pct": "precipitation_probability"})
-        for row in serie:
-            row["precip_mm"] = row["precip_mm"] or 0.0
-        log.info("Meteo Open-Meteo")
-        return _pack_meteo("Open-Meteo", ZONA["ciudad_ref"], serie)
-    except (requests.RequestException, ValueError, OSError) as exc:
-        log.warning("Open-Meteo weather: %s", exc)
-        return VACIO_METEO
+    data = fetch_json(OPEN_METEO_WEATHER_URL, {
+        "latitude": ZONA["lat_ref"], "longitude": ZONA["lon_ref"],
+        "hourly": "precipitation,precipitation_probability",
+        "timezone": "Europe/Madrid", "forecast_days": FORECAST_DAYS,
+    })
+    serie = _hourly(data, {"precip_mm": "precipitation", "prob_precip_pct": "precipitation_probability"})
+    for row in serie:
+        row["precip_mm"] = row["precip_mm"] or 0.0
+    log.info("Meteo Open-Meteo")
+    return _pack_meteo("Open-Meteo", ZONA["ciudad_ref"], serie)
+
+
+def _descargar_alertas_cap() -> list[dict]:
+    if not AEMET_API_KEY:
+        return []
+    from aemet_alerts import fetch_active_alerts
+
+    return fetch_active_alerts(AEMET_API_KEY)
 
 
 def ejecutar_ingesta():
     clear_test_overlay()
-    sismos = descargar_sismos()
-    incendios = descargar_incendios()
-    embalses = descargar_embalses()
-    aforos = descargar_aforos()
+    fuentes_estado: dict[str, dict] = {}
+
+    sismos, fuentes_estado["usgs"] = _estado_fuente("USGS", descargar_sismos, default=[])
+    incendios, fuentes_estado["firms"] = _estado_fuente("FIRMS", descargar_incendios, default=[])
+    embalses, fuentes_estado["embals_es"] = _estado_fuente("embals.es", descargar_embalses, default=[])
+
+    alertas_cap: list[dict] = []
+    try:
+        alertas_cap = _descargar_alertas_cap()
+        fuentes_estado["aemet_cap"] = {
+            "ok": bool(AEMET_API_KEY),
+            "registros": len(alertas_cap),
+            "error": None if AEMET_API_KEY else "AEMET_API_KEY no configurada",
+        }
+    except Exception as exc:  # noqa: BLE001
+        fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": str(exc)}
+
+    aforos, fuentes_estado["saih_chj"] = _estado_fuente(
+        "SAIH CHJ", descargar_aforos, alertas_cap, default=[],
+    )
+    oceanografia, fuentes_estado["open_meteo_marine"] = _estado_fuente(
+        "Open-Meteo marine", descargar_oceanografia, default={},
+    )
+
+    meteo_ok = False
+    meteo_error = None
+    meteo: dict = VACIO_METEO
+    try:
+        meteo = descargar_meteo()
+        meteo_ok = bool(meteo.get("serie_horaria"))
+        fuente = str(meteo.get("fuente") or "")
+        clave = "aemet_meteo" if fuente == "AEMET" else "open_meteo_weather"
+        fuentes_estado[clave] = {
+            "ok": meteo_ok,
+            "registros": len(meteo.get("serie_horaria") or []),
+            "error": None if meteo_ok else "Sin serie horaria",
+        }
+        if fuente == "AEMET":
+            fuentes_estado["open_meteo_weather"] = {"ok": True, "registros": 0, "error": None, "omitido": True}
+        else:
+            fuentes_estado["aemet_meteo"] = {
+                "ok": False,
+                "registros": 0,
+                "error": "Fallback Open-Meteo",
+                "omitido": not AEMET_API_KEY,
+            }
+    except Exception as exc:  # noqa: BLE001
+        meteo_error = str(exc)
+        fuentes_estado["aemet_meteo"] = {"ok": False, "registros": 0, "error": meteo_error}
+        fuentes_estado["open_meteo_weather"] = {"ok": False, "registros": 0, "error": meteo_error}
+
     por_region: dict[str, int] = {}
     for s in sismos:
         por_region[s["region"]] = por_region.get(s["region"], 0) + 1
@@ -231,8 +290,9 @@ def ejecutar_ingesta():
         "incendios": incendios,
         "embalses": embalses,
         "aforos": aforos,
-        "oceanografia": descargar_oceanografia(),
-        "meteorologia": descargar_meteo(),
+        "oceanografia": oceanografia,
+        "meteorologia": meteo,
+        "fuentes_estado": fuentes_estado,
         "estadisticas": {
             "n_sismos": len(sismos),
             "n_incendios": len(incendios),
@@ -251,6 +311,10 @@ def ejecutar_ingesta():
         },
     }
     path = write_dashboard(payload)
+    try:
+        guardar_snapshots_diarios(sismos, alertas_cap)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Historial municipal: %s", exc)
     log.info("Guardado: %s", path)
     return path
 
