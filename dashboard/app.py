@@ -189,7 +189,7 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
-                        f"Sismos M≥{ZONA['magnitud_min']} · incendios · rojo = tierra · azul = mar/embalses · diamante = aforos CHJ.",
+                        None,
                         map_chart=True, accent=C_ORANGE,
                     ),
                     bloque(
@@ -672,7 +672,7 @@ def _fig_mapa(
             text=sub["lugar"],
             customdata=list(zip(sub["magnitud"], sub["score_local"], reg_col, fechas, dist_loc)),
             hovertemplate=(
-                "%{text}<br>"
+                "Sismo — %{text}<br>"
                 "Fecha: %{customdata[3]}<br>"
                 "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
                 "Distancia: %{customdata[4]} km"
@@ -1078,7 +1078,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
             float(mag_max),
             nivel_max,
             _detalle_sismo(sismo_max),
-            f"M≥{ZONA['magnitud_min']}, últimos {ZONA['dias_atras']} días · mapa: perceptibles + incendios España.",
+            "",
             accent=C_ORANGE,
         ),
         card_doble(
