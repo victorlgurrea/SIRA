@@ -30,6 +30,7 @@ def selector_geo(
 
     return html.Div(className="sira-geo-bar", children=[
         html.Span("Ubicación en España", className="sira-geo-label"),
+        html.Button("Usar mi ubicación", id="geo-locate-btn", n_clicks=0, className="sira-btn-geo"),
         html.Div(className="sira-geo-fields", children=[
             html.Div(className="sira-geo-field", children=[
                 html.Label("Provincia", className="sira-geo-field-label", htmlFor="geo-provincia"),

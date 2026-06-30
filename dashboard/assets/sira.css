@@ -718,8 +718,67 @@ body {
 }
 
 .sira-btn-push:disabled {
-  opacity: 0.75;
-  cursor: default;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sira-btn-geo {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  color: var(--sira-cyan);
+  border: 1px solid var(--sira-border);
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.sira-btn-geo:hover:not(:disabled) {
+  border-color: var(--sira-cyan);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.sira-btn-geo:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.sira-charts-row--historial {
+  margin-bottom: 0.75rem;
+}
+
+.sira-status-page .sira-container {
+  max-width: 720px;
+}
+
+.sira-status-ts {
+  color: var(--sira-muted);
+  margin: 0.5rem 0;
+}
+
+.sira-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.92rem;
+}
+
+.sira-status-table th,
+.sira-status-table td {
+  border-bottom: 1px solid var(--sira-border);
+  padding: 0.55rem 0.35rem;
+  text-align: left;
+}
+
+.sira-status-ok { color: #22c55e; font-weight: 700; }
+.sira-status-fail { color: #ef4444; font-weight: 700; }
+.sira-status-warn { color: #eab308; font-weight: 600; }
+.sira-status-meta { color: var(--sira-muted); font-size: 0.85rem; }
+.sira-status-back a { color: var(--sira-cyan); }
+
+.sira-aforos-linea--sensor {
+  font-style: italic;
 }
 
 .sira-push-status {

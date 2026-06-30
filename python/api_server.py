@@ -21,10 +21,12 @@ from config import (
     CORS_ORIGINS,
     CRON_SECRET,
     ENABLE_API_DOCS,
+    HISTORIAL_DIAS_DEFAULT,
     RATE_LIMIT_SEC,
 )
 from core import read_dashboard
-from geo_es import municipio_por_id, provincia_de_municipio, provincias
+from db import count_subscriptions, get_historial_municipio, migrar_desde_json
+from geo_es import municipio_mas_cercano, municipio_por_id, provincia_de_municipio, provincias
 from ingesta import ejecutar_ingesta
 from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
 from push_web import debug_aemet_matches, debug_push_state
@@ -103,6 +105,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+@app.on_event("startup")
+def _startup_migrar_json() -> None:
+    try:
+        migrar_desde_json()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Migración JSON→SQLite: %s", exc)
+
+
 def _valid_api_key(provided: str | None) -> bool:
     if not API_KEY or not provided:
         return False
@@ -136,6 +146,51 @@ def _meteo_test_defaults(municipio_id: str | None) -> tuple[str, str]:
 @app.get("/api/dashboard")
 def dashboard():
     return read_dashboard()
+
+
+@app.get("/api/status")
+def status():
+    data = read_dashboard()
+    fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
+    return {
+        "generado_en": data.get("generado_en"),
+        "fuentes_estado": fuentes,
+        "suscripciones_push": count_subscriptions(),
+        "ok": bool(data.get("generado_en")),
+    }
+
+
+@app.get("/api/historial/{municipio_id}")
+def historial(municipio_id: str, dias: int = HISTORIAL_DIAS_DEFAULT):
+    mid = str(municipio_id).zfill(5)
+    muni = municipio_por_id(mid)
+    if not muni:
+        raise HTTPException(404, "Municipio no encontrado")
+    dias = max(1, min(int(dias), 365))
+    return {
+        "municipio_id": mid,
+        "municipio": muni.get("nombre"),
+        "dias": dias,
+        "serie": get_historial_municipio(mid, dias),
+    }
+
+
+@app.get("/api/geo/municipio-cercano")
+def geo_municipio_cercano(lat: float, lon: float):
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(400, "Coordenadas inválidas")
+    res = municipio_mas_cercano(lat, lon)
+    if not res:
+        raise HTTPException(404, "Sin municipios en catálogo geo")
+    locs = []
+    from geo_es import localidades
+
+    locs = localidades(res["municipio_id"])
+    return {
+        **res,
+        "localidad_id": locs[0]["id"] if locs else res["municipio_id"],
+        "localidad": locs[0]["nombre"] if locs else res["municipio"],
+    }
 
 
 @app.post("/api/actualizar")

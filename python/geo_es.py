@@ -121,3 +121,32 @@ def opciones(items: list[dict], placeholder: str = "Selecciona…") -> list[dict
     if not items:
         return [{"label": placeholder, "value": "__none__", "disabled": True}]
     return [{"label": i["nombre"], "value": str(i["id"])} for i in items]
+
+
+def municipio_mas_cercano(lat: float, lon: float) -> dict | None:
+    """Municipio INE más cercano a unas coordenadas WGS84."""
+    from sismos import distancia_km
+
+    mejor: dict | None = None
+    mejor_d = float("inf")
+    for items in _data()["municipios"].values():
+        for muni in items:
+            mlat = muni.get("lat")
+            mlon = muni.get("lon")
+            if mlat is None or mlon is None:
+                continue
+            d = distancia_km(lat, lon, float(mlat), float(mlon))
+            if d < mejor_d:
+                mejor_d = d
+                mejor = muni
+    if not mejor:
+        return None
+    pid = provincia_de_municipio(mejor["id"])
+    prov = next((p for p in provincias() if p["id"] == pid), None) if pid else None
+    return {
+        "municipio_id": mejor["id"],
+        "municipio": mejor["nombre"],
+        "provincia_id": pid,
+        "provincia": prov["nombre"] if prov else None,
+        "distancia_km": round(mejor_d, 1),
+    }

@@ -38,6 +38,7 @@ from config import (  # noqa: E402
     RIESGO_METEO_HORAS,
     ZONA,
 )
+from db import count_subscriptions, get_historial_municipio
 from core import read_dashboard  # noqa: E402
 from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
 from geo_ui import selector_geo
@@ -92,6 +93,7 @@ app.index_string = """
         <link rel="stylesheet" href="/assets/sira.css?v=26">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
+        <script src="/assets/geo.js"></script>
     </head>
     <body>
         {%app_entry%}
@@ -171,6 +173,8 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
             dcc.Store(id="geo-store", data=_default_geo()),
+            dcc.Interval(id="geo-locate-poll", interval=1000, n_intervals=0),
+            html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
             html.Div(className="sira-toolbar", children=[
                 html.Div(className="sira-ts-wrap", children=[
@@ -185,6 +189,13 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
             ]),
             html.Div(id="cards", className="sira-cards"),
+            html.Div(className="sira-charts-row sira-charts-row--historial", children=[
+                bloque(
+                    "historial", "Evolución 30 días — municipio seleccionado",
+                    "Score sísmico máximo diario e índice de riesgo meteorológico.",
+                    accent=C_CYAN,
+                ),
+            ]),
             html.Div(className="sira-charts", children=[
                 html.Div(className="sira-charts-row", children=[
                     bloque(
@@ -574,8 +585,17 @@ def _add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
         if not lat and not lon:
             continue
         nivel = str(af.get("nivel_riesgo") or "vigilancia")
-        color = colores.get(nivel, "#14b8a6")
-        size = {"critico": 12, "alerta": 10, "vigilancia": 8}.get(nivel, 8)
+        sin_datos = bool(af.get("sin_datos_recientes"))
+        if sin_datos:
+            color = "#f59e0b"
+            symbol = "x"
+            size = 10
+            tipo_txt = "Aforo — sensor sin datos"
+        else:
+            color = colores.get(nivel, "#14b8a6")
+            symbol = "diamond"
+            size = {"critico": 12, "alerta": 10, "vigilancia": 8}.get(nivel, 8)
+            tipo_txt = "Aforo CHJ"
         q = af.get("caudal_m3s")
         h = af.get("nivel_m")
         dist = af.get("dist_local_km", "—")
@@ -588,12 +608,13 @@ def _add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
             name="Aforo CHJ en alerta" if not leyenda else None,
             legendgroup="aforos",
             showlegend=not leyenda,
-            marker=dict(size=size, color=color, symbol="diamond", line=dict(width=1.2, color="white")),
+            marker=dict(size=size, color=color, symbol=symbol, line=dict(width=1.2, color="white")),
             text=[af.get("nombre", "Aforo")],
             hovertemplate=(
+                f"{tipo_txt}<br>"
                 "%{text}<br>"
                 f"Nivel: {h_txt} · Caudal: {q_txt}<br>"
-                f"Riesgo: {nivel.title()}<br>"
+                f"Riesgo: {nivel.title()}{' · sin lectura reciente' if sin_datos else ''}<br>"
                 f"Distancia: {dist} km"
                 "<extra></extra>"
             ),
@@ -922,6 +943,34 @@ def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, 
     return fig
 
 
+def _fig_historial(municipio_id: str | None, uirev: str) -> go.Figure:
+    fig = go.Figure()
+    mid = str(municipio_id or _DEFAULT_MUNI).zfill(5)
+    serie = get_historial_municipio(mid, 30)
+    if serie:
+        fechas = [r["fecha"] for r in serie]
+        fig.add_trace(go.Scatter(
+            x=fechas, y=[r["score_sismo_max"] for r in serie],
+            mode="lines+markers", name="Score sísmico máx.",
+            line=dict(color=C_ORANGE),
+        ))
+        fig.add_trace(go.Scatter(
+            x=fechas, y=[r["indice_riesgo_meteo"] for r in serie],
+            mode="lines+markers", name="Índice riesgo meteo",
+            line=dict(color=C_TEAL), yaxis="y2",
+        ))
+    fig.update_layout(
+        margin=dict(t=10, b=0, l=0, r=0),
+        autosize=True,
+        uirevision=uirev,
+        yaxis=dict(title="Score", rangemode="tozero"),
+        yaxis2=dict(title="Índice", overlaying="y", side="right", range=[0, 100]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        **PLOTLY_BG,
+    )
+    return fig
+
+
 def _fig_lluvia(serie: list) -> go.Figure:
     fig = go.Figure()
     yaxis = dict(title="mm", rangemode="tozero")
@@ -1008,6 +1057,7 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
 
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
+    Output("historial", "figure"),
     Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
@@ -1121,6 +1171,7 @@ def refresh(n_intervals, clicks, geo, last_ts):
 
     return (
         cards, f"Actualizado: {ts}", refresh_token,
+        _fig_historial(muni_id, f"sira-hist-{muni_id}"),
         _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa, aforos_mapa),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
@@ -1171,6 +1222,65 @@ def _assetlinks():
     )
 
 
+_FUENTE_ETIQUETAS = {
+    "usgs": "USGS (sismos)",
+    "aemet_meteo": "AEMET meteo",
+    "aemet_cap": "AEMET CAP",
+    "open_meteo_marine": "Open-Meteo marine",
+    "open_meteo_weather": "Open-Meteo weather",
+    "firms": "NASA FIRMS",
+    "embals_es": "embals.es",
+    "saih_chj": "SAIH CHJ",
+}
+
+
+@server.route("/status")
+def _status_page():
+    data = read_dashboard()
+    fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
+    generado = data.get("generado_en", "—")
+    n_push = count_subscriptions()
+    filas = []
+    for clave, etiqueta in _FUENTE_ETIQUETAS.items():
+        info = fuentes.get(clave, {})
+        ok = info.get("ok")
+        if info.get("omitido"):
+            estado = '<span class="sira-status-warn">omitido</span>'
+        elif ok:
+            n = info.get("registros", "—")
+            estado = f'<span class="sira-status-ok">OK</span> <span class="sira-status-meta">({n} registros)</span>'
+        else:
+            err = info.get("error") or "error"
+            estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'
+        filas.append(f"<tr><td>{etiqueta}</td><td>{estado}</td></tr>")
+    tabla = "\n".join(filas)
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SIRA — Estado del sistema</title>
+  <link rel="stylesheet" href="/assets/sira.css?v=26">
+</head>
+<body class="sira-page sira-status-page">
+  <main class="sira-main">
+    <div class="sira-container">
+      <h1 class="sira-title">Estado del sistema</h1>
+      <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong></p>
+      <p class="sira-status-ts">Suscripciones push activas: <strong>{n_push}</strong></p>
+      <table class="sira-status-table">
+        <thead><tr><th>Fuente</th><th>Estado</th></tr></thead>
+        <tbody>{tabla}</tbody>
+      </table>
+      <p class="sira-status-back"><a href="/">← Volver al dashboard</a></p>
+    </div>
+  </main>
+</body>
+</html>"""
+    from flask import Response
+    return Response(html, mimetype="text/html")
+
+
 @server.route("/manifest.webmanifest")
 def _manifest():
     return jsonify(
@@ -1192,6 +1302,42 @@ def _manifest():
             ],
         }
     )
+
+
+clientside_callback(
+    """
+    function(n) {
+        const d = window.__siraGeoLocateResult;
+        if (!d) {
+            return [
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+            ];
+        }
+        window.__siraGeoLocateResult = null;
+        return [
+            d.provincia_id,
+            d.municipio_id,
+            d.localidad_id,
+            {
+                provincia_id: d.provincia_id,
+                municipio_id: d.municipio_id,
+                localidad_id: d.localidad_id,
+                provincia: d.provincia,
+                municipio: d.municipio,
+                localidad: d.localidad,
+            },
+        ];
+    }
+    """,
+    Output("geo-provincia", "value"),
+    Output("geo-municipio", "value"),
+    Output("geo-localidad", "value"),
+    Output("geo-store", "data"),
+    Input("geo-locate-poll", "n_intervals"),
+)
 
 
 clientside_callback(
