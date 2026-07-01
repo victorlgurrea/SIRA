@@ -1,4 +1,4 @@
-"""Sismo efímero en el mapa tras POST /api/push/test (solo pruebas)."""
+"""Sismos efímeros en el mapa tras POST /api/push/test (solo pruebas)."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,6 @@ import math
 from datetime import datetime, timedelta, timezone
 
 from config import TEST_SISMO_OVERLAY_FILE, ZONA
-from core import read_json_file
 from sismos import distancia_km, distancia_perceptible_km, epicentro_en_mar, radio_tsunami_km, riesgo_tsunami, score_sismo
 
 log = logging.getLogger(__name__)
@@ -23,16 +22,65 @@ def _region(lat: float, lon: float) -> str:
     return "IBÉRICO"
 
 
-def _write_overlay(payload: dict) -> None:
+def _write_store(overlays: list[dict]) -> None:
     path = TEST_SISMO_OVERLAY_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps({"overlays": overlays}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def clear_test_overlay() -> None:
     path = TEST_SISMO_OVERLAY_FILE
     if path.is_file():
         path.unlink(missing_ok=True)
+
+
+def _parse_expires(raw_exp: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(raw_exp).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _read_overlay_entries() -> list[dict]:
+    path = TEST_SISMO_OVERLAY_FILE
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    if isinstance(data.get("overlays"), list):
+        return [x for x in data["overlays"] if isinstance(x, dict)]
+    if isinstance(data.get("sismo"), dict) and data.get("expires_at"):
+        return [{"expires_at": data["expires_at"], "sismo": data["sismo"]}]
+    return []
+
+
+def _prune_overlay_entries(entries: list[dict]) -> list[dict]:
+    now = datetime.now(timezone.utc)
+    valid: list[dict] = []
+    for item in entries:
+        sismo = item.get("sismo")
+        expires = _parse_expires(item.get("expires_at", ""))
+        if not isinstance(sismo, dict) or expires is None:
+            continue
+        if now < expires:
+            valid.append(item)
+    return valid
+
+
+def _sync_overlay_file(entries: list[dict]) -> list[dict]:
+    valid = _prune_overlay_entries(entries)
+    if valid:
+        _write_store(valid)
+    else:
+        clear_test_overlay()
+    return valid
 
 
 def _epicentro_por_defecto() -> tuple[float, float]:
@@ -87,7 +135,9 @@ def build_test_sismo(
     ts_flag = riesgo_tsunami(magnitud, profundidad, en_mar, usgs_flag)
     radio_ts = radio_tsunami_km(magnitud, profundidad, en_mar=True) if ts_flag else 0.0
     ahora = datetime.now(timezone.utc).isoformat()
-    sismo_id = f"sim{tag.replace('sira-', '')[:12]}" if simular_real else f"sira-test-{tag}"
+    safe_tag = "".join(c for c in tag if c.isalnum())[:12] or "test"
+    ts_id = int(datetime.now(timezone.utc).timestamp())
+    sismo_id = f"sim-{safe_tag}-{ts_id}" if simular_real else f"sira-test-{safe_tag}-{ts_id}"
     sismo = {
         "id": sismo_id,
         "magnitud": magnitud,
@@ -114,26 +164,25 @@ def build_test_sismo(
 def save_test_overlay(sismo: dict, ttl_min: int = 30) -> dict:
     expires = datetime.now(timezone.utc) + timedelta(minutes=max(1, ttl_min))
     meta = {"expires_at": expires.isoformat(), "sismo": sismo}
-    _write_overlay(meta)
-    log.info("Overlay de prueba hasta %s → %s", meta["expires_at"], sismo.get("id"))
+    entries = _prune_overlay_entries(_read_overlay_entries())
+    sid = str(sismo.get("id") or "")
+    entries = [e for e in entries if str(e.get("sismo", {}).get("id") or "") != sid]
+    entries.append(meta)
+    _write_store(entries)
+    log.info(
+        "Overlay de prueba hasta %s → %s (%d activos)",
+        meta["expires_at"],
+        sismo.get("id"),
+        len(entries),
+    )
     return meta
 
 
+def read_test_overlays() -> list[dict]:
+    entries = _sync_overlay_file(_read_overlay_entries())
+    return [e["sismo"] for e in entries if isinstance(e.get("sismo"), dict)]
+
+
 def read_test_overlay() -> dict | None:
-    data = read_json_file(TEST_SISMO_OVERLAY_FILE)
-    if not data:
-        return None
-    raw_exp = data.get("expires_at")
-    sismo = data.get("sismo")
-    if not raw_exp or not isinstance(sismo, dict):
-        clear_test_overlay()
-        return None
-    try:
-        expires = datetime.fromisoformat(str(raw_exp).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        clear_test_overlay()
-        return None
-    if datetime.now(timezone.utc) >= expires:
-        clear_test_overlay()
-        return None
-    return sismo
+    overlays = read_test_overlays()
+    return overlays[0] if overlays else None

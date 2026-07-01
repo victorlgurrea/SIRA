@@ -125,16 +125,18 @@ def read_dashboard() -> dict:
     data = read_json_file(DATA_FILE)
     if not data:
         return data
-    from test_overlay import read_test_overlay
+    from test_overlay import read_test_overlays
     from test_meteo_alerts import read_active_test_alerts
 
-    overlay = read_test_overlay()
+    overlay_list = read_test_overlays()
     out = dict(data)
-    if overlay:
-        sismos = [s for s in data.get("sismos", []) if s.get("id") != overlay.get("id")]
-        out["sismos"] = [overlay, *sismos]
-        if overlay.get("es_prueba"):
+    if overlay_list:
+        overlay_ids = {str(o.get("id")) for o in overlay_list if o.get("id")}
+        sismos = [s for s in data.get("sismos", []) if str(s.get("id") or "") not in overlay_ids]
+        out["sismos"] = [*overlay_list, *sismos]
+        if any(o.get("es_prueba") for o in overlay_list):
             out["sismo_prueba_activo"] = True
+        out["sismos_prueba_activos"] = len(overlay_list)
 
     meteo_tests = read_active_test_alerts()
     if meteo_tests:

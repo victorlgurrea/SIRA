@@ -351,7 +351,7 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
     )
     return (
         f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}|{len(d.get('aforos', []))}"
-        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|costa:{costa_sig}"
+        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|costa:{costa_sig}"
     )
 
 
@@ -671,7 +671,18 @@ def _fig_mapa(
             if "alerta_tsunami" in df.columns
             else False
         )
-        mask_mapa = perceptible_tierra | tsunami_mar
+        hoy_col = (
+            df["timestamp"].map(_es_sismo_hoy)
+            if "timestamp" in df.columns
+            else pd.Series([False] * len(df), index=df.index)
+        )
+        radio_col = (
+            df["radio_perceptible_km"].fillna(0)
+            if "radio_perceptible_km" in df.columns
+            else pd.Series([0.0] * len(df), index=df.index)
+        )
+        hoy_tierra_zona = hoy_col & ~en_mar_col & (radio_col > 0)
+        mask_mapa = perceptible_tierra | tsunami_mar | hoy_tierra_zona
         df_per = df[mask_mapa]
     else:
         df_per = df
@@ -720,15 +731,10 @@ def _fig_mapa(
         hoy_df = pd.DataFrame()
 
     if not hoy_df.empty:
-        if "perceptible_local" in hoy_df.columns:
-            if "en_mar" in hoy_df.columns:
-                hoy_perceptible = hoy_df[
-                    hoy_df["perceptible_local"].fillna(False) & ~hoy_df["en_mar"].fillna(False)
-                ]
-            else:
-                hoy_perceptible = hoy_df[hoy_df["perceptible_local"].fillna(False)]
+        if "en_mar" in hoy_df.columns:
+            hoy_perceptible = hoy_df[~hoy_df["en_mar"].fillna(False)]
         else:
-            hoy_perceptible = pd.DataFrame()
+            hoy_perceptible = hoy_df
         if not hoy_perceptible.empty:
             _add_circulos_perceptibles(
                 fig,
@@ -738,23 +744,23 @@ def _fig_mapa(
                 period_ms=1600,
             )
 
-    if not df.empty and "alerta_tsunami" in df.columns and "timestamp" in df.columns:
-        mask_tsunami = df["alerta_tsunami"].fillna(False) & df["timestamp"].map(_es_sismo_hoy)
-        if "en_mar" in df.columns:
-            mask_tsunami = mask_tsunami & df["en_mar"].fillna(False)
-        df_tsunami = df[mask_tsunami]
-        if not df_tsunami.empty:
-            _add_circulos_perceptibles(
-                fig,
-                df_tsunami,
-                legend_name="Alerta tsunami (hoy)",
-                legendgroup="tsunami",
-                period_ms=1800,
-                fill_rgb="96, 165, 250",
-                border_rgb="37, 99, 235",
-                radio_col="radio_tsunami_km",
-                hover_label="Alerta tsunami",
-            )
+        if "alerta_tsunami" in hoy_df.columns:
+            mask_tsunami = hoy_df["alerta_tsunami"].fillna(False)
+            if "en_mar" in hoy_df.columns:
+                mask_tsunami = mask_tsunami & hoy_df["en_mar"].fillna(False)
+            df_tsunami = hoy_df[mask_tsunami]
+            if not df_tsunami.empty:
+                _add_circulos_perceptibles(
+                    fig,
+                    df_tsunami,
+                    legend_name="Alerta tsunami (hoy)",
+                    legendgroup="tsunami",
+                    period_ms=1800,
+                    fill_rgb="96, 165, 250",
+                    border_rgb="37, 99, 235",
+                    radio_col="radio_tsunami_km",
+                    hover_label="Alerta tsunami",
+                )
 
     if zonas_costeras:
         df_costa = pd.DataFrame(zonas_costeras)
