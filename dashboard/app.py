@@ -1288,12 +1288,31 @@ _FUENTE_ETIQUETAS = {
 }
 
 
+def _status_snapshot() -> dict:
+    """Lee estado desde API; fallback local si no responde."""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/status", timeout=15)
+        if r.ok:
+            payload = r.json()
+            if isinstance(payload, dict):
+                return payload
+    except requests.RequestException:
+        pass
+    data = read_dashboard()
+    return {
+        "generado_en": data.get("generado_en", "—"),
+        "fuentes_estado": data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
+        "suscripciones_push": count_subscriptions(),
+        "ok": bool(data.get("generado_en")),
+    }
+
+
 @server.route("/status")
 def _status_page():
-    data = read_dashboard()
+    data = _status_snapshot()
     fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
     generado = data.get("generado_en", "—")
-    n_push = count_subscriptions()
+    n_push = data.get("suscripciones_push", 0)
     filas = []
     for clave, etiqueta in _FUENTE_ETIQUETAS.items():
         info = fuentes.get(clave, {})
