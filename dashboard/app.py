@@ -1287,6 +1287,17 @@ _FUENTE_ETIQUETAS = {
     "saih_chj": "SAIH CHJ",
 }
 
+_FUENTE_DESCRIPCIONES = {
+    "usgs": "Sismos recientes en España y entorno (magnitud, epicentro, profundidad, alerta tsunami USGS).",
+    "aemet_meteo": "Predicción horaria municipal AEMET (lluvia, probabilidad de precipitación, tiempo actual).",
+    "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",
+    "open_meteo_marine": "Temperatura superficial del mar y corrientes (Mediterráneo, Cantábrico, Atlántico).",
+    "open_meteo_weather": "Previsión horaria de precipitación (respaldo cuando AEMET no está disponible).",
+    "firms": "Puntos de calor e incendios activos detectados por satélite en territorio español.",
+    "embals_es": "Niveles, capacidad y riesgo hidrológico de embalses (cuencas Júcar, Segura y Ebro).",
+    "saih_chj": "Caudales y estaciones de aforo en tiempo casi real (SAIH, Confederación Hidrográfica del Júcar).",
+}
+
 
 def _status_snapshot() -> dict:
     """Lee estado desde API; fallback local si no responde."""
@@ -1326,6 +1337,7 @@ def _status_page():
     filas = []
     for clave, etiqueta in _FUENTE_ETIQUETAS.items():
         info = fuentes.get(clave, {})
+        desc = _FUENTE_DESCRIPCIONES.get(clave, "—")
         ok = info.get("ok")
         if info.get("omitido"):
             estado = '<span class="sira-status-warn">omitido</span>'
@@ -1335,7 +1347,9 @@ def _status_page():
         else:
             err = info.get("error") or "error"
             estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'
-        filas.append(f"<tr><td>{etiqueta}</td><td>{estado}</td></tr>")
+        filas.append(
+            f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
+        )
     tabla = "\n".join(filas)
     html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -1343,7 +1357,7 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=26">
+  <link rel="stylesheet" href="/assets/sira.css?v=27">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
@@ -1352,7 +1366,7 @@ def _status_page():
       <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong></p>
       <p class="sira-status-ts">Suscripciones push activas: <strong>{n_push}</strong></p>
       <table class="sira-status-table">
-        <thead><tr><th>Fuente</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Fuente</th><th>Descripción</th><th>Estado</th></tr></thead>
         <tbody>{tabla}</tbody>
       </table>
       <p class="sira-status-back"><a href="/">← Volver al dashboard</a></p>

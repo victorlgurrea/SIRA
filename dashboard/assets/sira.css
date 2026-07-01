@@ -779,7 +779,7 @@ body {
 }
 
 .sira-status-page .sira-container {
-  max-width: 720px;
+  max-width: 960px;
 }
 
 .sira-status-ts {
@@ -805,6 +805,12 @@ body {
 .sira-status-fail { color: #ef4444; font-weight: 700; }
 .sira-status-warn { color: #eab308; font-weight: 600; }
 .sira-status-meta { color: var(--sira-muted); font-size: 0.85rem; }
+.sira-status-desc {
+  color: var(--sira-detail);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  max-width: 22rem;
+}
 .sira-status-back a { color: var(--sira-cyan); }
 
 .sira-aforos-linea--sensor {
