@@ -1307,11 +1307,21 @@ def _status_snapshot() -> dict:
     }
 
 
+def _fmt_status_dt(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y %H:%M:%S")
+    except (ValueError, TypeError):
+        return str(value)
+
+
 @server.route("/status")
 def _status_page():
     data = _status_snapshot()
     fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
-    generado = data.get("generado_en", "—")
+    generado = _fmt_status_dt(data.get("generado_en"))
     n_push = data.get("suscripciones_push", 0)
     filas = []
     for clave, etiqueta in _FUENTE_ETIQUETAS.items():

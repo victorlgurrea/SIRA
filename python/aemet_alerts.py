@@ -298,14 +298,22 @@ def _is_active(onset: str | None, expires: str | None) -> bool:
 
 
 def _iter_cap_members(tar_bytes: bytes):
-    with tarfile.open(fileobj=BytesIO(tar_bytes), mode="r:gz") as tg:
-        for m in tg.getmembers():
-            if not m.isfile() or not m.name.lower().endswith(".xml"):
-                continue
-            f = tg.extractfile(m)
-            if not f:
-                continue
-            yield f.read()
+    try:
+        with tarfile.open(fileobj=BytesIO(tar_bytes), mode="r:*") as tg:
+            for m in tg.getmembers():
+                if not m.isfile() or not m.name.lower().endswith(".xml"):
+                    continue
+                f = tg.extractfile(m)
+                if not f:
+                    continue
+                yield f.read()
+        return
+    except tarfile.ReadError:
+        pass
+
+    # Algunos endpoints CAP devuelven XML directo en lugar de tar.
+    if b"<alert" in tar_bytes[:4096]:
+        yield tar_bytes
 
 
 def fetch_active_alerts(aemet_api_key: str) -> list[dict]:

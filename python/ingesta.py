@@ -213,10 +213,10 @@ def ejecutar_ingesta():
             fuentes_estado["open_meteo_weather"] = {"ok": True, "registros": 0, "error": None, "omitido": True}
         else:
             fuentes_estado["aemet_meteo"] = {
-                "ok": False,
+                "ok": True,
                 "registros": 0,
                 "error": "Fallback Open-Meteo",
-                "omitido": not AEMET_API_KEY,
+                "omitido": True,
             }
     except Exception as exc:  # noqa: BLE001
         meteo_error = str(exc)
