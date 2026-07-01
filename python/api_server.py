@@ -28,6 +28,7 @@ from core import read_dashboard
 from db import count_subscriptions, get_historial_municipio, migrar_desde_json
 from geo_es import municipio_mas_cercano, municipio_por_id, provincia_de_municipio, provincias
 from ingesta import ejecutar_ingesta
+from meteo_live import meteo_localidad
 from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
 from push_web import debug_aemet_matches, debug_push_state
 from test_meteo_alerts import save_test_alert
@@ -173,6 +174,17 @@ def historial(municipio_id: str, dias: int = HISTORIAL_DIAS_DEFAULT):
         "dias": dias,
         "serie": get_historial_municipio(mid, dias),
     }
+
+
+@app.get("/api/meteo/{municipio_id}")
+def meteo_municipio(municipio_id: str, localidad: str | None = None):
+    """Meteo horaria AEMET (o Open-Meteo) para el municipio seleccionado."""
+    mid = str(municipio_id).zfill(5)
+    muni = municipio_por_id(mid)
+    if not muni:
+        raise HTTPException(404, "Municipio no encontrado")
+    nombre_loc = (localidad or "").strip() or None
+    return meteo_localidad(mid, nombre_loc)
 
 
 @app.get("/api/geo/municipio-cercano")

@@ -275,6 +275,21 @@ def _load() -> dict:
     return read_dashboard()
 
 
+def _meteo_para_geo(municipio_id: str, localidad: str | None = None) -> dict:
+    """GET /api/meteo/{municipio} al cambiar zona; fallback local si la API no responde."""
+    mid = str(municipio_id or _DEFAULT_MUNI).zfill(5)
+    params = {"localidad": localidad} if localidad else None
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=30)
+        if r.ok:
+            data = r.json()
+            if isinstance(data, dict):
+                return data
+    except requests.RequestException:
+        pass
+    return meteo_localidad(mid, localidad)
+
+
 def _es_sismo_hoy(ts) -> bool:
     try:
         return pd.to_datetime(ts, utc=True).date() == datetime.now(timezone.utc).date()
@@ -1159,7 +1174,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     embalses_all = d.get("embalses", [])
     aforos_all = d.get("aforos", [])
     oce = d.get("oceanografia", {})
-    met = meteo_localidad(muni_id, localidad)
+    met = _meteo_para_geo(muni_id, localidad)
     res_met = met.get("resumen", {})
     lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
     res_emb = resumen_embalses(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
