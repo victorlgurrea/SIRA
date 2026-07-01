@@ -10,7 +10,7 @@ from core import fetch_aemet, fetch_json
 from geo_es import coords_municipio, municipio_por_id
 from meteo_parse import (
     VACIO_METEO,
-    aemet_val as _aemet_val,
+    actual_aemet_from_item,
     hourly as _hourly,
     num as _num,
     parse_aemet as _parse_aemet,
@@ -96,35 +96,7 @@ def _actual_openmeteo(data: dict) -> dict:
 
 
 def _actual_aemet(item: dict) -> dict:
-    dias = item.get("prediccion", {}).get("dia", [])
-    if not dias:
-        return {}
-    horas = dias[0].get("hora", [])
-    if not horas:
-        return {}
-    h = horas[0]
-    cielo = h.get("estadoCielo") or []
-    if isinstance(cielo, list) and cielo:
-        ec = cielo[0]
-        cod = _aemet_val(ec.get("value")) if isinstance(ec, dict) else None
-        desc = ec.get("descripcion", "") if isinstance(ec, dict) else ""
-    else:
-        cod, desc = None, ""
-    icon, texto = _aemet_tiempo(str(cod) if cod is not None else None, str(desc))
-    temp = _num(_aemet_val(h.get("temperatura")))
-    viento = (h.get("viento") or [{}])[0] if isinstance(h.get("viento"), list) else {}
-    vel = _num(_aemet_val(viento.get("velocidad")), default=-1)
-    dirs = viento.get("direccion") or []
-    dir_letra = dirs[0] if dirs else None
-    return {
-        "tiempo_icon": icon,
-        "tiempo_texto": texto,
-        "temp_c": round(temp, 1) if temp else None,
-        "viento_vel": round(vel, 1) if vel >= 0 else None,
-        "viento_unidad": "km/h",
-        "viento_dir_grados": _aemet_dir_grados(dir_letra),
-        "viento_dir_texto": str(dir_letra).upper() if dir_letra else None,
-    }
+    return actual_aemet_from_item(item)
 
 
 def _pack_local(fuente: str, municipio: str, serie: list[dict], actual: dict) -> dict:
