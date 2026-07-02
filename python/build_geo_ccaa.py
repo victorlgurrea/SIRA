@@ -1,88 +1,48 @@
-"""Genera data/geo/ccaa_bordes.json desde IGN (es-atlas / TopoJSON)."""
+"""Genera data/geo/ccaa_bordes.json a partir de contornos provinciales (perímetro exterior)."""
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
 
-import requests
-
-from geo_topojson import norm_geo, rings_from_geometry
+from geo_bordes_clip import contorno_exterior
+from geo_es import CCAA_NOMBRES, CCAA_PROVINCIAS
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "geo" / "ccaa_bordes.json"
-SOURCE_URL = "https://unpkg.com/es-atlas/es/autonomous_regions.json"
-
-NOMBRE_CCAA: dict[str, str] = {
-    "andalucia": "AN",
-    "aragon": "AR",
-    "principado de asturias": "AS",
-    "asturias": "AS",
-    "illes balears": "IB",
-    "islas baleares": "IB",
-    "canarias": "CN",
-    "islas canarias": "CN",
-    "cantabria": "CB",
-    "castilla y leon": "CL",
-    "castilla la mancha": "CM",
-    "cataluna": "CT",
-    "catalunya": "CT",
-    "ciudad de ceuta": "CE",
-    "ceuta": "CE",
-    "comunitat valenciana": "VC",
-    "comunidad valenciana": "VC",
-    "extremadura": "EX",
-    "galicia": "GA",
-    "comunidad de madrid": "MD",
-    "madrid": "MD",
-    "melilla": "ML",
-    "region de murcia": "MC",
-    "murcia": "MC",
-    "comunidad foral de navarra": "NC",
-    "navarra": "NC",
-    "la rioja": "RI",
-    "pais vasco": "PV",
-    "euskadi": "PV",
-}
-
-
-def _ccaa_id(nombre: str) -> str | None:
-    key = norm_geo(nombre)
-    if key in NOMBRE_CCAA:
-        return NOMBRE_CCAA[key]
-    for frag, ccaa in NOMBRE_CCAA.items():
-        if frag in key or key in frag:
-            return ccaa
-    return None
+PROV_FILE = ROOT / "data" / "geo" / "provincias_bordes.json"
 
 
 def build() -> Path:
-    r = requests.get(SOURCE_URL, timeout=120)
-    r.raise_for_status()
-    topology = r.json()
-    geometries = topology["objects"]["autonomous_regions"]["geometries"]
+    if not PROV_FILE.is_file():
+        from build_geo_provincias import build as build_provincias
 
-    raw: list[dict] = []
-    for geometry in geometries:
-        nombre = (geometry.get("properties") or {}).get("name", "")
-        ccaa_id = _ccaa_id(nombre)
-        if not ccaa_id:
-            log.warning("CCAA sin mapear: %s", nombre)
+        build_provincias()
+
+    prov_data = json.loads(PROV_FILE.read_text(encoding="utf-8"))
+    prov_by_id = {f["id"]: f for f in prov_data.get("features", [])}
+
+    features: list[dict] = []
+    for ccaa_id, prov_ids in CCAA_PROVINCIAS.items():
+        group = [prov_by_id[pid] for pid in prov_ids if pid in prov_by_id]
+        if not group:
+            log.warning("CCAA %s sin provincias en provincias_bordes.json", ccaa_id)
             continue
-        rings = []
-        for ring in rings_from_geometry(topology, geometry):
-            if len(ring) < 3:
-                continue
-            rings.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
+        rings = contorno_exterior(group)
         if rings:
-            raw.append({"id": ccaa_id, "nombre": nombre, "rings": rings})
+            features.append(
+                {
+                    "id": ccaa_id,
+                    "nombre": CCAA_NOMBRES.get(ccaa_id, ccaa_id),
+                    "rings": rings,
+                }
+            )
 
-    features = raw
     features.sort(key=lambda x: x["id"])
     payload = {
-        "fuente": "IGN — TopoJSON es-atlas (martgnz/es-atlas), contorno CCAA completo",
-        "url": SOURCE_URL,
+        "fuente": "Perímetro exterior CCAA derivado de provincias_bordes.json (IGN es-atlas)",
+        "url": str(PROV_FILE.relative_to(ROOT)).replace("\\", "/"),
         "features": features,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)

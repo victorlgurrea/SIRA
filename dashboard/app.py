@@ -1130,8 +1130,8 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
         zoom_nivel = "provincia"
         alejado = False
     elif trigger == "geo-provincia":
-        zoom_nivel = "provincia"
-        alejado = True
+        zoom_nivel = "ccaa"
+        alejado = False
     else:
         zoom_nivel = "municipio"
         alejado = False

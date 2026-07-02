@@ -60,6 +60,29 @@ def _tramos_interiores(
     return tramos
 
 
+def contorno_exterior(features: list[dict]) -> list[dict[str, list[float]]]:
+    """Perímetro exterior de un conjunto de polígonos (costa, frontera y contorno de unión)."""
+    conteo: dict[tuple, int] = {}
+    for feat in features:
+        for ring in feat.get("rings", []):
+            lats = ring.get("lat") or []
+            lons = ring.get("lon") or []
+            n = len(lats)
+            if n < 2:
+                continue
+            for i in range(n):
+                j = (i + 1) % n
+                key = _clave_segmento(float(lons[i]), float(lats[i]), float(lons[j]), float(lats[j]))
+                conteo[key] = conteo.get(key, 0) + 1
+
+    exteriores = {k for k, v in conteo.items() if v == 1}
+    rings: list[dict[str, list[float]]] = []
+    for feat in features:
+        for ring in feat.get("rings", []):
+            rings.extend(_tramos_interiores(ring.get("lat") or [], ring.get("lon") or [], exteriores))
+    return rings
+
+
 def solo_bordes_interiores(
     features: list[dict],
     *,

@@ -7,7 +7,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_bordes_clip import solo_bordes_interiores  # noqa: E402
+from geo_bordes_clip import contorno_exterior, solo_bordes_interiores  # noqa: E402
+
+
+def test_contorno_exterior_incluye_costa_y_omite_frontera_interna():
+    a = {
+        "id": "A",
+        "nombre": "A",
+        "rings": [{"lat": [40, 40, 39, 39, 40], "lon": [-1, 0, 0, -1, -1]}],
+    }
+    b = {
+        "id": "B",
+        "nombre": "B",
+        "rings": [{"lat": [40, 40, 39, 39, 40], "lon": [0, 1, 1, 0, 0]}],
+    }
+    rings = contorno_exterior([a, b])
+    lons = [lo for r in rings for lo in r["lon"]]
+    assert -1 in lons or -1.0 in lons
+    assert 1 in lons or 1.0 in lons
+    # La frontera interior vertical en lon=0 no debe ser un tramo continuo.
+    for ring in rings:
+        lats, lons_seg = ring["lat"], ring["lon"]
+        for i in range(len(lats) - 1):
+            seg = ((lons_seg[i], lats[i]), (lons_seg[i + 1], lats[i + 1]))
+            assert seg != ((0.0, 40.0), (0.0, 39.0)) and seg != ((0.0, 39.0), (0.0, 40.0))
 
 
 def test_solo_bordes_interiores_omite_costa_exterior():
