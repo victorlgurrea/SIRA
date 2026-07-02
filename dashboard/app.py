@@ -101,7 +101,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=26">
+        <link rel="stylesheet" href="/assets/sira.css?v=28">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -211,7 +211,7 @@ app.layout = html.Div(className="sira-page", children=[
                 ]),
                 html.Div(id="cards", className="sira-cards"),
                 html.Div(className="sira-charts", children=[
-                html.Div(className="sira-charts-row", children=[
+                html.Div(className="sira-charts-row sira-charts-row--map-lluvia", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
                         None,
@@ -507,11 +507,13 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_min": MAPA["lon_min"],
         "lon_max": MAPA["lon_max"],
     }
+    lat_span = max(vp["lat_max"] - vp["lat_min"], 0.5)
+    proj_scale = min(max(MAPA["projection_scale"] * (11.0 / lat_span), 1.2), 28.0)
     fig.update_geos(
         scope="world",
         projection_type="mercator",
         center=dict(lat=vp["lat_centro"], lon=vp["lon_centro"]),
-        projection_scale=MAPA["projection_scale"],
+        projection_scale=proj_scale,
         lataxis_range=[vp["lat_min"], vp["lat_max"]],
         lonaxis_range=[vp["lon_min"], vp["lon_max"]],
         showland=True, landcolor=C_NAVY,

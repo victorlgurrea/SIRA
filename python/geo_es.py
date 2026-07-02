@@ -258,13 +258,14 @@ def viewport_peninsula() -> dict[str, float]:
 
 def viewport_municipio(municipio_id: str | None) -> dict[str, float]:
     lat, lon = coords_municipio(municipio_id)
+    # Menos margen hacia el mar (este en la mayoría de costas peninsulares)
     vp = {
         "lat_centro": lat,
-        "lon_centro": lon,
-        "lat_min": lat - 0.22,
-        "lat_max": lat + 0.22,
-        "lon_min": lon - 0.30,
-        "lon_max": lon + 0.30,
+        "lon_centro": lon - 0.04,
+        "lat_min": lat - 0.24,
+        "lat_max": lat + 0.24,
+        "lon_min": lon - 0.28,
+        "lon_max": lon + 0.16,
         "nivel": "municipio",
     }
     return _clip_viewport(vp)

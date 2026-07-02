@@ -63,7 +63,7 @@ def _tramos_interiores(
 def solo_bordes_interiores(
     features: list[dict],
     *,
-    umbral_costa_km: float = 10.0,
+    umbral_costa_km: float = 18.0,
 ) -> list[dict]:
     """Conserva solo fronteras entre unidades administrativas, lejos del litoral."""
     conteo: dict[tuple, int] = {}
@@ -96,26 +96,35 @@ def solo_bordes_interiores(
     return out
 
 
+def _dist_costa_km(lon: float, lat: float, borde_pts: list[tuple[float, float]]) -> float:
+    from sismos import distancia_km
+
+    mejor = float("inf")
+    for blon, blat in borde_pts:
+        if abs(blon - lon) > 0.3 or abs(blat - lat) > 0.3:
+            continue
+        mejor = min(mejor, distancia_km(lat, lon, blat, blon))
+    if mejor == float("inf"):
+        for blon, blat in borde_pts:
+            mejor = min(mejor, distancia_km(lat, lon, blat, blon))
+    return mejor
+
+
 def _cerca_costa_nacional(
     segmento: tuple,
     borde_pts: list[tuple[float, float]],
     umbral_km: float,
 ) -> bool:
-    from sismos import distancia_km
-
     lon1, lat1 = segmento[0]
     lon2, lat2 = segmento[1]
     mid_lon = (lon1 + lon2) / 2
     mid_lat = (lat1 + lat2) / 2
-    mejor = float("inf")
-    for blon, blat in borde_pts:
-        if abs(blon - mid_lon) > 0.25 or abs(blat - mid_lat) > 0.25:
-            continue
-        mejor = min(mejor, distancia_km(mid_lat, mid_lon, blat, blon))
-    if mejor == float("inf"):
-        for blon, blat in borde_pts:
-            mejor = min(mejor, distancia_km(mid_lat, mid_lon, blat, blon))
-    return mejor < umbral_km
+    dists = (
+        _dist_costa_km(lon1, lat1, borde_pts),
+        _dist_costa_km(lon2, lat2, borde_pts),
+        _dist_costa_km(mid_lon, mid_lat, borde_pts),
+    )
+    return min(dists) < umbral_km
 
 
 # --- utilidades tierra (tests / referencia) ---

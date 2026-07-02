@@ -37,4 +37,4 @@ def test_castellon_sin_tramos_costeros():
     cast = next(f for f in data["features"] if f["id"] == "12")
     for ring in cast["rings"]:
         lons = ring["lon"]
-        assert max(lons) < 0.45
+        assert max(lons) < 0.35
