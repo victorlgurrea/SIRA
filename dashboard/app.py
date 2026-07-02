@@ -40,7 +40,7 @@ from config import (  # noqa: E402
 )
 from db import count_subscriptions, get_historial_municipio
 from core import read_dashboard  # noqa: E402
-from geo_ccaa_mapa import anadir_bordes_ccaa
+from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
 from geo_es import (
     coords_observacion,
     localidades,
@@ -696,6 +696,7 @@ def _fig_mapa(
 ) -> go.Figure:
     fig = go.Figure()
     anadir_bordes_ccaa(fig, provincia_id)
+    anadir_bordes_provincias(fig, provincia_id)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
 

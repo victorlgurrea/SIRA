@@ -3,23 +3,16 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-import unicodedata
 from pathlib import Path
 
 import requests
+
+from geo_topojson import norm_geo, rings_from_geometry
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "geo" / "ccaa_bordes.json"
 SOURCE_URL = "https://unpkg.com/es-atlas/es/autonomous_regions.json"
-
-
-def _norm(text: str) -> str:
-    s = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
-    s = re.sub(r"[^a-z0-9]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
-
 
 NOMBRE_CCAA: dict[str, str] = {
     "andalucia": "AN",
@@ -55,58 +48,13 @@ NOMBRE_CCAA: dict[str, str] = {
 
 
 def _ccaa_id(nombre: str) -> str | None:
-    key = _norm(nombre)
+    key = norm_geo(nombre)
     if key in NOMBRE_CCAA:
         return NOMBRE_CCAA[key]
     for frag, ccaa in NOMBRE_CCAA.items():
         if frag in key or key in frag:
             return ccaa
     return None
-
-
-def _decode_arc(topology: dict, arc_index: int) -> list[list[float]]:
-    arcs = topology["arcs"]
-    transform = topology.get("transform")
-    arc = arcs[arc_index]
-    x = y = 0.0
-    coords: list[list[float]] = []
-    for dx, dy in arc:
-        x += dx
-        y += dy
-        if transform:
-            lon = x * transform["scale"][0] + transform["translate"][0]
-            lat = y * transform["scale"][1] + transform["translate"][1]
-        else:
-            lon, lat = x, y
-        coords.append([lon, lat])
-    return coords
-
-
-def _decode_ring(topology: dict, arc_list: list[int]) -> list[list[float]]:
-    coords: list[list[float]] = []
-    for arc_index in arc_list:
-        reverse = arc_index < 0
-        idx = ~arc_index if reverse else arc_index
-        arc_coords = _decode_arc(topology, idx)
-        if reverse:
-            arc_coords = arc_coords[::-1]
-        if coords and arc_coords and coords[-1] == arc_coords[0]:
-            coords.extend(arc_coords[1:])
-        else:
-            coords.extend(arc_coords)
-    return coords
-
-
-def _rings_from_geometry(topology: dict, geometry: dict) -> list[list[list[float]]]:
-    gtype = geometry.get("type")
-    arcs = geometry.get("arcs")
-    if not arcs:
-        return []
-    if gtype == "Polygon":
-        return [_decode_ring(topology, ring) for ring in arcs]
-    if gtype == "MultiPolygon":
-        return [_decode_ring(topology, ring) for part in arcs for ring in part]
-    return []
 
 
 def build() -> Path:
@@ -123,12 +71,10 @@ def build() -> Path:
             log.warning("CCAA sin mapear: %s", nombre)
             continue
         rings = []
-        for ring in _rings_from_geometry(topology, geometry):
+        for ring in rings_from_geometry(topology, geometry):
             if len(ring) < 3:
                 continue
-            lons = [pt[0] for pt in ring]
-            lats = [pt[1] for pt in ring]
-            rings.append({"lat": lats, "lon": lons})
+            rings.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
         if rings:
             features.append({"id": ccaa_id, "nombre": nombre, "rings": rings})
 
