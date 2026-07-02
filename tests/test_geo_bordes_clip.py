@@ -37,3 +37,12 @@ def test_provincias_contorno_completo_llega_a_costa():
     castellon = next(f for f in data["features"] if f["id"] == "12")
     lons = [lo for r in castellon["rings"] for lo in r["lon"]]
     assert max(lons) > 0.3
+
+
+def test_ccaa_contorno_completo_llega_a_costa():
+    import json
+
+    data = json.loads((ROOT / "data" / "geo" / "ccaa_bordes.json").read_text(encoding="utf-8"))
+    vc = next(f for f in data["features"] if f["id"] == "VC")
+    lons = [lo for r in vc["rings"] for lo in r["lon"]]
+    assert max(lons) > 0.3
