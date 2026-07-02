@@ -123,6 +123,191 @@ def opciones(items: list[dict], placeholder: str = "Selecciona…") -> list[dict
     return [{"label": i["nombre"], "value": str(i["id"])} for i in items]
 
 
+# Comunidades autónomas → códigos provincia INE (2 dígitos)
+CCAA_PROVINCIAS: dict[str, list[str]] = {
+    "AN": ["04", "11", "14", "18", "21", "23", "29", "41"],
+    "AR": ["22", "44", "50"],
+    "AS": ["33"],
+    "IB": ["07"],
+    "CN": ["35", "38"],
+    "CB": ["39"],
+    "CL": ["05", "09", "24", "34", "37", "40", "42", "47", "49"],
+    "CM": ["02", "13", "16", "19", "45"],
+    "CT": ["08", "17", "25", "43"],
+    "CE": ["51"],
+    "VC": ["03", "12", "46"],
+    "EX": ["06", "10"],
+    "GA": ["15", "27", "32", "36"],
+    "MD": ["28"],
+    "ML": ["52"],
+    "MC": ["30"],
+    "NC": ["31"],
+    "RI": ["26"],
+    "PV": ["01", "20", "48"],
+}
+
+CCAA_NOMBRES: dict[str, str] = {
+    "AN": "Andalucía",
+    "AR": "Aragón",
+    "AS": "Asturias",
+    "IB": "Illes Balears",
+    "CN": "Canarias",
+    "CB": "Cantabria",
+    "CL": "Castilla y León",
+    "CM": "Castilla-La Mancha",
+    "CT": "Cataluña",
+    "CE": "Ceuta",
+    "VC": "Comunitat Valenciana",
+    "EX": "Extremadura",
+    "GA": "Galicia",
+    "MD": "Madrid",
+    "ML": "Melilla",
+    "MC": "Murcia",
+    "NC": "Navarra",
+    "RI": "La Rioja",
+    "PV": "País Vasco",
+}
+
+PROVINCIA_CCAA: dict[str, str] = {
+    prov: ccaa for ccaa, provs in CCAA_PROVINCIAS.items() for prov in provs
+}
+
+
+def ccaa_de_provincia(provincia_id: str | None) -> str | None:
+    if not provincia_id:
+        return None
+    return PROVINCIA_CCAA.get(str(provincia_id).zfill(2))
+
+
+def ccaa_nombre(ccaa_id: str | None) -> str | None:
+    if not ccaa_id:
+        return None
+    return CCAA_NOMBRES.get(ccaa_id)
+
+
+def _coords_municipios(provincia_ids: list[str]) -> list[tuple[float, float]]:
+    coords: list[tuple[float, float]] = []
+    data = _data()
+    for pid in provincia_ids:
+        for muni in data["municipios"].get(str(pid).zfill(2), []):
+            lat, lon = muni.get("lat"), muni.get("lon")
+            if lat is not None and lon is not None:
+                coords.append((float(lat), float(lon)))
+    return coords
+
+
+def _bounds_from_coords(
+    coords: list[tuple[float, float]],
+    *,
+    pad_ratio: float = 0.14,
+    min_pad_lat: float = 0.12,
+    min_pad_lon: float = 0.16,
+) -> dict[str, float] | None:
+    if not coords:
+        return None
+    lats = [c[0] for c in coords]
+    lons = [c[1] for c in coords]
+    lat_min, lat_max = min(lats), max(lats)
+    lon_min, lon_max = min(lons), max(lons)
+    pad_lat = max((lat_max - lat_min) * pad_ratio, min_pad_lat)
+    pad_lon = max((lon_max - lon_min) * pad_ratio, min_pad_lon)
+    return {
+        "lat_centro": (lat_min + lat_max) / 2,
+        "lon_centro": (lon_min + lon_max) / 2,
+        "lat_min": lat_min - pad_lat,
+        "lat_max": lat_max + pad_lat,
+        "lon_min": lon_min - pad_lon,
+        "lon_max": lon_max + pad_lon,
+    }
+
+
+def _clip_viewport(vp: dict[str, float]) -> dict[str, float]:
+    from config import MAPA
+
+    nivel = vp.get("nivel")
+    lat_min = max(vp["lat_min"], MAPA["lat_min"])
+    lat_max = min(vp["lat_max"], MAPA["lat_max"])
+    lon_min = max(vp["lon_min"], MAPA["lon_min"])
+    lon_max = min(vp["lon_max"], MAPA["lon_max"])
+    out = {
+        "lat_centro": vp["lat_centro"],
+        "lon_centro": vp["lon_centro"],
+        "lat_min": lat_min,
+        "lat_max": lat_max,
+        "lon_min": lon_min,
+        "lon_max": lon_max,
+    }
+    if nivel:
+        out["nivel"] = nivel
+    return out
+
+
+def viewport_peninsula() -> dict[str, float]:
+    from config import MAPA
+
+    return {
+        "lat_centro": MAPA["lat_centro"],
+        "lon_centro": MAPA["lon_centro"],
+        "lat_min": MAPA["lat_min"],
+        "lat_max": MAPA["lat_max"],
+        "lon_min": MAPA["lon_min"],
+        "lon_max": MAPA["lon_max"],
+        "nivel": "peninsula",
+    }
+
+
+def viewport_municipio(municipio_id: str | None) -> dict[str, float]:
+    lat, lon = coords_municipio(municipio_id)
+    vp = {
+        "lat_centro": lat,
+        "lon_centro": lon,
+        "lat_min": lat - 0.22,
+        "lat_max": lat + 0.22,
+        "lon_min": lon - 0.30,
+        "lon_max": lon + 0.30,
+        "nivel": "municipio",
+    }
+    return _clip_viewport(vp)
+
+
+def viewport_provincia(provincia_id: str | None) -> dict[str, float]:
+    if not provincia_id:
+        return viewport_peninsula()
+    bounds = _bounds_from_coords(_coords_municipios([str(provincia_id).zfill(2)]))
+    if not bounds:
+        return viewport_municipio(None)
+    bounds["nivel"] = "provincia"
+    return _clip_viewport(bounds)
+
+
+def viewport_ccaa(provincia_id: str | None) -> dict[str, float]:
+    ccaa = ccaa_de_provincia(provincia_id)
+    if not ccaa:
+        return viewport_provincia(provincia_id)
+    provs = CCAA_PROVINCIAS.get(ccaa, [])
+    if len(provs) == 1:
+        return viewport_provincia(provs[0])
+    bounds = _bounds_from_coords(_coords_municipios(provs), pad_ratio=0.10, min_pad_lat=0.25, min_pad_lon=0.35)
+    if not bounds:
+        return viewport_provincia(provincia_id)
+    bounds["nivel"] = "ccaa"
+    return _clip_viewport(bounds)
+
+
+def viewport_para_nivel(
+    nivel: str,
+    provincia_id: str | None,
+    municipio_id: str | None,
+) -> dict[str, float]:
+    if nivel == "municipio":
+        return viewport_municipio(municipio_id)
+    if nivel == "provincia":
+        return viewport_provincia(provincia_id)
+    if nivel == "ccaa":
+        return viewport_ccaa(provincia_id)
+    return viewport_peninsula()
+
+
 def municipio_mas_cercano(lat: float, lon: float) -> dict | None:
     """Municipio INE más cercano a unas coordenadas WGS84."""
     from sismos import distancia_km

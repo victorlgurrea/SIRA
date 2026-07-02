@@ -40,7 +40,17 @@ from config import (  # noqa: E402
 )
 from db import count_subscriptions, get_historial_municipio
 from core import read_dashboard  # noqa: E402
-from geo_es import coords_observacion, localidades, municipio_por_id, municipios, opciones, provincia_de_municipio, provincias
+from geo_es import (
+    coords_observacion,
+    localidades,
+    municipio_por_id,
+    municipios,
+    opciones,
+    provincia_de_municipio,
+    provincias,
+    viewport_municipio,
+    viewport_para_nivel,
+)
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas
@@ -125,6 +135,7 @@ def _default_geo() -> dict:
         "municipio": muni["nombre"] if muni else None,
         "localidad_id": loc["id"] if loc else None,
         "localidad": loc["nombre"] if loc else None,
+        "map_zoom": viewport_municipio(_DEFAULT_MUNI),
     }
 
 
@@ -141,7 +152,7 @@ def _geo_resuelto(geo: dict | None) -> dict:
     loc_id = geo.get("localidad_id")
     loc = next((l for l in locs if l["id"] == loc_id), locs[0] if locs else None)
 
-    return {
+    out = {
         "provincia_id": pid,
         "provincia": prov["nombre"] if prov else geo.get("provincia"),
         "municipio_id": muni_id,
@@ -149,6 +160,9 @@ def _geo_resuelto(geo: dict | None) -> dict:
         "localidad_id": loc["id"] if loc else geo.get("localidad_id"),
         "localidad": loc["nombre"] if loc else geo.get("localidad"),
     }
+    zoom = geo.get("map_zoom")
+    out["map_zoom"] = zoom if zoom else viewport_municipio(muni_id)
+    return out
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
@@ -475,14 +489,30 @@ def _add_circulos_perceptibles(
         )
 
 
-def _geo_layout(fig: go.Figure) -> None:
+def _map_viewport(geo: dict | None) -> dict:
+    zoom = (geo or {}).get("map_zoom")
+    if zoom and zoom.get("lat_centro") is not None:
+        return zoom
+    muni_id = (geo or {}).get("municipio_id") or _DEFAULT_MUNI
+    return viewport_municipio(muni_id)
+
+
+def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str = "sira-mapa") -> None:
+    vp = viewport or {
+        "lat_centro": MAPA["lat_centro"],
+        "lon_centro": MAPA["lon_centro"],
+        "lat_min": MAPA["lat_min"],
+        "lat_max": MAPA["lat_max"],
+        "lon_min": MAPA["lon_min"],
+        "lon_max": MAPA["lon_max"],
+    }
     fig.update_geos(
         scope="europe",
         projection_type="mercator",
-        center=dict(lat=MAPA["lat_centro"], lon=MAPA["lon_centro"]),
+        center=dict(lat=vp["lat_centro"], lon=vp["lon_centro"]),
         projection_scale=MAPA["projection_scale"],
-        lataxis_range=[MAPA["lat_min"], MAPA["lat_max"]],
-        lonaxis_range=[MAPA["lon_min"], MAPA["lon_max"]],
+        lataxis_range=[vp["lat_min"], vp["lat_max"]],
+        lonaxis_range=[vp["lon_min"], vp["lon_max"]],
         showland=True, landcolor=C_NAVY,
         showocean=True, oceancolor="#1e4976",
         showcountries=True, countrycolor="#1e4976", coastlinecolor="#94a3b8",
@@ -491,7 +521,7 @@ def _geo_layout(fig: go.Figure) -> None:
         margin=dict(t=10, b=0, l=0, r=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         autosize=True,
-        uirevision="sira-mapa",
+        uirevision=uirevision,
         **PLOTLY_BG,
     )
 
@@ -659,6 +689,8 @@ def _fig_mapa(
     zonas_costeras: list | None = None,
     embalses_mapa: list | None = None,
     aforos_mapa: list | None = None,
+    viewport: dict | None = None,
+    map_uirevision: str = "sira-mapa",
 ) -> go.Figure:
     fig = go.Figure()
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
@@ -847,7 +879,7 @@ def _fig_mapa(
             lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
             marker=dict(size=10, color=color, symbol="star"),
         ))
-    _geo_layout(fig)
+    _geo_layout(fig, viewport, uirevision=map_uirevision)
     fig.update_layout(legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0))
     return fig
 
@@ -1079,6 +1111,16 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
     muni = municipio_por_id(municipio_id)
     locs = localidades(municipio_id)
     loc = next((l for l in locs if l["id"] == localidad_id), locs[0] if locs else None)
+    trigger = ctx.triggered_id
+    if trigger == "geo-localidad":
+        zoom_nivel = "municipio"
+    elif trigger == "geo-municipio":
+        zoom_nivel = "provincia"
+    elif trigger == "geo-provincia":
+        zoom_nivel = "ccaa"
+    else:
+        zoom_nivel = "municipio"
+    map_zoom = viewport_para_nivel(zoom_nivel, provincia_id, municipio_id)
     return {
         "provincia_id": provincia_id,
         "provincia": prov["nombre"] if prov else None,
@@ -1086,6 +1128,7 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
         "municipio": muni["nombre"] if muni else None,
         "localidad_id": localidad_id,
         "localidad": loc["nombre"] if loc else None,
+        "map_zoom": map_zoom,
     }
 
 
@@ -1239,9 +1282,15 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     oce_cant = _bloque_oce(oce, "CANTÁBRICO")
     oce_atl = _bloque_oce(oce, "ATLÁNTICO")
 
+    viewport = _map_viewport(geo)
+    map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
+
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras, embalses_mapa, aforos_mapa),
+        _fig_mapa(
+            sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
+            embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
+        ),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
