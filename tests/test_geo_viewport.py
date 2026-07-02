@@ -39,6 +39,13 @@ def test_zoom_provincia_mas_cercano_que_ccaa():
     assert _span(prov)[1] <= _span(ccaa)[1]
 
 
+def test_viewport_provincia_alejado_es_mas_amplio():
+    cerca = viewport_provincia("46", alejado=False)
+    lejos = viewport_provincia("46", alejado=True)
+    assert _span(lejos)[0] > _span(cerca)[0]
+    assert _span(lejos)[1] > _span(cerca)[1]
+
+
 def test_viewport_para_nivel():
     muni = viewport_para_nivel("municipio", "46", "46250")
     prov = viewport_para_nivel("provincia", "46", "46250")

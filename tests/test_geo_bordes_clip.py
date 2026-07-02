@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / "python"))
 from geo_bordes_clip import solo_bordes_interiores  # noqa: E402
 
 
-def test_solo_bordes_interiores_omite_costa():
+def test_solo_bordes_interiores_omite_costa_exterior():
     a = {
         "id": "A",
         "nombre": "A",
@@ -30,11 +30,10 @@ def test_solo_bordes_interiores_omite_costa():
     assert 1 not in a_lons and 1 not in b_lons
 
 
-def test_castellon_sin_tramos_costeros():
+def test_provincias_contorno_completo_llega_a_costa():
     import json
 
     data = json.loads((ROOT / "data" / "geo" / "provincias_bordes.json").read_text(encoding="utf-8"))
-    cast = next(f for f in data["features"] if f["id"] == "12")
-    for ring in cast["rings"]:
-        lons = ring["lon"]
-        assert max(lons) < 0.35
+    castellon = next(f for f in data["features"] if f["id"] == "12")
+    lons = [lo for r in castellon["rings"] for lo in r["lon"]]
+    assert max(lons) > 0.3

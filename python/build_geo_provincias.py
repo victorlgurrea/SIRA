@@ -8,7 +8,6 @@ from pathlib import Path
 import requests
 
 from geo_es import provincias
-from geo_bordes_clip import solo_bordes_interiores
 from geo_topojson import norm_geo, rings_from_geometry
 
 log = logging.getLogger(__name__)
@@ -91,10 +90,10 @@ def build() -> Path:
         if rings:
             raw.append({"id": prov_id, "nombre": nombre, "rings": rings})
 
-    features = solo_bordes_interiores(raw)
+    features = raw
     features.sort(key=lambda x: x["id"])
     payload = {
-        "fuente": "IGN — TopoJSON es-atlas (martgnz/es-atlas), solo fronteras interiores",
+        "fuente": "IGN — TopoJSON es-atlas (martgnz/es-atlas), contorno provincial completo",
         "url": SOURCE_URL,
         "features": features,
     }

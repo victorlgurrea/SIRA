@@ -26,9 +26,9 @@ def test_ccaa_bordes_json_tiene_comunidades_con_bordes():
     assert all(f.get("rings") for f in feats)
 
 
-def test_provincias_bordes_json_tiene_provincias_con_bordes():
+def test_provincias_bordes_json_tiene_52_provincias():
     feats = _bordes_provincias()
-    assert len(feats) >= 40
+    assert len(feats) == 52
     ids = {f["id"] for f in feats}
     assert "46" in ids
     assert "03" in ids

@@ -1125,13 +1125,17 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
     trigger = ctx.triggered_id
     if trigger == "geo-localidad":
         zoom_nivel = "municipio"
+        alejado = False
     elif trigger == "geo-municipio":
         zoom_nivel = "provincia"
+        alejado = False
     elif trigger == "geo-provincia":
-        zoom_nivel = "ccaa"
+        zoom_nivel = "provincia"
+        alejado = True
     else:
         zoom_nivel = "municipio"
-    map_zoom = viewport_para_nivel(zoom_nivel, provincia_id, municipio_id)
+        alejado = False
+    map_zoom = viewport_para_nivel(zoom_nivel, provincia_id, municipio_id, alejado=alejado)
     return {
         "provincia_id": provincia_id,
         "provincia": prov["nombre"] if prov else None,

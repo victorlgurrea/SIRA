@@ -271,10 +271,18 @@ def viewport_municipio(municipio_id: str | None) -> dict[str, float]:
     return _clip_viewport(vp)
 
 
-def viewport_provincia(provincia_id: str | None) -> dict[str, float]:
+def viewport_provincia(provincia_id: str | None, *, alejado: bool = False) -> dict[str, float]:
     if not provincia_id:
         return viewport_peninsula()
-    bounds = _bounds_from_coords(_coords_municipios([str(provincia_id).zfill(2)]))
+    pad_ratio = 0.28 if alejado else 0.22
+    min_pad_lat = 0.22 if alejado else 0.16
+    min_pad_lon = 0.28 if alejado else 0.20
+    bounds = _bounds_from_coords(
+        _coords_municipios([str(provincia_id).zfill(2)]),
+        pad_ratio=pad_ratio,
+        min_pad_lat=min_pad_lat,
+        min_pad_lon=min_pad_lon,
+    )
     if not bounds:
         return viewport_municipio(None)
     bounds["nivel"] = "provincia"
@@ -299,11 +307,13 @@ def viewport_para_nivel(
     nivel: str,
     provincia_id: str | None,
     municipio_id: str | None,
+    *,
+    alejado: bool = False,
 ) -> dict[str, float]:
     if nivel == "municipio":
         return viewport_municipio(municipio_id)
     if nivel == "provincia":
-        return viewport_provincia(provincia_id)
+        return viewport_provincia(provincia_id, alejado=alejado)
     if nivel == "ccaa":
         return viewport_ccaa(provincia_id)
     return viewport_peninsula()
