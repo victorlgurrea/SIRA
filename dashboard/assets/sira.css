@@ -946,7 +946,7 @@ body {
 }
 
 .sira-charts-row--map-lluvia {
-  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.35fr) minmax(0, 1fr);
 }
 
 .sira-charts-row--3 {

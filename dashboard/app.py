@@ -101,7 +101,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=28">
+        <link rel="stylesheet" href="/assets/sira.css?v=29">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -1437,7 +1437,7 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=27">
+  <link rel="stylesheet" href="/assets/sira.css?v=29">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
