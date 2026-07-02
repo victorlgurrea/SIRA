@@ -1,4 +1,4 @@
-"""Recorte de bordes administrativos a tierra firme."""
+"""Fronteras administrativas interiores (sin costa)."""
 from __future__ import annotations
 
 import sys
@@ -7,33 +7,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_bordes_clip import (  # noqa: E402
-    anillos_tierra,
-    punto_en_tierra,
-    recortar_anillo,
-    segmento_en_tierra,
-)
+from geo_bordes_clip import solo_bordes_interiores  # noqa: E402
 
 
-def test_punto_castello_ciudad_en_tierra():
-    tierra = anillos_tierra()
-    assert punto_en_tierra(-0.037, 39.986, tierra)
+def test_solo_bordes_interiores_omite_costa():
+    a = {
+        "id": "A",
+        "nombre": "A",
+        "rings": [{"lat": [40, 40, 39, 39, 40], "lon": [-1, 0, 0, -1, -1]}],
+    }
+    b = {
+        "id": "B",
+        "nombre": "B",
+        "rings": [{"lat": [40, 40, 39, 39, 40], "lon": [0, 1, 1, 0, 0]}],
+    }
+    out = solo_bordes_interiores([a, b], umbral_costa_km=0)
+    by_id = {f["id"]: f for f in out}
+    assert "A" in by_id and "B" in by_id
+    a_lons = [lo for r in by_id["A"]["rings"] for lo in r["lon"]]
+    b_lons = [lo for r in by_id["B"]["rings"] for lo in r["lon"]]
+    assert 0 in a_lons or 0.0 in a_lons
+    assert 1 not in a_lons and 1 not in b_lons
 
 
-def test_segmento_mar_castellon_recortado():
-    tierra = anillos_tierra()
-    # Cordón simplificado que atraviesa mar (este de la costa)
-    lats = [40.0, 40.0, 40.0]
-    lons = [0.0, 0.25, 0.5]
-    assert not segmento_en_tierra(0.0, 40.0, 0.25, 40.0, tierra)
-    tramos = recortar_anillo(lats, lons, tierra)
-    assert tramos == [] or all(len(t["lat"]) >= 2 for t in tramos)
+def test_castellon_sin_tramos_costeros():
+    import json
 
-
-def test_recorte_devuelve_tramos_validos():
-    tierra = anillos_tierra()
-    lats = [39.99, 39.99, 40.05, 40.05, 39.99]
-    lons = [-0.10, -0.04, -0.04, -0.10, -0.10]
-    tramos = recortar_anillo(lats, lons, tierra)
-    assert tramos
-    assert all(len(t["lat"]) == len(t["lon"]) >= 2 for t in tramos)
+    data = json.loads((ROOT / "data" / "geo" / "provincias_bordes.json").read_text(encoding="utf-8"))
+    cast = next(f for f in data["features"] if f["id"] == "12")
+    for ring in cast["rings"]:
+        lons = ring["lon"]
+        assert max(lons) < 0.45

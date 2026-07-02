@@ -7,7 +7,7 @@ from pathlib import Path
 
 import requests
 
-from geo_bordes_clip import anillos_tierra, recortar_feature_rings
+from geo_bordes_clip import solo_bordes_interiores
 from geo_topojson import norm_geo, rings_from_geometry
 
 log = logging.getLogger(__name__)
@@ -64,25 +64,25 @@ def build() -> Path:
     topology = r.json()
     geometries = topology["objects"]["autonomous_regions"]["geometries"]
 
-    features: list[dict] = []
+    raw: list[dict] = []
     for geometry in geometries:
         nombre = (geometry.get("properties") or {}).get("name", "")
         ccaa_id = _ccaa_id(nombre)
         if not ccaa_id:
             log.warning("CCAA sin mapear: %s", nombre)
             continue
-        rings_raw = []
+        rings = []
         for ring in rings_from_geometry(topology, geometry):
             if len(ring) < 3:
                 continue
-            rings_raw.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
-        rings = recortar_feature_rings(rings_raw, anillos_tierra())
+            rings.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
         if rings:
-            features.append({"id": ccaa_id, "nombre": nombre, "rings": rings})
+            raw.append({"id": ccaa_id, "nombre": nombre, "rings": rings})
 
+    features = solo_bordes_interiores(raw)
     features.sort(key=lambda x: x["id"])
     payload = {
-        "fuente": "IGN — TopoJSON es-atlas (martgnz/es-atlas)",
+        "fuente": "IGN — TopoJSON es-atlas (martgnz/es-atlas), solo fronteras interiores",
         "url": SOURCE_URL,
         "features": features,
     }
