@@ -40,6 +40,7 @@ from config import (  # noqa: E402
 )
 from db import count_subscriptions, get_historial_municipio
 from core import read_dashboard  # noqa: E402
+from geo_ccaa_mapa import anadir_bordes_ccaa
 from geo_es import (
     coords_observacion,
     localidades,
@@ -691,8 +692,10 @@ def _fig_mapa(
     aforos_mapa: list | None = None,
     viewport: dict | None = None,
     map_uirevision: str = "sira-mapa",
+    provincia_id: str | None = None,
 ) -> go.Figure:
     fig = go.Figure()
+    anadir_bordes_ccaa(fig, provincia_id)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
 
@@ -1290,6 +1293,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
         _fig_mapa(
             sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
             embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
+            provincia_id=geo.get("provincia_id"),
         ),
         _fig_lluvia(met.get("serie_horaria", [])),
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
