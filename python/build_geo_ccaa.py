@@ -7,6 +7,7 @@ from pathlib import Path
 
 import requests
 
+from geo_bordes_clip import anillos_tierra, recortar_feature_rings
 from geo_topojson import norm_geo, rings_from_geometry
 
 log = logging.getLogger(__name__)
@@ -70,11 +71,12 @@ def build() -> Path:
         if not ccaa_id:
             log.warning("CCAA sin mapear: %s", nombre)
             continue
-        rings = []
+        rings_raw = []
         for ring in rings_from_geometry(topology, geometry):
             if len(ring) < 3:
                 continue
-            rings.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
+            rings_raw.append({"lat": [pt[1] for pt in ring], "lon": [pt[0] for pt in ring]})
+        rings = recortar_feature_rings(rings_raw, anillos_tierra())
         if rings:
             features.append({"id": ccaa_id, "nombre": nombre, "rings": rings})
 

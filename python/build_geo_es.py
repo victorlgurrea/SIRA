@@ -23,12 +23,25 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _name_keys(nombre: str) -> list[str]:
+    """Variantes normalizadas (p. ej. 'A/B' → claves para A y para B)."""
+    partes = [p.strip() for p in str(nombre).split("/") if p.strip()]
+    if not partes:
+        return [_norm(nombre)]
+    keys: list[str] = []
+    for parte in partes:
+        k = _norm(parte)
+        if k and k not in keys:
+            keys.append(k)
+    return keys
+
+
 def _prov_key(nombre: str) -> str:
-    return _norm(nombre.split("/")[0])
+    return _name_keys(nombre)[0]
 
 
 def _muni_key(nombre: str) -> str:
-    return _norm(nombre.split("/")[0])
+    return _name_keys(nombre)[0]
 
 
 def _cargar_coords_hf() -> dict[tuple[str, str], tuple[float, float]]:
@@ -44,10 +57,29 @@ def _cargar_coords_hf() -> dict[tuple[str, str], tuple[float, float]]:
         lat_s, lon_s = row.get("Latitud", ""), row.get("Longitud", "")
         if not lat_s or not lon_s or lat_s.upper() == "NA" or lon_s.upper() == "NA":
             continue
-        key = (_prov_key(row["Provincia"]), _muni_key(row["Municipio"]))
-        coords[key] = (float(lat_s), float(lon_s))
-    log.info("Coordenadas CSV: %d municipios", len(coords))
+        lat, lon = float(lat_s), float(lon_s)
+        prov_keys = _name_keys(row["Provincia"])
+        muni_keys = _name_keys(row["Municipio"])
+        for pk in prov_keys:
+            for mk in muni_keys:
+                coords[(pk, mk)] = (lat, lon)
+    log.info("Coordenadas CSV: %d claves municipio", len(coords))
     return coords
+
+
+def _buscar_coords(
+    coords_hf: dict[tuple[str, str], tuple[float, float]],
+    prov_nombre: str,
+    muni_nombre: str,
+) -> tuple[float, float] | None:
+    prov_keys = _name_keys(prov_nombre)
+    muni_keys = _name_keys(muni_nombre)
+    for pk in prov_keys:
+        for mk in muni_keys:
+            hit = coords_hf.get((pk, mk))
+            if hit:
+                return hit
+    return None
 
 
 def build() -> Path:
@@ -64,9 +96,9 @@ def build() -> Path:
         mid = str(m["municipio_id"]).zfill(5)
         nombre = m["nombre"]
         entry: dict = {"id": mid, "nombre": nombre}
-        key = (_prov_key(prov_nombre.get(pid, "")), _muni_key(nombre))
-        if key in coords_hf:
-            entry["lat"], entry["lon"] = coords_hf[key]
+        hit = _buscar_coords(coords_hf, prov_nombre.get(pid, ""), nombre)
+        if hit:
+            entry["lat"], entry["lon"] = hit
         else:
             sin_coords += 1
         by_prov[pid].append(entry)

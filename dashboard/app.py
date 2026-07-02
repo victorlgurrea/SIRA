@@ -508,7 +508,7 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_max": MAPA["lon_max"],
     }
     fig.update_geos(
-        scope="europe",
+        scope="world",
         projection_type="mercator",
         center=dict(lat=vp["lat_centro"], lon=vp["lon_centro"]),
         projection_scale=MAPA["projection_scale"],
@@ -516,7 +516,9 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         lonaxis_range=[vp["lon_min"], vp["lon_max"]],
         showland=True, landcolor=C_NAVY,
         showocean=True, oceancolor="#1e4976",
-        showcountries=True, countrycolor="#1e4976", coastlinecolor="#94a3b8",
+        showcountries=True, countrycolor="#1e4976",
+        showcoastlines=True, coastlinecolor="#94a3b8", coastlinewidth=0.8,
+        resolution=50,
     )
     fig.update_layout(
         margin=dict(t=10, b=0, l=0, r=0),
@@ -875,10 +877,13 @@ def _fig_mapa(
         ))
 
     _add_marcador_observacion(fig, lat_obs, lon_obs, obs_nombre)
-    for lat, lon, name, color in (
-        (MAPA["lat_centro"], MAPA["lon_centro"], MAPA["ciudad_centro"], "gold"),
-        (ZONA["lat_ref"], ZONA["lon_ref"], ZONA["ciudad_ref"], C_CYAN),
-    ):
+    from sismos import distancia_km
+
+    refs: list[tuple[float, float, str, str]] = []
+    if lat_obs is not None and lon_obs is not None:
+        if distancia_km(lat_obs, lon_obs, ZONA["lat_ref"], ZONA["lon_ref"]) < 8:
+            refs.append((ZONA["lat_ref"], ZONA["lon_ref"], ZONA["ciudad_ref"], C_CYAN))
+    for lat, lon, name, color in refs:
         fig.add_trace(go.Scattergeo(
             lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
             marker=dict(size=10, color=color, symbol="star"),
