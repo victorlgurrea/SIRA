@@ -289,14 +289,22 @@ def viewport_provincia(provincia_id: str | None, *, alejado: bool = False) -> di
     return _clip_viewport(bounds)
 
 
-def viewport_ccaa(provincia_id: str | None) -> dict[str, float]:
+def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[str, float]:
     ccaa = ccaa_de_provincia(provincia_id)
     if not ccaa:
-        return viewport_provincia(provincia_id)
+        return viewport_provincia(provincia_id, alejado=alejado)
     provs = CCAA_PROVINCIAS.get(ccaa, [])
     if len(provs) == 1:
-        return viewport_provincia(provs[0])
-    bounds = _bounds_from_coords(_coords_municipios(provs), pad_ratio=0.10, min_pad_lat=0.25, min_pad_lon=0.35)
+        return viewport_provincia(provs[0], alejado=alejado)
+    pad_ratio = 0.22 if alejado else 0.12
+    min_pad_lat = 0.38 if alejado else 0.30
+    min_pad_lon = 0.48 if alejado else 0.40
+    bounds = _bounds_from_coords(
+        _coords_municipios(provs),
+        pad_ratio=pad_ratio,
+        min_pad_lat=min_pad_lat,
+        min_pad_lon=min_pad_lon,
+    )
     if not bounds:
         return viewport_provincia(provincia_id)
     bounds["nivel"] = "ccaa"
@@ -315,7 +323,7 @@ def viewport_para_nivel(
     if nivel == "provincia":
         return viewport_provincia(provincia_id, alejado=alejado)
     if nivel == "ccaa":
-        return viewport_ccaa(provincia_id)
+        return viewport_ccaa(provincia_id, alejado=alejado)
     return viewport_peninsula()
 
 

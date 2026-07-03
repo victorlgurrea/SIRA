@@ -50,6 +50,7 @@ from geo_es import (
     provincia_de_municipio,
     provincias,
     viewport_municipio,
+    viewport_ccaa,
     viewport_para_nivel,
     viewport_fit_contenedor,
 )
@@ -137,7 +138,7 @@ def _default_geo() -> dict:
         "municipio": muni["nombre"] if muni else None,
         "localidad_id": loc["id"] if loc else None,
         "localidad": loc["nombre"] if loc else None,
-        "map_zoom": viewport_municipio(_DEFAULT_MUNI),
+        "map_zoom": viewport_ccaa(_DEFAULT_PROV, alejado=True),
     }
 
 
@@ -163,7 +164,7 @@ def _geo_resuelto(geo: dict | None) -> dict:
         "localidad": loc["nombre"] if loc else geo.get("localidad"),
     }
     zoom = geo.get("map_zoom")
-    out["map_zoom"] = zoom if zoom else viewport_municipio(muni_id)
+    out["map_zoom"] = zoom if zoom else viewport_ccaa(pid, alejado=True)
     return out
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
@@ -496,7 +497,8 @@ def _map_viewport(geo: dict | None) -> dict:
     if zoom and zoom.get("lat_centro") is not None:
         return zoom
     muni_id = (geo or {}).get("municipio_id") or _DEFAULT_MUNI
-    return viewport_municipio(muni_id)
+    pid = str((geo or {}).get("provincia_id") or provincia_de_municipio(muni_id) or _DEFAULT_PROV).zfill(2)
+    return viewport_ccaa(pid, alejado=True)
 
 
 def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str = "sira-mapa") -> None:
