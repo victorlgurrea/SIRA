@@ -333,9 +333,9 @@ def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[st
     provs = CCAA_PROVINCIAS.get(ccaa, [])
     if len(provs) == 1:
         return viewport_provincia(provs[0], alejado=alejado)
-    pad_ratio = 0.55 if alejado else 0.14
-    min_pad_lat = 1.15 if alejado else 0.32
-    min_pad_lon = 0.95 if alejado else 0.42
+    pad_ratio = 0.75 if alejado else 0.14
+    min_pad_lat = 1.55 if alejado else 0.32
+    min_pad_lon = 1.30 if alejado else 0.42
     bounds = _bounds_ccaa(ccaa, pad_ratio=pad_ratio, min_pad_lat=min_pad_lat, min_pad_lon=min_pad_lon)
     if not bounds:
         bounds = _bounds_from_coords(
