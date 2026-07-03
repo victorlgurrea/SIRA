@@ -7,7 +7,7 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 
-from geo_es import CCAA_NOMBRES, ccaa_de_provincia, provincia_nombre_de_municipio
+from geo_es import CCAA_NOMBRES, CCAA_PROVINCIAS, ccaa_de_provincia, provincia_nombre_de_municipio
 
 ROOT = Path(__file__).resolve().parent.parent
 CCAA_FILE = ROOT / "data" / "geo" / "ccaa_bordes.json"
@@ -45,6 +45,28 @@ def _bordes_provincias() -> list[dict]:
 def _bordes() -> list[dict]:
     """Compatibilidad con tests anteriores."""
     return _bordes_ccaa()
+
+
+def _features_ccaa_visibles(provincia_id: str | None) -> list[dict]:
+    feats = _bordes_ccaa()
+    if not provincia_id:
+        return feats
+    ccaa = ccaa_de_provincia(provincia_id)
+    if not ccaa:
+        return feats
+    return [f for f in feats if f.get("id") == ccaa]
+
+
+def _features_provincias_visibles(provincia_id: str | None) -> list[dict]:
+    feats = _bordes_provincias()
+    if not provincia_id:
+        return feats
+    ccaa = ccaa_de_provincia(provincia_id)
+    if ccaa:
+        provs = set(CCAA_PROVINCIAS.get(ccaa, []))
+        return [f for f in feats if f.get("id") in provs]
+    pid = str(provincia_id).zfill(2)
+    return [f for f in feats if f.get("id") == pid]
 
 
 def _add_lineas(
@@ -101,7 +123,7 @@ def anadir_bordes_ccaa(
     """Dibuja contornos CCAA; resalta la comunidad de la provincia seleccionada."""
     _add_lineas(
         fig,
-        _bordes_ccaa(),
+        _features_ccaa_visibles(provincia_id),
         legend_name="Límites CCAA",
         legendgroup="ccaa",
         provincia_id=provincia_id,
@@ -126,7 +148,7 @@ def anadir_bordes_provincias(
     """Dibuja contornos provinciales (línea más fina que CCAA)."""
     _add_lineas(
         fig,
-        _bordes_provincias(),
+        _features_provincias_visibles(provincia_id),
         legend_name="Límites provincias",
         legendgroup="provincias",
         provincia_id=provincia_id,

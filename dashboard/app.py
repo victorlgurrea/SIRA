@@ -49,9 +49,8 @@ from geo_es import (
     opciones,
     provincia_de_municipio,
     provincias,
-    viewport_municipio,
     viewport_ccaa,
-    viewport_para_nivel,
+    viewport_provincia_centro,
     viewport_fit_contenedor,
     projection_scale_for_viewport,
 )
@@ -511,7 +510,8 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_min": MAPA["lon_min"],
         "lon_max": MAPA["lon_max"],
     }
-    vp = viewport_fit_contenedor(vp)
+    if not vp.get("centrar_obs"):
+        vp = viewport_fit_contenedor(vp)
     zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
     proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
     fig.update_geos(
@@ -1128,20 +1128,12 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
     muni = municipio_por_id(municipio_id)
     locs = localidades(municipio_id)
     loc = next((l for l in locs if l["id"] == localidad_id), locs[0] if locs else None)
+    lat_obs, lon_obs, _ = coords_observacion(municipio_id, localidad_id)
     trigger = ctx.triggered_id
-    if trigger == "geo-localidad":
-        zoom_nivel = "municipio"
-        alejado = False
-    elif trigger == "geo-municipio":
-        zoom_nivel = "provincia"
-        alejado = False
-    elif trigger == "geo-provincia":
-        zoom_nivel = "ccaa"
-        alejado = False
+    if trigger in ("geo-provincia", "geo-municipio", "geo-localidad"):
+        map_zoom = viewport_provincia_centro(provincia_id, lat_obs, lon_obs, alejado=True)
     else:
-        zoom_nivel = "municipio"
-        alejado = False
-    map_zoom = viewport_para_nivel(zoom_nivel, provincia_id, municipio_id, alejado=alejado)
+        map_zoom = viewport_ccaa(provincia_id or _DEFAULT_PROV, alejado=True)
     return {
         "provincia_id": provincia_id,
         "provincia": prov["nombre"] if prov else None,
@@ -1187,34 +1179,8 @@ def refresh_historial(pathname, municipio_id):
     return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial")
 
 
-@callback(
-    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
-    Output("mapa", "figure"), Output("lluvia", "figure"),
-    Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
-    Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
-    Input("tick", "n_intervals"), Input("btn", "n_clicks"), Input("geo-store", "data"),
-    State("data-ts-store", "data"),
-    State("url", "pathname"),
-)
-def refresh(n_intervals, clicks, geo, last_ts, pathname):
-    if pathname == "/historial":
-        raise PreventUpdate
-    if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
-        try:
-            requests.post(
-                f"{API_BASE_URL}/api/actualizar",
-                headers={"X-API-Key": API_KEY},
-                timeout=120,
-            )
-        except requests.RequestException:
-            pass
-
-    d = _load()
-    alertas_fuente = _alertas_meteo_fuente(d)
-    refresh_token = _data_refresh_token(d, alertas_fuente)
-    if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
-        raise PreventUpdate
-
+def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
+    """Tarjetas, mapa y lluvia según la zona seleccionada."""
     geo = _geo_resuelto(geo)
     muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
     localidad = geo.get("localidad") or ZONA["ciudad_ref"]
@@ -1237,7 +1203,6 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     incendios_local = [i for i in incendios_mapa if i.get("afecta_local")]
     embalses_all = d.get("embalses", [])
     aforos_all = d.get("aforos", [])
-    oce = d.get("oceanografia", {})
     met = _meteo_para_geo(muni_id, localidad)
     res_met = met.get("resumen", {})
     lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
@@ -1245,13 +1210,13 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     res_afor = resumen_aforos(aforos_all, lat_obs, lon_obs)
     embalses_mapa = embalses_para_mapa(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
     aforos_mapa = aforos_para_mapa(aforos_all, lat_obs, lon_obs)
+    alertas_fuente = _alertas_meteo_fuente(d)
     alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
     zonas_costeras = alertas_a_capa_costera(alertas_fuente)
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
     nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
-
     loc_label = f"{localidad}, {geo.get('municipio') or ''}".strip(", ")
 
     cards = [
@@ -1291,6 +1256,65 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     ]
     riesgo_meteo = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
     cards.append(_riesgo_meteo_card(riesgo_meteo))
+
+    viewport = _map_viewport(geo)
+    map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
+    mapa = _fig_mapa(
+        sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
+        embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
+        provincia_id=geo.get("provincia_id"),
+    )
+    lluvia = _fig_lluvia(met.get("serie_horaria", []))
+    return cards, mapa, lluvia
+
+
+@callback(
+    Output("cards", "children", allow_duplicate=True),
+    Output("mapa", "figure", allow_duplicate=True),
+    Output("lluvia", "figure", allow_duplicate=True),
+    Input("geo-store", "data"),
+    State("url", "pathname"),
+    prevent_initial_call=True,
+)
+def refresh_geo(geo, pathname):
+    if pathname == "/historial":
+        raise PreventUpdate
+    d = read_dashboard()
+    return _build_panel_geo(geo, d)
+
+
+@callback(
+    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
+    Output("mapa", "figure"), Output("lluvia", "figure"),
+    Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
+    Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
+    Input("tick", "n_intervals"), Input("btn", "n_clicks"),
+    State("geo-store", "data"),
+    State("data-ts-store", "data"),
+    State("url", "pathname"),
+)
+def refresh(n_intervals, clicks, geo, last_ts, pathname):
+    if pathname == "/historial":
+        raise PreventUpdate
+    if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
+        try:
+            requests.post(
+                f"{API_BASE_URL}/api/actualizar",
+                headers={"X-API-Key": API_KEY},
+                timeout=120,
+            )
+        except requests.RequestException:
+            pass
+
+    d = _load()
+    alertas_fuente = _alertas_meteo_fuente(d)
+    refresh_token = _data_refresh_token(d, alertas_fuente)
+    if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
+        raise PreventUpdate
+
+    geo = _geo_resuelto(geo)
+    cards, mapa, lluvia = _build_panel_geo(geo, d)
+    oce = d.get("oceanografia", {})
     ts = d.get("generado_en", "—")
     try:
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")
@@ -1303,17 +1327,10 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     oce_cant = _bloque_oce(oce, "CANTÁBRICO")
     oce_atl = _bloque_oce(oce, "ATLÁNTICO")
 
-    viewport = _map_viewport(geo)
-    map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
-
     return (
         cards, f"Actualizado: {ts}", refresh_token,
-        _fig_mapa(
-            sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
-            embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
-            provincia_id=geo.get("provincia_id"),
-        ),
-        _fig_lluvia(met.get("serie_horaria", [])),
+        mapa,
+        lluvia,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
         _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),

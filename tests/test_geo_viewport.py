@@ -77,6 +77,16 @@ def test_viewport_ccaa_alejado_cubre_comunidad_completa():
     assert _span(viewport_ccaa("46", alejado=True)) > _span(viewport_ccaa("46", alejado=False))
 
 
+def test_viewport_provincia_centro_pone_estrella_en_medio():
+    from geo_es import viewport_provincia_centro
+
+    lat, lon = 39.47, -0.38
+    vp = viewport_provincia_centro("46", lat, lon, alejado=True)
+    assert abs(vp["lat_centro"] - lat) < 1e-9
+    assert abs(vp["lon_centro"] - lon) < 1e-9
+    assert vp.get("centrar_obs") is True
+
+
 def test_viewport_para_nivel():
     muni = viewport_para_nivel("municipio", "46", "46250")
     prov = viewport_para_nivel("provincia", "46", "46250")

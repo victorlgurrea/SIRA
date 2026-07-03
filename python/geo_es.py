@@ -276,6 +276,8 @@ def _clip_viewport(vp: dict[str, float]) -> dict[str, float]:
     }
     if nivel:
         out["nivel"] = nivel
+    if vp.get("centrar_obs"):
+        out["centrar_obs"] = True
     return out
 
 
@@ -324,6 +326,30 @@ def viewport_provincia(provincia_id: str | None, *, alejado: bool = False) -> di
         return viewport_municipio(None)
     bounds["nivel"] = "provincia"
     return _clip_viewport(bounds)
+
+
+def viewport_provincia_centro(
+    provincia_id: str | None,
+    lat_obs: float,
+    lon_obs: float,
+    *,
+    alejado: bool = False,
+) -> dict[str, float]:
+    """Zoom provincial con el punto de observación (estrella) en el centro."""
+    base = viewport_provincia(provincia_id, alejado=alejado)
+    lat_span = base["lat_max"] - base["lat_min"]
+    lon_span = base["lon_max"] - base["lon_min"]
+    vp = {
+        "lat_centro": lat_obs,
+        "lon_centro": lon_obs,
+        "lat_min": lat_obs - lat_span / 2,
+        "lat_max": lat_obs + lat_span / 2,
+        "lon_min": lon_obs - lon_span / 2,
+        "lon_max": lon_obs + lon_span / 2,
+        "nivel": "provincia",
+        "centrar_obs": True,
+    }
+    return _clip_viewport(vp)
 
 
 def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[str, float]:
