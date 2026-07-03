@@ -319,6 +319,30 @@ def viewport_para_nivel(
     return viewport_peninsula()
 
 
+def viewport_fit_contenedor(vp: dict, *, aspect: float = 1.65) -> dict:
+    """Ajusta lon/lat del encuadre para reducir bandas vacías laterales en el mapa."""
+    import math
+
+    out = dict(vp)
+    lat_span = max(out["lat_max"] - out["lat_min"], 0.01)
+    lon_span = max(out["lon_max"] - out["lon_min"], 0.01)
+    cos_lat = max(math.cos(math.radians(out["lat_centro"])), 0.35)
+    geo_aspect = (lon_span * cos_lat) / lat_span
+    if geo_aspect < aspect:
+        need_lon = lat_span * aspect / cos_lat
+        extra = (need_lon - lon_span) / 2
+        out["lon_min"] -= extra
+        out["lon_max"] += extra
+    elif geo_aspect > aspect:
+        need_lat = lon_span * cos_lat / aspect
+        extra = (need_lat - lat_span) / 2
+        out["lat_min"] -= extra
+        out["lat_max"] += extra
+    out["lat_centro"] = (out["lat_min"] + out["lat_max"]) / 2
+    out["lon_centro"] = (out["lon_min"] + out["lon_max"]) / 2
+    return out
+
+
 def municipio_mas_cercano(lat: float, lon: float) -> dict | None:
     """Municipio INE más cercano a unas coordenadas WGS84."""
     from sismos import distancia_km

@@ -51,6 +51,7 @@ from geo_es import (
     provincias,
     viewport_municipio,
     viewport_para_nivel,
+    viewport_fit_contenedor,
 )
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
@@ -101,7 +102,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=29">
+        <link rel="stylesheet" href="/assets/sira.css?v=30">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -507,6 +508,7 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_min": MAPA["lon_min"],
         "lon_max": MAPA["lon_max"],
     }
+    vp = viewport_fit_contenedor(vp)
     lat_span = max(vp["lat_max"] - vp["lat_min"], 0.5)
     proj_scale = min(max(MAPA["projection_scale"] * (11.0 / lat_span), 1.2), 28.0)
     fig.update_geos(
@@ -516,6 +518,7 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         projection_scale=proj_scale,
         lataxis_range=[vp["lat_min"], vp["lat_max"]],
         lonaxis_range=[vp["lon_min"], vp["lon_max"]],
+        domain=dict(x=[0, 1], y=[0, 1]),
         showland=True, landcolor=C_NAVY,
         showocean=True, oceancolor="#1e4976",
         showcountries=True, countrycolor="#1e4976",
@@ -1437,7 +1440,7 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=29">
+  <link rel="stylesheet" href="/assets/sira.css?v=30">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">

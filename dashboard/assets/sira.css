@@ -990,6 +990,18 @@ body {
   min-height: 400px;
 }
 
+/* Plotly: el contenedor SVG sí puede ir al 100%; .geolayer es un <g> interno
+   y su “ancho” lo marca la relación de aspecto del encuadre (viewport_fit_contenedor). */
+.sira-graph-wrap--map .svg-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.sira-graph-wrap--map .main-svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .sira-graph-wrap .dash-graph,
 .sira-graph-wrap .js-plotly-plot,
 .sira-graph-wrap .plot-container {
@@ -999,6 +1011,7 @@ body {
 
 .sira-graph-wrap .svg-container {
   height: 100% !important;
+  width: 100% !important;
 }
 
 /* --- Footer --- */

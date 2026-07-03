@@ -46,6 +46,22 @@ def test_viewport_provincia_alejado_es_mas_amplio():
     assert _span(lejos)[1] > _span(cerca)[1]
 
 
+def test_viewport_fit_contenedor_ensancha_encuadre_vertical():
+    from geo_es import viewport_fit_contenedor
+
+    vp = {
+        "lat_centro": 39.5,
+        "lon_centro": -0.5,
+        "lat_min": 38.0,
+        "lat_max": 41.0,
+        "lon_min": -1.0,
+        "lon_max": 0.0,
+        "nivel": "ccaa",
+    }
+    out = viewport_fit_contenedor(vp, aspect=1.65)
+    assert (out["lon_max"] - out["lon_min"]) > (vp["lon_max"] - vp["lon_min"])
+
+
 def test_viewport_para_nivel():
     muni = viewport_para_nivel("municipio", "46", "46250")
     prov = viewport_para_nivel("provincia", "46", "46250")
