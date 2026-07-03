@@ -62,6 +62,21 @@ def test_viewport_fit_contenedor_ensancha_encuadre_vertical():
     assert (out["lon_max"] - out["lon_min"]) > (vp["lon_max"] - vp["lon_min"])
 
 
+def test_viewport_ccaa_alejado_cubre_comunidad_completa():
+    import json
+
+    vp = viewport_ccaa("46", alejado=True)
+    data = json.loads((ROOT / "data" / "geo" / "ccaa_bordes.json").read_text(encoding="utf-8"))
+    vc = next(f for f in data["features"] if f["id"] == "VC")
+    lats = [la for r in vc["rings"] for la in r["lat"]]
+    lons = [lo for r in vc["rings"] for lo in r["lon"]]
+    assert vp["lat_min"] <= min(lats)
+    assert vp["lat_max"] >= max(lats)
+    assert vp["lon_min"] <= min(lons)
+    assert vp["lon_max"] >= max(lons)
+    assert _span(viewport_ccaa("46", alejado=True)) > _span(viewport_ccaa("46", alejado=False))
+
+
 def test_viewport_para_nivel():
     muni = viewport_para_nivel("municipio", "46", "46250")
     prov = viewport_para_nivel("provincia", "46", "46250")

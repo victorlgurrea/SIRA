@@ -221,6 +221,43 @@ def _bounds_from_coords(
     }
 
 
+@lru_cache(maxsize=1)
+def _ccaa_bordes_by_id() -> dict[str, dict]:
+    path = ROOT / "data" / "geo" / "ccaa_bordes.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {f["id"]: f for f in data.get("features", [])}
+
+
+def _bounds_ccaa(ccaa_id: str, *, pad_ratio: float, min_pad_lat: float, min_pad_lon: float) -> dict[str, float] | None:
+    feat = _ccaa_bordes_by_id().get(ccaa_id)
+    if not feat or not feat.get("rings"):
+        return None
+    coords: list[tuple[float, float]] = []
+    for ring in feat["rings"]:
+        for lat, lon in zip(ring.get("lat") or [], ring.get("lon") or []):
+            coords.append((float(lat), float(lon)))
+    return _bounds_from_coords(
+        coords,
+        pad_ratio=pad_ratio,
+        min_pad_lat=min_pad_lat,
+        min_pad_lon=min_pad_lon,
+    )
+
+
+def projection_scale_for_viewport(vp: dict) -> float:
+    """Escala Mercator coherente con lat y lon del encuadre."""
+    import math
+    from config import MAPA
+
+    lat_span = max(vp["lat_max"] - vp["lat_min"], 0.5)
+    lon_span = max(vp["lon_max"] - vp["lon_min"], 0.5)
+    cos_lat = max(math.cos(math.radians(vp["lat_centro"])), 0.35)
+    effective = max(lat_span, lon_span * cos_lat)
+    return min(max(MAPA["projection_scale"] * (11.0 / effective), 1.2), 28.0)
+
+
 def _clip_viewport(vp: dict[str, float]) -> dict[str, float]:
     from config import MAPA
 
@@ -296,15 +333,17 @@ def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[st
     provs = CCAA_PROVINCIAS.get(ccaa, [])
     if len(provs) == 1:
         return viewport_provincia(provs[0], alejado=alejado)
-    pad_ratio = 0.22 if alejado else 0.12
-    min_pad_lat = 0.38 if alejado else 0.30
-    min_pad_lon = 0.48 if alejado else 0.40
-    bounds = _bounds_from_coords(
-        _coords_municipios(provs),
-        pad_ratio=pad_ratio,
-        min_pad_lat=min_pad_lat,
-        min_pad_lon=min_pad_lon,
-    )
+    pad_ratio = 0.36 if alejado else 0.14
+    min_pad_lat = 0.72 if alejado else 0.32
+    min_pad_lon = 0.58 if alejado else 0.42
+    bounds = _bounds_ccaa(ccaa, pad_ratio=pad_ratio, min_pad_lat=min_pad_lat, min_pad_lon=min_pad_lon)
+    if not bounds:
+        bounds = _bounds_from_coords(
+            _coords_municipios(provs),
+            pad_ratio=pad_ratio,
+            min_pad_lat=min_pad_lat,
+            min_pad_lon=min_pad_lon,
+        )
     if not bounds:
         return viewport_provincia(provincia_id)
     bounds["nivel"] = "ccaa"

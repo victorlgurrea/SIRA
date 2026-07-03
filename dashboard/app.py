@@ -53,6 +53,7 @@ from geo_es import (
     viewport_ccaa,
     viewport_para_nivel,
     viewport_fit_contenedor,
+    projection_scale_for_viewport,
 )
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
@@ -511,8 +512,7 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_max": MAPA["lon_max"],
     }
     vp = viewport_fit_contenedor(vp)
-    lat_span = max(vp["lat_max"] - vp["lat_min"], 0.5)
-    proj_scale = min(max(MAPA["projection_scale"] * (11.0 / lat_span), 1.2), 28.0)
+    proj_scale = projection_scale_for_viewport(vp)
     fig.update_geos(
         scope="world",
         projection_type="mercator",
