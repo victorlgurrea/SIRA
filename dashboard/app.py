@@ -512,7 +512,8 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_max": MAPA["lon_max"],
     }
     vp = viewport_fit_contenedor(vp)
-    proj_scale = projection_scale_for_viewport(vp)
+    zoom_margin = 1.18 if vp.get("nivel") == "ccaa" else 1.0
+    proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
     fig.update_geos(
         scope="world",
         projection_type="mercator",

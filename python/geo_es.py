@@ -246,7 +246,7 @@ def _bounds_ccaa(ccaa_id: str, *, pad_ratio: float, min_pad_lat: float, min_pad_
     )
 
 
-def projection_scale_for_viewport(vp: dict) -> float:
+def projection_scale_for_viewport(vp: dict, *, margin: float = 1.0) -> float:
     """Escala Mercator coherente con lat y lon del encuadre."""
     import math
     from config import MAPA
@@ -254,7 +254,7 @@ def projection_scale_for_viewport(vp: dict) -> float:
     lat_span = max(vp["lat_max"] - vp["lat_min"], 0.5)
     lon_span = max(vp["lon_max"] - vp["lon_min"], 0.5)
     cos_lat = max(math.cos(math.radians(vp["lat_centro"])), 0.35)
-    effective = max(lat_span, lon_span * cos_lat)
+    effective = max(lat_span, lon_span * cos_lat) * max(margin, 1.0)
     return min(max(MAPA["projection_scale"] * (11.0 / effective), 1.2), 28.0)
 
 
@@ -333,9 +333,9 @@ def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[st
     provs = CCAA_PROVINCIAS.get(ccaa, [])
     if len(provs) == 1:
         return viewport_provincia(provs[0], alejado=alejado)
-    pad_ratio = 0.36 if alejado else 0.14
-    min_pad_lat = 0.72 if alejado else 0.32
-    min_pad_lon = 0.58 if alejado else 0.42
+    pad_ratio = 0.55 if alejado else 0.14
+    min_pad_lat = 1.15 if alejado else 0.32
+    min_pad_lon = 0.95 if alejado else 0.42
     bounds = _bounds_ccaa(ccaa, pad_ratio=pad_ratio, min_pad_lat=min_pad_lat, min_pad_lon=min_pad_lon)
     if not bounds:
         bounds = _bounds_from_coords(
