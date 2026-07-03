@@ -1,7 +1,7 @@
 """Tests de incendios.py — clustering por transitividad."""
 from __future__ import annotations
 
-from incendios import _agrupar_focos, radio_desde_area_km2
+from incendios import _agrupar_focos, en_espana, radio_desde_area_km2
 
 
 def test_radio_desde_area():
@@ -29,3 +29,14 @@ def test_clustering_aislado():
     ]
     grupos = _agrupar_focos(puntos, sep_km=4.0)
     assert len(grupos) == 2
+
+
+def test_en_espana_filtra_paises_vecinos():
+    # España (Madrid)
+    assert en_espana(40.4168, -3.7038) is True
+    # Portugal (Lisboa)
+    assert en_espana(38.7223, -9.1393) is False
+    # Francia (Marsella)
+    assert en_espana(43.2965, 5.3698) is False
+    # Marruecos (Rabat)
+    assert en_espana(34.0209, -6.8416) is False

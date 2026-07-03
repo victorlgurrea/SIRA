@@ -6,6 +6,7 @@ import io
 import logging
 import math
 from datetime import datetime, timezone
+from functools import lru_cache
 from statistics import mean
 
 from config import (
@@ -24,6 +25,30 @@ from sismos import circle_perimeter, distancia_km
 log = logging.getLogger(__name__)
 
 _FIRMS_SOURCES = ("VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT")
+
+
+@lru_cache(maxsize=1)
+def _anillos_espana() -> list[list[list[float]]]:
+    from geo_bordes_clip import anillos_tierra
+
+    return anillos_tierra()
+
+
+def _en_espana_aprox(lat: float, lon: float) -> bool:
+    """Fallback por cajas: península, Baleares y Canarias."""
+    if 27.4 <= lat <= 29.6 and -18.6 <= lon <= -13.0:
+        return True
+    if 38.4 <= lat <= 40.2 and 0.9 <= lon <= 4.6:
+        return True
+    if lat < 35.8 or lat > 43.9 or lon < -9.55 or lon > 4.55:
+        return False
+    if lon < -8.85:
+        return False
+    if lon < -7.15 and lat < 42.4:
+        return False
+    if lon < -6.95 and lat < 41.7:
+        return False
+    return True
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -114,20 +139,14 @@ def _descargar_fuente(source: str, bbox: str, dias: int) -> list[dict]:
 
 
 def en_espana(lat: float, lon: float) -> bool:
-    """Península, Baleares y Canarias; excluye Portugal y Francia."""
-    if 27.4 <= lat <= 29.6 and -18.6 <= lon <= -13.0:
-        return True
-    if 38.4 <= lat <= 40.2 and 0.9 <= lon <= 4.6:
-        return True
-    if lat < 35.8 or lat > 43.9 or lon < -9.55 or lon > 4.55:
-        return False
-    if lon < -8.85:
-        return False
-    if lon < -7.15 and lat < 42.4:
-        return False
-    if lon < -6.95 and lat < 41.7:
-        return False
-    return True
+    """Solo territorio español (incluye islas, excluye países vecinos)."""
+    try:
+        from geo_bordes_clip import punto_en_tierra
+
+        return punto_en_tierra(float(lon), float(lat), _anillos_espana())
+    except Exception:  # noqa: BLE001
+        # Si falla la geometría local, mantenemos un filtro aproximado de respaldo.
+        return _en_espana_aprox(lat, lon)
 
 
 def _bbox_espana() -> str:
