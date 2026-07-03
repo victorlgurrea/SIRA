@@ -93,13 +93,22 @@ def read_json_file(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-_meteo_live_cache: dict = {"at": 0.0, "alerts": []}
+_meteo_live_cache: dict = {"at": 0.0, "alerts": [], "ttl_sec": 90.0}
 METEO_LIVE_CACHE_SEC = 90
+METEO_LIVE_BACKOFF_429_SEC = 600
 
 
 def clear_meteo_live_cache() -> None:
     _meteo_live_cache["at"] = 0.0
     _meteo_live_cache["alerts"] = []
+    _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_CACHE_SEC)
+
+
+def _is_http_429(exc: Exception) -> bool:
+    if isinstance(exc, requests.HTTPError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return status == 429
+    return False
 
 
 def _live_meteo_alerts() -> list[dict]:
@@ -107,15 +116,23 @@ def _live_meteo_alerts() -> list[dict]:
     if not AEMET_API_KEY:
         return []
     now = time.monotonic()
-    if now - float(_meteo_live_cache.get("at", 0)) < METEO_LIVE_CACHE_SEC:
+    ttl_sec = float(_meteo_live_cache.get("ttl_sec", METEO_LIVE_CACHE_SEC))
+    if now - float(_meteo_live_cache.get("at", 0)) < ttl_sec:
         return list(_meteo_live_cache.get("alerts", []))
     try:
         from aemet_alerts import fetch_active_alerts
 
         alerts = fetch_active_alerts(AEMET_API_KEY)
+        _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_CACHE_SEC)
     except Exception as exc:  # noqa: BLE001
-        log.warning("AEMET CAP en read_dashboard: %s", exc)
-        alerts = []
+        if _is_http_429(exc):
+            # Evita saturar AEMET cuando aplica rate limit.
+            _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_BACKOFF_429_SEC)
+            log.warning("AEMET CAP 429: backoff %ss", METEO_LIVE_BACKOFF_429_SEC)
+        else:
+            _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_CACHE_SEC)
+            log.warning("AEMET CAP en read_dashboard: %s", exc)
+        alerts = list(_meteo_live_cache.get("alerts", []))
     _meteo_live_cache["at"] = now
     _meteo_live_cache["alerts"] = alerts
     return alerts

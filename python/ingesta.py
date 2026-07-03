@@ -170,6 +170,14 @@ def _descargar_alertas_cap() -> list[dict]:
     return fetch_active_alerts(AEMET_API_KEY)
 
 
+def _fmt_error_fuente(exc: Exception) -> str:
+    if isinstance(exc, requests.HTTPError):
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        if code == 429:
+            return "Límite temporal AEMET (429). Reintento automático en próximos ciclos."
+    return str(exc)
+
+
 def ejecutar_ingesta():
     clear_test_overlay()
     fuentes_estado: dict[str, dict] = {}
@@ -187,7 +195,7 @@ def ejecutar_ingesta():
             "error": None if AEMET_API_KEY else "AEMET_API_KEY no configurada",
         }
     except Exception as exc:  # noqa: BLE001
-        fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": str(exc)}
+        fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": _fmt_error_fuente(exc)}
 
     aforos, fuentes_estado["saih_chj"] = _estado_fuente(
         "SAIH CHJ", descargar_aforos, alertas_cap, default=[],
