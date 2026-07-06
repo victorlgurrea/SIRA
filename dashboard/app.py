@@ -29,6 +29,7 @@ from config import (  # noqa: E402
     AFORO_RADIO_LOCAL_KM,
     EMBALSE_MAP_MAX,
     EMBALSE_RADIO_LOCAL_KM,
+    FORECAST_DAYS,
     INCENDIO_MAP_MAX,
     INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
@@ -125,6 +126,8 @@ _DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
 _DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
 _locs = localidades(_DEFAULT_MUNI)
 _DEFAULT_LOC = _locs[0]["id"] if _locs else _DEFAULT_MUNI
+
+_AYUDA_OCE_PREVISION = f"Previsión horaria · {FORECAST_DAYS} días · Open-Meteo Marine"
 
 
 def _default_geo() -> dict:
@@ -229,35 +232,35 @@ app.layout = html.Div(className="sira-page", children=[
                 ]),
                 html.Div(className="sira-charts-row sira-charts-row--3", children=[
                     bloque(
-                        "sst_med", "SST — Mediterráneo",
-                        f"Temperatura superficial · {MARES['MEDITERRÁNEO']['punto']}.",
+                        "sst_med", "Previsión SST — Mediterráneo",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['MEDITERRÁNEO']['punto']}.",
                         accent=C_ORANGE,
                     ),
                     bloque(
-                        "sst_cant", "SST — Cantábrico",
-                        f"Temperatura superficial · {MARES['CANTÁBRICO']['punto']}.",
+                        "sst_cant", "Previsión SST — Cantábrico",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['CANTÁBRICO']['punto']}.",
                         accent=C_GREEN,
                     ),
                     bloque(
-                        "sst_atl", "SST — Atlántico",
-                        f"Temperatura superficial · {MARES['ATLÁNTICO']['punto']}.",
+                        "sst_atl", "Previsión SST — Atlántico",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['ATLÁNTICO']['punto']}.",
                         accent=C_CYAN,
                     ),
                 ]),
                 html.Div(className="sira-charts-row sira-charts-row--3", children=[
                     bloque(
-                        "cor_med", "Corrientes — Mediterráneo",
-                        f"Velocidad y dirección · {MARES['MEDITERRÁNEO']['punto']}.",
+                        "cor_med", "Previsión corrientes — Mediterráneo",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['MEDITERRÁNEO']['punto']}.",
                         accent=C_ORANGE,
                     ),
                     bloque(
-                        "cor_cant", "Corrientes — Cantábrico",
-                        f"Velocidad y dirección · {MARES['CANTÁBRICO']['punto']}.",
+                        "cor_cant", "Previsión corrientes — Cantábrico",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['CANTÁBRICO']['punto']}.",
                         accent=C_GREEN,
                     ),
                     bloque(
-                        "cor_atl", "Corrientes — Atlántico",
-                        f"Velocidad y dirección · {MARES['ATLÁNTICO']['punto']}.",
+                        "cor_atl", "Previsión corrientes — Atlántico",
+                        f"{_AYUDA_OCE_PREVISION} · {MARES['ATLÁNTICO']['punto']}.",
                         accent=C_CYAN,
                     ),
                 ]),
