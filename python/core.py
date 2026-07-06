@@ -5,8 +5,10 @@ import json
 import logging
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -14,6 +16,25 @@ from config import AEMET_API_KEY, ALLOWED_HOSTS, DATA_DIR, DATA_FILE, HTTP_TIMEO
 
 log = logging.getLogger(__name__)
 AEMET_BASE = "https://opendata.aemet.es/opendata/api"
+HORA_ESPAÑA = ZoneInfo("Europe/Madrid")
+
+
+def fmt_ingesta_local(value: str | None) -> str:
+    """Fecha y hora local (España) para mostrar última ingesta: dd/mm/aaaa — HH:MM."""
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(HORA_ESPAÑA).strftime("%d/%m/%Y — %H:%M")
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def fmt_hora_espana(value: str | None) -> str:
+    """Alias de compatibilidad."""
+    return fmt_ingesta_local(value)
 
 
 def _check_url(url: str) -> None:

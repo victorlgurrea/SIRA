@@ -697,11 +697,33 @@ body {
 .sira-ts-wrap {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+.sira-ts-label {
+  color: var(--sira-muted);
+  font-size: 0.9rem;
 }
 
 .sira-ts {
-  color: var(--sira-muted);
+  color: #e2e8f0;
   font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sira-ts-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--sira-border);
+  color: var(--sira-cyan);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .sira-ts-hint {

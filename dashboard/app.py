@@ -39,7 +39,7 @@ from config import (  # noqa: E402
     ZONA,
 )
 from db import count_subscriptions, get_historial_municipio
-from core import read_dashboard  # noqa: E402
+from core import fmt_ingesta_local, read_dashboard  # noqa: E402
 from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
 from geo_es import (
     coords_observacion,
@@ -103,7 +103,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=30">
+        <link rel="stylesheet" href="/assets/sira.css?v=31">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -197,7 +197,9 @@ app.layout = html.Div(className="sira-page", children=[
             html.Div(id="page-home", children=[
                 html.Div(className="sira-toolbar", children=[
                     html.Div(className="sira-ts-wrap", children=[
+                        html.Span("Última ingesta: ", className="sira-ts-label"),
                         html.Span(id="ts", className="sira-ts"),
+                        html.Span("Hora local", className="sira-ts-badge"),
                         html.Span(
                             f" · pantalla cada {DASHBOARD_REFRESH_MIN} min · datos cada {INGESTA_INTERVAL_MIN} min",
                             className="sira-ts-hint",
@@ -1315,11 +1317,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     geo = _geo_resuelto(geo)
     cards, mapa, lluvia = _build_panel_geo(geo, d)
     oce = d.get("oceanografia", {})
-    ts = d.get("generado_en", "—")
-    try:
-        ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M UTC")
-    except (ValueError, AttributeError):
-        pass
+    ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
         ts = f"{ts} · Sismo de prueba en mapa"
 
@@ -1328,7 +1326,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
     oce_atl = _bloque_oce(oce, "ATLÁNTICO")
 
     return (
-        cards, f"Actualizado: {ts}", refresh_token,
+        cards, ts, refresh_token,
         mapa,
         lluvia,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
@@ -1422,13 +1420,7 @@ def _status_snapshot() -> dict:
 
 
 def _fmt_status_dt(value: str | None) -> str:
-    if not value:
-        return "—"
-    try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return dt.strftime("%d/%m/%Y %H:%M:%S")
-    except (ValueError, TypeError):
-        return str(value)
+    return fmt_ingesta_local(value)
 
 
 @server.route("/status")
@@ -1460,13 +1452,13 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=30">
+  <link rel="stylesheet" href="/assets/sira.css?v=31">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
     <div class="sira-container">
       <h1 class="sira-title">Estado del sistema</h1>
-      <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong></p>
+      <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong> <span class="sira-ts-badge">Hora local</span></p>
       <p class="sira-status-ts">Suscripciones push activas: <strong>{n_push}</strong></p>
       <table class="sira-status-table">
         <thead><tr><th>Fuente</th><th>Descripción</th><th>Estado</th></tr></thead>
