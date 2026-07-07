@@ -27,8 +27,8 @@ services:
     plan: free
     region: frankfurt
     rootDir: python
-    buildCommand: pip install -r ../requirements.txt && python ingesta.py
-    startCommand: uvicorn api_server:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: python bootstrap_ingesta.py && uvicorn api_server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/dashboard
     envVars:
       - fromGroup: sira-secrets

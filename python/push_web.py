@@ -284,6 +284,16 @@ def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
     return _meteo_should_notify(alerta, sub)
 
 
+def _split_meteo_bootstrap(avisos: list[dict], prev_meteo: set[str]) -> tuple[set[str], list[dict]]:
+    """Primer ciclo: evita spam inicial, pero deja pasar avisos rojos ya activos."""
+    if prev_meteo:
+        return prev_meteo, [a for a in avisos if meteo_push_key(a) not in prev_meteo]
+
+    nuevos = [a for a in avisos if str(a.get("level") or "").lower() == "rojo"]
+    seed = {meteo_push_key(a) for a in avisos if meteo_push_key(a)}
+    return seed, nuevos
+
+
 def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | None = None) -> dict:
     title, body = texto_push_meteo(alerta)
     fenomeno_code = str(alerta.get("fenomeno") or "xx").lower()
@@ -542,11 +552,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
         except Exception as exc:  # noqa: BLE001
             log.warning("AEMET CAP: %s", exc)
             avisos = []
-        if avisos and not state["ids_meteo"]:
-            prev_meteo = {meteo_push_key(a) for a in avisos if a}
-            nuevos_meteo = []
-        else:
-            nuevos_meteo = [a for a in avisos if meteo_push_key(a) not in prev_meteo]
+        prev_meteo, nuevos_meteo = _split_meteo_bootstrap(avisos, prev_meteo)
         for a in nuevos_meteo:
             key = meteo_push_key(a)
             if not key:
