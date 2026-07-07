@@ -352,6 +352,54 @@ def viewport_provincia_centro(
     return _clip_viewport(vp)
 
 
+def viewport_fit_observacion(vp: dict, *, aspect: float = 1.85) -> dict[str, float]:
+    """Ajusta el encuadre al contenedor ancho sin desplazar lat_centro/lon_centro."""
+    import math
+
+    out = dict(vp)
+    lat_c = float(out["lat_centro"])
+    lon_c = float(out["lon_centro"])
+    lat_span = max(out["lat_max"] - out["lat_min"], 0.01)
+    lon_span = max(out["lon_max"] - out["lon_min"], 0.01)
+    cos_lat = max(math.cos(math.radians(lat_c)), 0.35)
+    geo_aspect = (lon_span * cos_lat) / lat_span
+    if geo_aspect < aspect:
+        need_lon = lat_span * aspect / cos_lat
+        out["lon_min"] = lon_c - need_lon / 2
+        out["lon_max"] = lon_c + need_lon / 2
+    elif geo_aspect > aspect:
+        need_lat = lon_span * cos_lat / aspect
+        out["lat_min"] = lat_c - need_lat / 2
+        out["lat_max"] = lat_c + need_lat / 2
+    out["centrar_obs"] = True
+    return _clip_viewport(out)
+
+
+def viewport_ccaa_centro(
+    provincia_id: str | None,
+    lat_obs: float,
+    lon_obs: float,
+    *,
+    alejado: bool = True,
+    aspect: float = 1.85,
+) -> dict[str, float]:
+    """Zoom de comunidad autónoma con la localidad en el centro del mapa."""
+    base = viewport_ccaa(provincia_id, alejado=alejado)
+    lat_span = base["lat_max"] - base["lat_min"]
+    lon_span = base["lon_max"] - base["lon_min"]
+    vp = {
+        "lat_centro": lat_obs,
+        "lon_centro": lon_obs,
+        "lat_min": lat_obs - lat_span / 2,
+        "lat_max": lat_obs + lat_span / 2,
+        "lon_min": lon_obs - lon_span / 2,
+        "lon_max": lon_obs + lon_span / 2,
+        "nivel": "ccaa",
+        "centrar_obs": True,
+    }
+    return viewport_fit_observacion(_clip_viewport(vp), aspect=aspect)
+
+
 def viewport_ccaa(provincia_id: str | None, *, alejado: bool = False) -> dict[str, float]:
     ccaa = ccaa_de_provincia(provincia_id)
     if not ccaa:

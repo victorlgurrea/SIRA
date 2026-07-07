@@ -87,6 +87,30 @@ def test_viewport_provincia_centro_pone_estrella_en_medio():
     assert vp.get("centrar_obs") is True
 
 
+def test_viewport_ccaa_centro_pone_localidad_en_medio_y_cubre_ccaa():
+    from geo_es import viewport_ccaa, viewport_ccaa_centro
+
+    lat, lon = 37.39, -5.98  # Sevilla
+    vp = viewport_ccaa_centro("41", lat, lon, alejado=True)
+    ccaa = viewport_ccaa("41", alejado=True)
+    assert abs(vp["lat_centro"] - lat) < 1e-9
+    assert abs(vp["lon_centro"] - lon) < 1e-9
+    assert vp.get("nivel") == "ccaa"
+    assert vp.get("centrar_obs") is True
+    assert _span(vp)[0] >= _span(ccaa)[0] * 0.85
+    assert _span(vp)[1] >= _span(ccaa)[1] * 0.85
+
+
+def test_viewport_ccaa_centro_mas_amplio_que_provincia():
+    from geo_es import viewport_ccaa_centro, viewport_provincia_centro
+
+    lat, lon = 37.39, -5.98
+    ccaa = viewport_ccaa_centro("41", lat, lon, alejado=True)
+    prov = viewport_provincia_centro("41", lat, lon, alejado=True)
+    assert _span(ccaa)[0] > _span(prov)[0]
+    assert _span(ccaa)[1] > _span(prov)[1]
+
+
 def test_viewport_para_nivel():
     muni = viewport_para_nivel("municipio", "46", "46250")
     prov = viewport_para_nivel("provincia", "46", "46250")

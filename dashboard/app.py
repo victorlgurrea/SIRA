@@ -51,7 +51,7 @@ from geo_es import (
     provincia_de_municipio,
     provincias,
     viewport_ccaa,
-    viewport_provincia_centro,
+    viewport_ccaa_centro,
     viewport_fit_contenedor,
     projection_scale_for_viewport,
 )
@@ -134,6 +134,7 @@ def _default_geo() -> dict:
     muni = municipio_por_id(_DEFAULT_MUNI)
     prov = next((p for p in provincias() if p["id"] == _DEFAULT_PROV), None)
     loc = _locs[0] if _locs else None
+    lat_obs, lon_obs, _ = coords_observacion(_DEFAULT_MUNI, loc["id"] if loc else None)
     return {
         "provincia_id": _DEFAULT_PROV,
         "provincia": prov["nombre"] if prov else None,
@@ -141,7 +142,7 @@ def _default_geo() -> dict:
         "municipio": muni["nombre"] if muni else None,
         "localidad_id": loc["id"] if loc else None,
         "localidad": loc["nombre"] if loc else None,
-        "map_zoom": viewport_ccaa(_DEFAULT_PROV, alejado=True),
+        "map_zoom": viewport_ccaa_centro(_DEFAULT_PROV, lat_obs, lon_obs, alejado=True),
     }
 
 
@@ -167,7 +168,11 @@ def _geo_resuelto(geo: dict | None) -> dict:
         "localidad": loc["nombre"] if loc else geo.get("localidad"),
     }
     zoom = geo.get("map_zoom")
-    out["map_zoom"] = zoom if zoom else viewport_ccaa(pid, alejado=True)
+    if zoom:
+        out["map_zoom"] = zoom
+    else:
+        lat_obs, lon_obs, _ = coords_observacion(muni_id, out.get("localidad_id"))
+        out["map_zoom"] = viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
     return out
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
@@ -503,7 +508,9 @@ def _map_viewport(geo: dict | None) -> dict:
         return zoom
     muni_id = (geo or {}).get("municipio_id") or _DEFAULT_MUNI
     pid = str((geo or {}).get("provincia_id") or provincia_de_municipio(muni_id) or _DEFAULT_PROV).zfill(2)
-    return viewport_ccaa(pid, alejado=True)
+    loc_id = (geo or {}).get("localidad_id")
+    lat_obs, lon_obs, _ = coords_observacion(muni_id, loc_id)
+    return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
 
 
 def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str = "sira-mapa") -> None:
@@ -1137,9 +1144,11 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
     lat_obs, lon_obs, _ = coords_observacion(municipio_id, localidad_id)
     trigger = ctx.triggered_id
     if trigger in ("geo-provincia", "geo-municipio", "geo-localidad"):
-        map_zoom = viewport_provincia_centro(provincia_id, lat_obs, lon_obs, alejado=True)
+        map_zoom = viewport_ccaa_centro(provincia_id, lat_obs, lon_obs, alejado=True)
     else:
-        map_zoom = viewport_ccaa(provincia_id or _DEFAULT_PROV, alejado=True)
+        map_zoom = viewport_ccaa_centro(
+            provincia_id or _DEFAULT_PROV, lat_obs, lon_obs, alejado=True,
+        )
     return {
         "provincia_id": provincia_id,
         "provincia": prov["nombre"] if prov else None,

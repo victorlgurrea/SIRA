@@ -1206,13 +1206,42 @@ body {
   }
 }
 
+/* --- Responsive: tablet y PC (ancho 95 %, mapa amplio) --- */
+
+@media (min-width: 641px) {
+  .sira-container,
+  .sira-header-inner {
+    width: 95%;
+    max-width: none;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sira-header {
+    padding-left: 2.5%;
+    padding-right: 2.5%;
+  }
+
+  .sira-footer {
+    padding-left: 2.5%;
+    padding-right: 2.5%;
+  }
+
+  .sira-charts-row--map-lluvia {
+    grid-template-columns: minmax(0, 2.65fr) minmax(0, 1fr);
+  }
+
+  .sira-graph-wrap--map {
+    height: min(50vh, 500px);
+    min-height: 380px;
+  }
+}
+
 /* --- Responsive: tablet --- */
 
 @media (min-width: 641px) and (max-width: 900px) {
-  .sira-container {
-    padding: 0 1.25rem;
-  }
-
   .sira-logo {
     max-height: 84px;
     max-width: min(220px, 28vw);
@@ -1230,8 +1259,6 @@ body {
     grid-column: 1 / -1;
   }
 
-  .sira-charts-row,
-  .sira-charts-row--map-lluvia,
   .sira-charts-row--3 {
     grid-template-columns: 1fr;
   }
@@ -1243,5 +1270,18 @@ body {
   .sira-logo {
     max-height: 100px;
     max-width: min(300px, 26vw);
+  }
+
+  .sira-cards {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .sira-charts-row--map-lluvia {
+    grid-template-columns: minmax(0, 3.1fr) minmax(0, 1fr);
+  }
+
+  .sira-graph-wrap--map {
+    height: min(58vh, 620px);
+    min-height: 440px;
   }
 }
