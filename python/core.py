@@ -182,6 +182,8 @@ def read_dashboard() -> dict:
     meteo_live = _live_meteo_alerts()
     if meteo_live:
         out["meteo_alertas_live"] = meteo_live
+    elif data.get("meteo_alertas_cap"):
+        out["meteo_alertas_live"] = list(data.get("meteo_alertas_cap") or [])
     return out
 
 

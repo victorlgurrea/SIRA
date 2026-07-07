@@ -41,7 +41,7 @@ from config import (  # noqa: E402
 )
 from db import count_subscriptions, get_historial_municipio
 from core import fmt_ingesta_local, read_dashboard  # noqa: E402
-from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
+from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias, anadir_costa_ign
 from geo_es import (
     coords_observacion,
     localidades,
@@ -529,9 +529,9 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         domain=dict(x=[0, 1], y=[0, 1]),
         showland=True, landcolor=C_NAVY,
         showocean=True, oceancolor="#1e4976",
-        showcountries=True, countrycolor="#1e4976",
-        showcoastlines=True, coastlinecolor="#94a3b8", coastlinewidth=0.8,
-        resolution=50,
+        showcountries=False,
+        showcoastlines=False,
+        resolution=110,
     )
     fig.update_layout(
         margin=dict(t=10, b=0, l=0, r=0),
@@ -710,6 +710,7 @@ def _fig_mapa(
     provincia_id: str | None = None,
 ) -> go.Figure:
     fig = go.Figure()
+    anadir_costa_ign(fig, viewport)
     anadir_bordes_ccaa(fig, provincia_id)
     anadir_bordes_provincias(fig, provincia_id)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()

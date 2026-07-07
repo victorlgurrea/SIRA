@@ -68,6 +68,23 @@ def _nombre_tokens(nombre: str | None) -> list[str]:
     return [t for p in str(nombre).split("/") if (t := _norm_area(p.strip()))]
 
 
+def _palabras_area(area_norm: str) -> set[str]:
+    return {w for w in re.split(r"[\s\-/]+", area_norm) if w}
+
+
+def _token_en_area(token: str, area_norm: str) -> bool:
+    """Coincidencia por palabra o frase completa (válido en toda España)."""
+    if not token or not area_norm:
+        return False
+    if " " in token:
+        return token in area_norm
+    if len(token) < 4:
+        return token in _palabras_area(area_norm)
+    if token in _palabras_area(area_norm):
+        return True
+    return bool(re.search(rf"(^|[\s\-/]){re.escape(token)}([\s\-/]|$)", area_norm))
+
+
 def _misma_provincia(municipio_a: str | None, municipio_b: str | None) -> bool:
     if not municipio_a or not municipio_b:
         return False
@@ -85,12 +102,18 @@ def _coincide_por_area(
     municipio: str | None,
     municipio_ref: str | None = None,
 ) -> bool:
+    """¿El aviso CAP afecta a la provincia/municipio de la suscripción?
+
+    AEMET usa areaDesc como «Interior de Toledo-Toledo» o
+    «Litoral sur de Valencia-València/Valencia» (comarca + provincia).
+    El criterio es el mismo en cualquier CCAA (Toledo, Guadalajara, etc.).
+    """
     area = _norm_area(area_desc)
     if not area:
         return False
-    for token in _nombre_tokens(provincia):
-        if token in area:
-            return True
+
+    candidatos: list[str] = []
+    candidatos.extend(_nombre_tokens(provincia))
     if provincia_id:
         from geo_es import provincias
 
@@ -98,11 +121,13 @@ def _coincide_por_area(
             (p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)),
             "",
         )
-        for token in _nombre_tokens(pname):
-            if token in area:
-                return True
+        candidatos.extend(_nombre_tokens(pname))
+    for token in candidatos:
+        if _token_en_area(token, area):
+            return True
+
     for token in _nombre_tokens(municipio):
-        if token in area:
+        if _token_en_area(token, area):
             return True
     if municipio_ref:
         from geo_es import municipio_por_id
@@ -110,7 +135,7 @@ def _coincide_por_area(
         muni = municipio_por_id(str(municipio_ref).zfill(5))
         if muni:
             token = _norm_area(muni.get("nombre"))
-            if token and token in area:
+            if token and _token_en_area(token, area):
                 return True
     return False
 
@@ -208,6 +233,35 @@ def icono_alerta(alerta: dict) -> str:
     return "⚠️"
 
 
+def meteo_push_key(alerta: dict) -> str:
+    """Clave estable para push: cambia si sube nivel, zona o magnitud del aviso."""
+    return "|".join(alerta_firma(alerta))
+
+
+_NIVEL_AEMET_LABEL = {"amarillo": "AMARILLO", "naranja": "NARANJA", "rojo": "ROJO", "verde": "VERDE"}
+
+
+def texto_push_meteo(alerta: dict) -> tuple[str, str]:
+    """Título y cuerpo del push para un aviso AEMET CAP."""
+    level = str(alerta.get("level", "amarillo")).lower()
+    nivel_aemet = _NIVEL_AEMET_LABEL.get(level, level.upper())
+    fen = str(alerta.get("fenomeno_desc") or "fenómeno adverso").strip()
+    zona = (alerta.get("area_desc") or "tu zona").strip()
+    detalle = fmt_alerta_detalle(alerta)
+    headline = (alerta.get("headline") or "").strip()
+
+    title = f"SIRA · Aviso meteorológico {nivel_aemet}"
+    if headline:
+        body = headline
+    else:
+        body = f"{fen.capitalize()} · {zona}"
+    if detalle and detalle != "Sin detalle" and detalle not in body:
+        body = f"{body} · {detalle}"
+    if "AEMET" not in body.upper():
+        body = f"AEMET {level.upper()} · {body}"
+    return title, body
+
+
 def deduplicar_alertas(alertas: list[dict]) -> list[dict]:
     """Un aviso por combinación única de fenómeno, nivel, zona y magnitud."""
     prioridad = {"rojo": 3, "naranja": 2, "amarillo": 1}
@@ -259,13 +313,25 @@ def _event_code(info: ET.Element, name: str) -> str | None:
     return None
 
 
+def _codigo_fenomeno_aemet(raw: str | None) -> str:
+    """CAP AEMET: fenómeno como «FF;AT» → AT (temperatura máxima)."""
+    if not raw:
+        return ""
+    parts = [p.strip() for p in str(raw).split(";") if p.strip()]
+    if not parts:
+        return ""
+    if parts[0].upper() == "FF" and len(parts) >= 2:
+        return parts[1].upper()
+    return parts[-1].upper()
+
+
 def _extract_aemet(info: ET.Element, area: ET.Element) -> dict:
     level = _event_code(info, "AEMET-Meteoalerta nivel") or ""
     pheno_raw = _event_code(info, "AEMET-Meteoalerta fenomeno") or ""
     param_raw = _event_code(info, "AEMET-Meteoalerta parametro") or ""
     prob_raw = _event_code(info, "AEMET-Meteoalerta probabilidad") or ""
     zona = _event_code(area, "AEMET-Meteoalerta zona") or ""
-    pheno = pheno_raw.split(";", 1)[0].strip().upper()
+    pheno = _codigo_fenomeno_aemet(pheno_raw)
     return {
         "nivel": level.strip().lower(),
         "fenomeno": pheno,
@@ -316,6 +382,62 @@ def _iter_cap_members(tar_bytes: bytes):
         yield tar_bytes
 
 
+def _alertas_desde_cap_root(root: ET.Element) -> list[dict]:
+    msg_type = (root.findtext("cap:msgType", default="", namespaces=CAP_NS) or "").lower()
+    if msg_type == "cancel":
+        return []
+    info = _pick_info(root)
+    if info is None:
+        return []
+    onset = info.findtext("cap:onset", default="", namespaces=CAP_NS)
+    expires = info.findtext("cap:expires", default="", namespaces=CAP_NS)
+    if not _is_active(onset, expires):
+        return []
+    severity = info.findtext("cap:severity", default="", namespaces=CAP_NS)
+    headline = info.findtext("cap:headline", default="", namespaces=CAP_NS) or ""
+    description = info.findtext("cap:description", default="", namespaces=CAP_NS) or ""
+    urgency = info.findtext("cap:urgency", default="", namespaces=CAP_NS) or ""
+    certainty = info.findtext("cap:certainty", default="", namespaces=CAP_NS) or ""
+    identifier = root.findtext("cap:identifier", default="", namespaces=CAP_NS) or ""
+
+    out: list[dict] = []
+    for area in info.findall("cap:area", CAP_NS):
+        area_desc = area.findtext("cap:areaDesc", default="", namespaces=CAP_NS) or ""
+        aemet = _extract_aemet(info, area)
+        level = _severity_to_level(severity, aemet["nivel"])
+        if not _valid_level(level):
+            continue
+        if aemet["fenomeno"] and AEMET_ALERT_PHENOMENA and aemet["fenomeno"] not in AEMET_ALERT_PHENOMENA:
+            continue
+        out.append(
+            {
+                "id": f"aemet:{identifier}:{aemet['zona']}:{aemet['fenomeno'] or 'XX'}",
+                "source": "AEMET",
+                "level": level,
+                "severity": (severity or "").lower(),
+                "urgency": urgency,
+                "certainty": certainty,
+                "headline": headline,
+                "description": description,
+                "area_desc": area_desc,
+                "onset": onset,
+                "expires": expires,
+                **aemet,
+                "icon": PHENO_ICON.get(aemet["fenomeno"], "⚠️"),
+            }
+        )
+    return out
+
+
+def parse_cap_xml(xml_bytes: bytes) -> list[dict]:
+    """Parsea un mensaje CAP AEMET (XML) en avisos normalizados."""
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return []
+    return _alertas_desde_cap_root(root)
+
+
 def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
     """Devuelve avisos CAP activos y filtrados por fenómeno/nivel configurados."""
     raw = fetch_aemet_bytes("avisos_cap/ultimoelaborado/area/esp", aemet_api_key, timeout=max(45, HTTP_TIMEOUT))
@@ -325,46 +447,5 @@ def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
             root = ET.fromstring(xml_bytes)
         except ET.ParseError:
             continue
-        msg_type = (root.findtext("cap:msgType", default="", namespaces=CAP_NS) or "").lower()
-        if msg_type == "cancel":
-            continue
-        info = _pick_info(root)
-        if info is None:
-            continue
-        onset = info.findtext("cap:onset", default="", namespaces=CAP_NS)
-        expires = info.findtext("cap:expires", default="", namespaces=CAP_NS)
-        if not _is_active(onset, expires):
-            continue
-        severity = info.findtext("cap:severity", default="", namespaces=CAP_NS)
-        headline = info.findtext("cap:headline", default="", namespaces=CAP_NS) or ""
-        description = info.findtext("cap:description", default="", namespaces=CAP_NS) or ""
-        urgency = info.findtext("cap:urgency", default="", namespaces=CAP_NS) or ""
-        certainty = info.findtext("cap:certainty", default="", namespaces=CAP_NS) or ""
-        identifier = root.findtext("cap:identifier", default="", namespaces=CAP_NS) or ""
-
-        for area in info.findall("cap:area", CAP_NS):
-            area_desc = area.findtext("cap:areaDesc", default="", namespaces=CAP_NS) or ""
-            aemet = _extract_aemet(info, area)
-            level = _severity_to_level(severity, aemet["nivel"])
-            if not _valid_level(level):
-                continue
-            if aemet["fenomeno"] and AEMET_ALERT_PHENOMENA and aemet["fenomeno"] not in AEMET_ALERT_PHENOMENA:
-                continue
-            out.append(
-                {
-                    "id": f"aemet:{identifier}:{aemet['zona']}:{aemet['fenomeno'] or 'XX'}",
-                    "source": "AEMET",
-                    "level": level,
-                    "severity": (severity or "").lower(),
-                    "urgency": urgency,
-                    "certainty": certainty,
-                    "headline": headline,
-                    "description": description,
-                    "area_desc": area_desc,
-                    "onset": onset,
-                    "expires": expires,
-                    **aemet,
-                    "icon": PHENO_ICON.get(aemet["fenomeno"], "⚠️"),
-                }
-            )
+        out.extend(_alertas_desde_cap_root(root))
     return out

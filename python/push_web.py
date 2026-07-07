@@ -14,7 +14,7 @@ from config import (
     VAPID_SUBJECT,
     ZONA,
 )
-from aemet_alerts import alerta_coincide_zona, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle
+from aemet_alerts import alerta_coincide_zona, deduplicar_alertas, fetch_active_alerts, fmt_alerta_detalle, meteo_push_key, texto_push_meteo
 from core import read_dashboard, clear_meteo_live_cache
 from db import (
     get_push_state,
@@ -285,20 +285,15 @@ def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
 
 
 def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | None = None) -> dict:
-    level = str(alerta.get("level", "amarillo")).lower()
-    nivel = {"amarillo": "MODERADO", "naranja": "ALTO", "rojo": "CRÍTICO"}.get(level, level.upper())
-    fenomeno = alerta.get("fenomeno_desc") or "fenómeno meteorológico"
-    parametro = alerta.get("parametro") or ""
-    detalle = _fmt_parametro_push(parametro)
-    zona = alerta.get("area_desc") or "tu zona"
+    title, body = texto_push_meteo(alerta)
     fenomeno_code = str(alerta.get("fenomeno") or "xx").lower()
     return {
-        "title": f"SIRA · {fenomeno} {nivel}",
-        "body": f"AEMET {level.upper()} · {zona}" + (f" · {detalle}" if detalle else ""),
+        "title": title,
+        "body": body,
         "icon": "/assets/logo-sira_4.png?v=8",
         "badge": "/assets/logo-sira_4.png?v=8",
         "url": dashboard_url,
-        "tag": f"sira-aemet-{fenomeno_code}-{alerta.get('id')}",
+        "tag": f"sira-aemet-{fenomeno_code}-{meteo_push_key(alerta)}",
         "renotify": alerta.get("is_test", False) if renotify is None else renotify,
     }
 
@@ -548,13 +543,13 @@ def notify_new_alerts(dashboard_url: str) -> int:
             log.warning("AEMET CAP: %s", exc)
             avisos = []
         if avisos and not state["ids_meteo"]:
-            prev_meteo = {str(a.get("id")) for a in avisos if a.get("id")}
+            prev_meteo = {meteo_push_key(a) for a in avisos if a}
             nuevos_meteo = []
         else:
-            nuevos_meteo = [a for a in avisos if str(a.get("id")) not in prev_meteo]
+            nuevos_meteo = [a for a in avisos if meteo_push_key(a) not in prev_meteo]
         for a in nuevos_meteo:
-            aid = str(a.get("id"))
-            if not aid:
+            key = meteo_push_key(a)
+            if not key:
                 continue
             for sub in subs:
                 if not _meteo_should_notify(a, sub):
@@ -564,7 +559,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
                     sent += 1
                 elif result == "gone":
                     invalid_endpoints.add(sub.get("endpoint", ""))
-            procesados_meteo.add(aid)
+            procesados_meteo.add(key)
         if procesados_meteo:
             clear_meteo_live_cache()
 

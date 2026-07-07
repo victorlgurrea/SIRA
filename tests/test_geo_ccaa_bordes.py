@@ -15,6 +15,7 @@ from geo_ccaa_mapa import (  # noqa: E402
     _bordes_provincias,
     anadir_bordes_ccaa,
     anadir_bordes_provincias,
+    anadir_costa_ign,
 )
 
 
@@ -46,3 +47,15 @@ def test_anadir_bordes_provincias_crea_trazas():
     anadir_bordes_provincias(fig, "46")
     assert len(fig.data) > 0
     assert any(getattr(t, "legendgroup", None) == "provincias" for t in fig.data)
+
+
+def test_anadir_costa_ign_crea_trazas_y_filtra_viewport():
+    fig = go.Figure()
+    anadir_costa_ign(fig)
+    assert len(fig.data) > 0
+    assert all(getattr(t, "legendgroup", None) == "costa" for t in fig.data)
+
+    fig_zoom = go.Figure()
+    vp_valencia = {"lat_min": 38.0, "lat_max": 41.0, "lon_min": -1.5, "lon_max": 0.5}
+    anadir_costa_ign(fig_zoom, vp_valencia)
+    assert 0 < len(fig_zoom.data) < len(fig.data)

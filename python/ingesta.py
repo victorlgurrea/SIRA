@@ -165,7 +165,7 @@ def descargar_meteo() -> dict:
 def _descargar_alertas_cap() -> list[dict]:
     if not AEMET_API_KEY:
         return []
-    from aemet_alerts import fetch_active_alerts
+    from aemet_alerts import fetch_active_alerts, deduplicar_alertas
 
     return fetch_active_alerts(AEMET_API_KEY)
 
@@ -243,6 +243,7 @@ def ejecutar_ingesta():
         "aforos": aforos,
         "oceanografia": oceanografia,
         "meteorologia": meteo,
+        "meteo_alertas_cap": deduplicar_alertas(alertas_cap),
         "fuentes_estado": fuentes_estado,
         "estadisticas": {
             "n_sismos": len(sismos),

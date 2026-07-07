@@ -7,11 +7,14 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 
+from geo_bordes_clip import ensure_tierra
+from geo_bordes_clip import TIERRA_FILE, ensure_tierra
 from geo_es import CCAA_NOMBRES, CCAA_PROVINCIAS, ccaa_de_provincia, provincia_nombre_de_municipio
 
 ROOT = Path(__file__).resolve().parent.parent
 CCAA_FILE = ROOT / "data" / "geo" / "ccaa_bordes.json"
 PROV_FILE = ROOT / "data" / "geo" / "provincias_bordes.json"
+TIERRA_FILE = ROOT / "data" / "geo" / "espana_tierra.json"
 
 
 def ensure_ccaa_bordes() -> None:
@@ -40,6 +43,30 @@ def _bordes_provincias() -> list[dict]:
     ensure_provincias_bordes()
     data = json.loads(PROV_FILE.read_text(encoding="utf-8"))
     return data.get("features", [])
+
+
+@lru_cache(maxsize=1)
+def _costa_espana_rings() -> list[dict]:
+    ensure_tierra()
+    data = json.loads(TIERRA_FILE.read_text(encoding="utf-8"))
+    return data.get("rings", [])
+
+
+def _ring_en_viewport(ring: dict, viewport: dict | None) -> bool:
+    if not viewport:
+        return True
+    lat_min = viewport.get("lat_min")
+    lat_max = viewport.get("lat_max")
+    lon_min = viewport.get("lon_min")
+    lon_max = viewport.get("lon_max")
+    if lat_min is None or lat_max is None or lon_min is None or lon_max is None:
+        return True
+    lats = ring.get("lat") or []
+    lons = ring.get("lon") or []
+    return any(
+        lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
+        for lat, lon in zip(lats, lons)
+    )
 
 
 def _bordes() -> list[dict]:
@@ -109,6 +136,34 @@ def _add_lineas(
                 )
             )
             leyenda = True
+
+
+def anadir_costa_ign(
+    fig: go.Figure,
+    viewport: dict | None = None,
+    *,
+    color: str = "#94a3b8",
+    width: float = 0.8,
+) -> None:
+    """Costa IGN (alta precisión); sustituye la costa Natural Earth de Plotly."""
+    for ring in _costa_espana_rings():
+        if not _ring_en_viewport(ring, viewport):
+            continue
+        lats = ring.get("lat") or []
+        lons = ring.get("lon") or []
+        if len(lats) < 2:
+            continue
+        fig.add_trace(
+            go.Scattergeo(
+                lat=lats,
+                lon=lons,
+                mode="lines",
+                legendgroup="costa",
+                showlegend=False,
+                line=dict(color=color, width=width),
+                hoverinfo="skip",
+            )
+        )
 
 
 def anadir_bordes_ccaa(
