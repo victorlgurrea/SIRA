@@ -48,6 +48,17 @@ def test_parse_cap_ff_at_temperatura_maxima():
     assert a["level"] == "rojo"
 
 
+def test_parse_cap_at_prefijo_aemet_real():
+    xml = _cap_xml(area_desc="Litoral norte de Valencia", fenomeno="AT;Temperaturas máximas", nivel="").replace(
+        b"<severity>Extreme</severity>",
+        b"<severity>Severe</severity>",
+    )
+    avisos = parse_cap_xml(xml)
+    assert len(avisos) == 1
+    assert avisos[0]["fenomeno"] == "AT"
+    assert avisos[0]["level"] == "naranja"
+
+
 def test_coincide_formato_aemet_web_valencia():
     aviso = parse_cap_xml(_cap_xml(area_desc="Litoral sur de Valencia-Valencia/Valencia"))[0]
     assert alerta_coincide_zona(aviso, provincia_id="46", municipio_id="46250", provincia="Valencia/Valencia")

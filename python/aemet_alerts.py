@@ -314,14 +314,18 @@ def _event_code(info: ET.Element, name: str) -> str | None:
 
 
 def _codigo_fenomeno_aemet(raw: str | None) -> str:
-    """CAP AEMET: fenómeno como «FF;AT» → AT (temperatura máxima)."""
+    """CAP AEMET: «FF;AT» o «AT;Temperaturas máximas» → AT."""
     if not raw:
         return ""
     parts = [p.strip() for p in str(raw).split(";") if p.strip()]
     if not parts:
         return ""
-    if parts[0].upper() == "FF" and len(parts) >= 2:
-        return parts[1].upper()
+    head = parts[0].upper()
+    if head in PHENO_LABEL:
+        return head
+    if head == "FF" and len(parts) >= 2:
+        code = parts[1].upper()
+        return code if code in PHENO_LABEL else code
     return parts[-1].upper()
 
 
