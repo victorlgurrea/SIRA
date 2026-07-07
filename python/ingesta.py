@@ -19,6 +19,7 @@ from config import (
     ZONA,
 )
 from core import fetch_aemet, fetch_json, write_dashboard
+from aemet_alerts import deduplicar_alertas
 from hidrologia import descargar_embalses
 from aforos import descargar_aforos
 from incendios import descargar_incendios
@@ -165,7 +166,7 @@ def descargar_meteo() -> dict:
 def _descargar_alertas_cap() -> list[dict]:
     if not AEMET_API_KEY:
         return []
-    from aemet_alerts import fetch_active_alerts, deduplicar_alertas
+    from aemet_alerts import fetch_active_alerts
 
     return fetch_active_alerts(AEMET_API_KEY)
 
