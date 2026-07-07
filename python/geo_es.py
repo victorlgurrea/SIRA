@@ -352,27 +352,52 @@ def viewport_provincia_centro(
     return _clip_viewport(vp)
 
 
-def viewport_fit_observacion(vp: dict, *, aspect: float = 1.85) -> dict[str, float]:
+def viewport_fit_observacion(vp: dict, *, aspect: float = 2.85) -> dict[str, float]:
     """Ajusta el encuadre al contenedor ancho sin desplazar lat_centro/lon_centro."""
     import math
 
     out = dict(vp)
     lat_c = float(out["lat_centro"])
     lon_c = float(out["lon_centro"])
-    lat_span = max(out["lat_max"] - out["lat_min"], 0.01)
-    lon_span = max(out["lon_max"] - out["lon_min"], 0.01)
-    cos_lat = max(math.cos(math.radians(lat_c)), 0.35)
-    geo_aspect = (lon_span * cos_lat) / lat_span
+    nivel = out.get("nivel")
+
+    def _spans(box: dict) -> tuple[float, float, float]:
+        lat_span = max(box["lat_max"] - box["lat_min"], 0.01)
+        lon_span = max(box["lon_max"] - box["lon_min"], 0.01)
+        cos_lat = max(math.cos(math.radians(lat_c)), 0.35)
+        return lat_span, lon_span, (lon_span * cos_lat) / lat_span
+
+    lat_span, lon_span, geo_aspect = _spans(out)
     if geo_aspect < aspect:
-        need_lon = lat_span * aspect / cos_lat
+        need_lon = lat_span * aspect / max(math.cos(math.radians(lat_c)), 0.35)
         out["lon_min"] = lon_c - need_lon / 2
         out["lon_max"] = lon_c + need_lon / 2
     elif geo_aspect > aspect:
+        need_lat = lon_span * max(math.cos(math.radians(lat_c)), 0.35) / aspect
+        out["lat_min"] = lat_c - need_lat / 2
+        out["lat_max"] = lat_c + need_lat / 2
+
+    out["lat_centro"] = lat_c
+    out["lon_centro"] = lon_c
+    out["centrar_obs"] = True
+    if nivel:
+        out["nivel"] = nivel
+    out = _clip_viewport(out)
+
+    lat_span, lon_span, geo_aspect = _spans(out)
+    if geo_aspect < aspect:
+        cos_lat = max(math.cos(math.radians(lat_c)), 0.35)
         need_lat = lon_span * cos_lat / aspect
         out["lat_min"] = lat_c - need_lat / 2
         out["lat_max"] = lat_c + need_lat / 2
-    out["centrar_obs"] = True
-    return _clip_viewport(out)
+        out["lat_centro"] = lat_c
+        out["lon_centro"] = lon_c
+        out["centrar_obs"] = True
+        if nivel:
+            out["nivel"] = nivel
+        out = _clip_viewport(out)
+
+    return out
 
 
 def viewport_ccaa_centro(
@@ -381,7 +406,7 @@ def viewport_ccaa_centro(
     lon_obs: float,
     *,
     alejado: bool = True,
-    aspect: float = 2.15,
+    aspect: float = 2.85,
 ) -> dict[str, float]:
     """Zoom de comunidad autónoma con la localidad en el centro del mapa."""
     base = viewport_ccaa(provincia_id, alejado=alejado)

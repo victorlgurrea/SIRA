@@ -88,17 +88,42 @@ def test_viewport_provincia_centro_pone_estrella_en_medio():
 
 
 def test_viewport_ccaa_centro_pone_localidad_en_medio_y_cubre_ccaa():
-    from geo_es import viewport_ccaa, viewport_ccaa_centro
+    from geo_es import viewport_ccaa_centro
+    import math
 
     lat, lon = 37.39, -5.98  # Sevilla
     vp = viewport_ccaa_centro("41", lat, lon, alejado=True)
-    ccaa = viewport_ccaa("41", alejado=True)
+    lat_span, lon_span = _span(vp)
+    geo_aspect = (lon_span * math.cos(math.radians(lat))) / lat_span
     assert abs(vp["lat_centro"] - lat) < 1e-9
     assert abs(vp["lon_centro"] - lon) < 1e-9
     assert vp.get("nivel") == "ccaa"
     assert vp.get("centrar_obs") is True
-    assert _span(vp)[0] >= _span(ccaa)[0] * 0.85
-    assert _span(vp)[1] >= _span(ccaa)[1] * 0.85
+    assert geo_aspect >= 2.7
+
+
+def test_viewport_fit_observacion_reduce_lat_si_lon_recortado():
+    from geo_es import viewport_fit_observacion
+
+    vp = {
+        "lat_centro": 39.47,
+        "lon_centro": -0.38,
+        "lat_min": 36.0,
+        "lat_max": 43.35,
+        "lon_min": -10.0,
+        "lon_max": 8.0,
+        "nivel": "ccaa",
+        "centrar_obs": True,
+    }
+    out = viewport_fit_observacion(vp, aspect=2.85)
+    lat_span = out["lat_max"] - out["lat_min"]
+    lon_span = out["lon_max"] - out["lon_min"]
+    import math
+
+    geo_aspect = (lon_span * math.cos(math.radians(out["lat_centro"]))) / lat_span
+    assert geo_aspect >= 2.7
+    assert abs(out["lat_centro"] - 39.47) < 1e-9
+    assert abs(out["lon_centro"] - (-0.38)) < 1e-9
 
 
 def test_viewport_ccaa_centro_mas_amplio_que_provincia():

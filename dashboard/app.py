@@ -53,6 +53,7 @@ from geo_es import (
     viewport_ccaa,
     viewport_ccaa_centro,
     viewport_fit_contenedor,
+    viewport_fit_observacion,
     projection_scale_for_viewport,
 )
 from geo_ui import selector_geo
@@ -522,8 +523,10 @@ def _geo_layout(fig: go.Figure, viewport: dict | None = None, *, uirevision: str
         "lon_min": MAPA["lon_min"],
         "lon_max": MAPA["lon_max"],
     }
-    if not vp.get("centrar_obs"):
-        vp = viewport_fit_contenedor(vp)
+    if vp.get("centrar_obs"):
+        vp = viewport_fit_observacion(vp, aspect=2.85)
+    else:
+        vp = viewport_fit_contenedor(vp, aspect=2.85)
     zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
     proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
     fig.update_geos(
