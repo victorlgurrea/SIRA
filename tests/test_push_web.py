@@ -19,25 +19,23 @@ def _alert(level: str, zona: str, valor: str) -> dict:
     }
 
 
-def test_bootstrap_meteo_no_reenvia_inventario_amarillo_naranja():
+def test_bootstrap_meteo_no_reenvia_inventario_amarillo():
     avisos = [
         _alert("amarillo", "Toledo", "38 C"),
-        _alert("naranja", "Guadalajara", "41 C"),
     ]
     seed, nuevos = _split_meteo_bootstrap(avisos, set())
-    assert len(seed) == 2
+    assert len(seed) == 1
     assert nuevos == []
 
 
-def test_bootstrap_meteo_envia_rojos_ya_activos():
+def test_bootstrap_meteo_envia_naranja_y_rojo_ya_activos():
     avisos = [
         _alert("rojo", "Valencia", "44 C"),
         _alert("naranja", "Toledo", "41 C"),
     ]
     seed, nuevos = _split_meteo_bootstrap(avisos, set())
     assert len(seed) == 2
-    assert len(nuevos) == 1
-    assert nuevos[0]["level"] == "rojo"
+    assert {a["level"] for a in nuevos} == {"naranja", "rojo"}
 
 
 def test_bootstrap_meteo_con_estado_prev_envia_solo_nuevos():

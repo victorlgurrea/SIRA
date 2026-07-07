@@ -285,11 +285,11 @@ def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
 
 
 def _split_meteo_bootstrap(avisos: list[dict], prev_meteo: set[str]) -> tuple[set[str], list[dict]]:
-    """Primer ciclo: evita spam inicial, pero deja pasar avisos rojos ya activos."""
+    """Primer ciclo: evita spam inicial, pero deja pasar avisos naranja/rojo ya activos."""
     if prev_meteo:
         return prev_meteo, [a for a in avisos if meteo_push_key(a) not in prev_meteo]
 
-    nuevos = [a for a in avisos if str(a.get("level") or "").lower() == "rojo"]
+    nuevos = [a for a in avisos if str(a.get("level") or "").lower() in {"naranja", "rojo"}]
     seed = {meteo_push_key(a) for a in avisos if meteo_push_key(a)}
     return seed, nuevos
 
