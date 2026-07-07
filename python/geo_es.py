@@ -381,7 +381,7 @@ def viewport_ccaa_centro(
     lon_obs: float,
     *,
     alejado: bool = True,
-    aspect: float = 1.85,
+    aspect: float = 2.15,
 ) -> dict[str, float]:
     """Zoom de comunidad autónoma con la localidad en el centro del mapa."""
     base = viewport_ccaa(provincia_id, alejado=alejado)
