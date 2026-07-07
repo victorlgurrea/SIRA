@@ -1206,7 +1206,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
     sismos = [s for s in sismos_mapa if s.get("perceptible_local")]
     incendios_all = d.get("incendios", [])
     incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in incendios_all]
-    incendios_local = [i for i in incendios_mapa if i.get("afecta_local")]
+    incendios_local = [i for i in incendios_mapa if i.get("cerca_local")]
     embalses_all = d.get("embalses", [])
     aforos_all = d.get("aforos", [])
     met = _meteo_para_geo(muni_id, localidad)
@@ -1285,7 +1285,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
 def refresh_geo(geo, pathname):
     if pathname == "/historial":
         raise PreventUpdate
-    d = read_dashboard()
+    d = _load()
     return _build_panel_geo(geo, d)
 
 
