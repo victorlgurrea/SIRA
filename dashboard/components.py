@@ -256,34 +256,42 @@ def meteo_ahora(resumen: dict) -> html.Div:
     dir_txt = resumen.get("viento_dir_texto")
     if not dir_txt and resumen.get("viento_dir_grados") is not None:
         dir_txt = dir_compass(resumen.get("viento_dir_grados"))
-    viento = f"{vel} {unidad}" if vel is not None else "—"
+    vel_ms = None
+    if vel is not None:
+        try:
+            vel_ms = float(vel)
+            if str(unidad).lower().startswith("km"):
+                vel_ms = vel_ms / 3.6
+        except (TypeError, ValueError):
+            vel_ms = None
+    dir_card = None
+    if dir_txt:
+        txt = str(dir_txt).strip()
+        if "(" in txt and ")" in txt:
+            dir_card = txt.split("(", 1)[1].split(")", 1)[0].strip()
+        elif txt:
+            dir_card = txt
+
+    sens_txt = f"{float(sens):.1f}" if sens is not None else "—"
+    hum_txt = f"{int(hum)}" if hum is not None else "—"
+    if vel_ms is None:
+        viento_txt = "Viento: —"
+    else:
+        v_txt = f"{vel_ms:.1f}"
+        viento_txt = f"Viento: {v_txt} m/s"
+        if dir_card:
+            viento_txt += f" ({dir_card})"
+
     cuerpo: list = [
         html.Div(estado, className="sira-meteo-estado"),
         html.Div(
             f"{temp} °C" if temp is not None else "—",
             className="sira-meteo-temp",
         ),
+        html.Div(f"Sensación térmica: {sens_txt}ºC", className="sira-meteo-extra"),
+        html.Div(f"Humedad relativa: {hum_txt}%", className="sira-meteo-extra"),
+        html.Div(viento_txt, className="sira-meteo-viento"),
     ]
-    extra: list = []
-    if sens is not None:
-        extra.extend([
-            html.Span("Sensación: ", className="sira-meteo-extra-label"),
-            html.Span(f"{sens} °C", className="sira-meteo-extra-val"),
-        ])
-    if hum is not None:
-        if extra:
-            extra.append(html.Span(" · ", className="sira-meteo-extra-sep"))
-        extra.extend([
-            html.Span("HR: ", className="sira-meteo-extra-label"),
-            html.Span(f"{hum}%", className="sira-meteo-extra-val"),
-        ])
-    if extra:
-        cuerpo.append(html.Div(className="sira-meteo-extra", children=extra))
-    cuerpo.append(html.Div(className="sira-meteo-viento", children=[
-        html.Span("Viento: ", className="sira-meteo-viento-label"),
-        html.Span(viento, className="sira-meteo-viento-val"),
-        html.Span(f" · {dir_txt}" if dir_txt else "", className="sira-meteo-viento-dir"),
-    ]))
     return html.Div(className="sira-meteo-ahora", children=[
         html.Span(icon, className="sira-meteo-icon", title=estado),
         html.Div(className="sira-meteo-body", children=cuerpo),
