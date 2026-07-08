@@ -1070,6 +1070,35 @@ def _fig_historial(municipio_id: str | None, uirev: str) -> go.Figure:
     return fig
 
 
+_MESES_EJE_LLUVIA = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def _fmt_eje_lluvia(ts) -> str:
+    dt = pd.to_datetime(ts, errors="coerce")
+    if pd.isna(dt):
+        return ""
+    return f"{dt.day:02d}-{_MESES_EJE_LLUVIA[dt.month - 1]} {dt.strftime('%H:%M')}"
+
+
+def _xaxis_lluvia(timestamps: pd.Series, *, max_ticks: int = 10) -> dict:
+    ts = timestamps.dropna().sort_values().reset_index(drop=True)
+    if ts.empty:
+        return {"type": "date"}
+    n = len(ts)
+    step = max(1, (n - 1) // max(1, max_ticks - 1)) if n > 1 else 1
+    idx = list(range(0, n, step))
+    if idx[-1] != n - 1:
+        idx.append(n - 1)
+    pick = ts.iloc[idx]
+    return {
+        "type": "date",
+        "tickmode": "array",
+        "tickvals": pick,
+        "ticktext": [_fmt_eje_lluvia(t) for t in pick],
+        "tickangle": -35,
+    }
+
+
 def _fig_lluvia(serie: list) -> go.Figure:
     fig = go.Figure()
     yaxis = dict(title="mm", rangemode="tozero")
@@ -1082,9 +1111,13 @@ def _fig_lluvia(serie: list) -> go.Figure:
             fig.add_trace(go.Scatter(x=s["timestamp"], y=s["prob_precip_pct"], name="%", yaxis="y2", line=dict(color="#a78bfa")))
         max_precip = float(precip.max())
         yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
+        xaxis = _xaxis_lluvia(s["timestamp"])
+    else:
+        xaxis = {"type": "date"}
     fig.update_layout(
-        margin=dict(t=10, b=0, l=0, r=0),
+        margin=dict(t=10, b=36, l=0, r=0),
         autosize=True,
+        xaxis=xaxis,
         yaxis=yaxis,
         yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%"),
         uirevision="sira-lluvia",
