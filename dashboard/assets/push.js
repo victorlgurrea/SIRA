@@ -2,6 +2,7 @@
   let pushActive = false;
   let pushBound = false;
   let lastAutoRefreshAt = 0;
+  const PUSH_RELOAD_GUARD_MS = 10 * 60 * 1000; // 10 min anti-bucle
 
   const API_TIMEOUT_MS = 90000;
   const SUBSCRIBE_TIMEOUT_MS = 45000;
@@ -80,9 +81,20 @@
 
   function autoRefreshFromPush() {
     const now = Date.now();
-    // Evita bucles/reloads consecutivos al recibir varios pushes.
+    // Evita bucles/reloads consecutivos incluso tras recargar la página.
+    let globalLast = 0;
+    try {
+      globalLast = Number(window.localStorage.getItem("sira-push-last-refresh-at") || "0");
+    } catch (e) {}
+    if (now - globalLast < PUSH_RELOAD_GUARD_MS) {
+      setStatus("Nuevo aviso recibido. Revisa notificaciones.", true);
+      return;
+    }
     if (now - lastAutoRefreshAt < 30000) return;
     lastAutoRefreshAt = now;
+    try {
+      window.localStorage.setItem("sira-push-last-refresh-at", String(now));
+    } catch (e) {}
     setStatus("Nuevo aviso recibido. Actualizando panel…", true);
     window.setTimeout(function () {
       window.location.reload();
