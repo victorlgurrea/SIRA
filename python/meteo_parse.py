@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 VACIO_METEO = {"fuente": "—", "serie_horaria": [], "resumen": {}}
 
@@ -58,9 +59,17 @@ def _fecha_dia(fecha: str | None) -> str:
 
 def _hora_periodo(periodo: str | int | None) -> int | None:
     p = str(periodo or "").strip().rstrip("nN")
-    if len(p) == 2 and p.isdigit():
-        return int(p)
+    if p.isdigit():
+        h = int(p)
+        if 0 <= h <= 23:
+            return h
     return None
+
+
+def _hora_referencia_madrid(hora: int | None = None) -> int:
+    if hora is not None:
+        return int(hora)
+    return datetime.now(ZoneInfo("Europe/Madrid")).hour
 
 
 def _rango_prob_horas(periodo: str | int | None) -> tuple[int, int] | None:
@@ -96,14 +105,24 @@ def _aemet_tiempo_codigo(codigo: str | None, descripcion: str = "") -> tuple[str
     return "🌡️", descripcion or "—"
 
 
-def _entrada_por_hora(arr: list, hora: int) -> dict | None:
-    pstr = f"{hora:02d}"
+def _entrada_por_hora(arr: list, hora: int, *, fallback: bool = True) -> dict | None:
+    if not arr:
+        return None
+    parsed: list[tuple[int, dict]] = []
     for x in arr:
         if not isinstance(x, dict):
             continue
-        per = str(x.get("periodo", "")).strip().rstrip("nN")
-        if per == pstr:
-            return x
+        h = _hora_periodo(x.get("periodo"))
+        if h is not None:
+            parsed.append((h, x))
+    if not parsed:
+        first = arr[0]
+        return first if fallback and isinstance(first, dict) else None
+    exact = next((x for h, x in parsed if h == hora), None)
+    if exact is not None:
+        return exact
+    if fallback:
+        return min(parsed, key=lambda t: abs(t[0] - hora))[1]
     return None
 
 
@@ -180,7 +199,8 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
         horas = dia.get("hora", [])
         if not horas:
             return {}
-        h = horas[0]
+        h_ref = _hora_referencia_madrid(hora)
+        h = _entrada_por_hora(horas, h_ref) or horas[0]
         cielo = h.get("estadoCielo") or []
         if isinstance(cielo, list) and cielo:
             ec = cielo[0]
@@ -208,15 +228,12 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
             "viento_dir_texto": str(dir_letra).upper() if dir_letra else None,
         }
 
-    h_ref = hora if hora is not None else datetime.now().hour
+    h_ref = _hora_referencia_madrid(hora)
     ec = _entrada_por_hora(dia.get("estadoCielo", []), h_ref)
     if ec is None:
         cielos = [x for x in dia.get("estadoCielo", []) if isinstance(x, dict)]
         ec = cielos[0] if cielos else None
     temp_o = _entrada_por_hora(dia.get("temperatura", []), h_ref)
-    if temp_o is None:
-        temps = [x for x in dia.get("temperatura", []) if isinstance(x, dict)]
-        temp_o = temps[0] if temps else None
     hum_o = _entrada_por_hora(dia.get("humedadRelativa", []), h_ref)
     sens_o = _entrada_por_hora(dia.get("sensTermica", []), h_ref)
 
@@ -231,12 +248,19 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
         if not isinstance(v, dict) or "direccion" not in v:
             continue
         per = str(v.get("periodo", "")).strip().rstrip("nN")
-        if per == pstr:
+        if per == pstr or _hora_periodo(per) == h_ref:
             dirs = v.get("direccion") or []
             vels = v.get("velocidad") or []
             dir_letra = dirs[0] if dirs else None
             vel_raw = vels[0] if vels else None
             break
+    if vel_raw is None:
+        viento_o = _entrada_por_hora(dia.get("viento", []), h_ref)
+        if viento_o:
+            dirs = viento_o.get("direccion") or []
+            vels = viento_o.get("velocidad") or []
+            dir_letra = dirs[0] if dirs else dir_letra
+            vel_raw = vels[0] if vels else None
     vel = num(vel_raw, default=-1)
     hum = num(aemet_val(hum_o.get("value"))) if hum_o else -1
     sens = num(aemet_val(sens_o.get("value"))) if sens_o else -1

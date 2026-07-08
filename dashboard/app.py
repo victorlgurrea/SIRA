@@ -1081,10 +1081,10 @@ def _xaxis_lluvia(timestamps: pd.Series) -> dict:
     pick_idx = [0]
     for i in range(1, len(ts)):
         dt = pd.Timestamp(ts.iloc[i])
-        if dt.minute != 0 or dt.hour % 3 != 0:
+        if dt.minute != 0 or dt.hour % 6 != 0:
             continue
         last = pd.Timestamp(ts.iloc[pick_idx[-1]])
-        if (dt - last).total_seconds() >= 2 * 3600:
+        if (dt - last).total_seconds() >= 5 * 3600:
             pick_idx.append(i)
 
     tickvals = ts.iloc[pick_idx]
@@ -1106,6 +1106,7 @@ def _xaxis_lluvia(timestamps: pd.Series) -> dict:
         "tickvals": tickvals.tolist(),
         "ticktext": ticktext,
         "tickangle": -90,
+        "tickfont": dict(size=9, color=C_MUTED),
     }
 
 

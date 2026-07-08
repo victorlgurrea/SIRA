@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from meteo_parse import actual_aemet_from_item, parse_aemet  # noqa: E402
+from meteo_parse import actual_aemet_from_item, aemet_val, parse_aemet, _entrada_por_hora  # noqa: E402
 
 _VALENCIA_SNIPPET = [
     {
@@ -61,3 +61,11 @@ def test_actual_aemet_formato_horario_arrays():
     assert act["humedad_pct"] == 58
     assert act["viento_unidad"] == "km/h"
     assert act["viento_vel"] == 17.0
+
+
+def test_entrada_por_hora_periodo_un_digito():
+    arr = [
+        {"periodo": "8", "value": "55"},
+        {"periodo": "10", "value": "58"},
+    ]
+    assert aemet_val(_entrada_por_hora(arr, 8).get("value")) == "55"
