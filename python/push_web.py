@@ -361,6 +361,49 @@ def send_test_meteo_push(dashboard_url: str, alerta: dict) -> dict:
     }
 
 
+def send_bootstrap_meteo_for_subscription(dashboard_url: str, sub: dict) -> dict:
+    """Al suscribirse: envía avisos meteo naranja/rojo ya activos para esa zona.
+
+    Evita el caso en que el servidor ya "sembró" el estado global y el cron no vuelve
+    a enviar avisos existentes a nuevas suscripciones.
+    """
+    sub = _normalize_sub(sub)
+    if not _sub_prefers_meteo(sub):
+        return {"ok": True, "enviados": 0, "motivo": "suscripción sin meteo"}
+    if not vapid_enabled():
+        return {"ok": False, "enviados": 0, "error": "Web Push no configurado"}
+    if not AEMET_API_KEY:
+        return {"ok": True, "enviados": 0, "motivo": "AEMET_API_KEY no configurada"}
+
+    try:
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AEMET CAP (bootstrap): %s", exc)
+        avisos = []
+
+    candidatos = [
+        a for a in avisos
+        if str(a.get("level") or "").lower() in {"naranja", "rojo"}
+        and _meteo_should_notify(a, sub)
+    ]
+    sent = 0
+    errors = 0
+    for a in candidatos:
+        result = send_push(sub, _build_aemet_payload(a, dashboard_url, renotify=True))
+        if result == "ok":
+            sent += 1
+        elif result == "gone":
+            return {"ok": False, "enviados": sent, "error": "Suscripción caducada"}
+        else:
+            errors += 1
+    return {
+        "ok": sent > 0,
+        "enviados": sent,
+        "candidatos": len(candidatos),
+        "errores_transitorios": errors,
+    }
+
+
 def debug_push_state() -> dict:
     return {
         "suscripciones": list_subscriptions(),
