@@ -249,24 +249,42 @@ def meteo_ahora(resumen: dict) -> html.Div:
     icon = resumen.get("tiempo_icon") or "🌡️"
     estado = resumen.get("tiempo_texto") or "—"
     temp = resumen.get("temp_c")
+    sens = resumen.get("sensacion_c")
+    hum = resumen.get("humedad_pct")
     vel = resumen.get("viento_vel")
     unidad = resumen.get("viento_unidad") or "m/s"
     dir_txt = resumen.get("viento_dir_texto")
     if not dir_txt and resumen.get("viento_dir_grados") is not None:
         dir_txt = dir_compass(resumen.get("viento_dir_grados"))
     viento = f"{vel} {unidad}" if vel is not None else "—"
+    cuerpo: list = [
+        html.Div(estado, className="sira-meteo-estado"),
+        html.Div(
+            f"{temp} °C" if temp is not None else "—",
+            className="sira-meteo-temp",
+        ),
+    ]
+    extra: list = []
+    if sens is not None:
+        extra.extend([
+            html.Span("Sensación: ", className="sira-meteo-extra-label"),
+            html.Span(f"{sens} °C", className="sira-meteo-extra-val"),
+        ])
+    if hum is not None:
+        if extra:
+            extra.append(html.Span(" · ", className="sira-meteo-extra-sep"))
+        extra.extend([
+            html.Span("HR: ", className="sira-meteo-extra-label"),
+            html.Span(f"{hum}%", className="sira-meteo-extra-val"),
+        ])
+    if extra:
+        cuerpo.append(html.Div(className="sira-meteo-extra", children=extra))
+    cuerpo.append(html.Div(className="sira-meteo-viento", children=[
+        html.Span("Viento: ", className="sira-meteo-viento-label"),
+        html.Span(viento, className="sira-meteo-viento-val"),
+        html.Span(f" · {dir_txt}" if dir_txt else "", className="sira-meteo-viento-dir"),
+    ]))
     return html.Div(className="sira-meteo-ahora", children=[
         html.Span(icon, className="sira-meteo-icon", title=estado),
-        html.Div(className="sira-meteo-body", children=[
-            html.Div(estado, className="sira-meteo-estado"),
-            html.Div(
-                f"{temp} °C" if temp is not None else "—",
-                className="sira-meteo-temp",
-            ),
-            html.Div(className="sira-meteo-viento", children=[
-                html.Span("Viento: ", className="sira-meteo-viento-label"),
-                html.Span(viento, className="sira-meteo-viento-val"),
-                html.Span(f" · {dir_txt}" if dir_txt else "", className="sira-meteo-viento-dir"),
-            ]),
-        ]),
+        html.Div(className="sira-meteo-body", children=cuerpo),
     ])

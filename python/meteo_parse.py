@@ -194,10 +194,14 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
         vel = num(aemet_val(viento.get("velocidad")), default=-1)
         dirs = viento.get("direccion") or []
         dir_letra = dirs[0] if dirs else None
+        hum = num(aemet_val(h.get("humedadRelativa")), default=-1)
+        sens = num(aemet_val(h.get("sensTermica")), default=-1)
         return {
             "tiempo_icon": icon,
             "tiempo_texto": texto,
             "temp_c": round(temp, 1) if temp else None,
+            "sensacion_c": round(sens, 1) if sens >= 0 else None,
+            "humedad_pct": int(round(hum)) if hum >= 0 else None,
             "viento_vel": round(vel, 1) if vel >= 0 else None,
             "viento_unidad": "km/h",
             "viento_dir_grados": _AEMET_DIR_GRADOS.get(str(dir_letra or "").upper()),
@@ -213,6 +217,8 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
     if temp_o is None:
         temps = [x for x in dia.get("temperatura", []) if isinstance(x, dict)]
         temp_o = temps[0] if temps else None
+    hum_o = _entrada_por_hora(dia.get("humedadRelativa", []), h_ref)
+    sens_o = _entrada_por_hora(dia.get("sensTermica", []), h_ref)
 
     cod = aemet_val(ec.get("value")) if ec else None
     desc = str(ec.get("descripcion", "")) if ec else ""
@@ -232,11 +238,15 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
             vel_raw = vels[0] if vels else None
             break
     vel = num(vel_raw, default=-1)
+    hum = num(aemet_val(hum_o.get("value"))) if hum_o else -1
+    sens = num(aemet_val(sens_o.get("value"))) if sens_o else -1
 
     return {
         "tiempo_icon": icon,
         "tiempo_texto": texto,
         "temp_c": round(temp, 1) if temp else None,
+        "sensacion_c": round(sens, 1) if sens >= 0 else None,
+        "humedad_pct": int(round(hum)) if hum >= 0 else None,
         "viento_vel": round(vel, 1) if vel >= 0 else None,
         "viento_unidad": "km/h",
         "viento_dir_grados": _AEMET_DIR_GRADOS.get(str(dir_letra or "").upper()),

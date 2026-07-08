@@ -28,6 +28,8 @@ _VALENCIA_SNIPPET = [
                         {"value": "11", "periodo": "10", "descripcion": "Despejado"},
                     ],
                     "temperatura": [{"value": "29", "periodo": "10"}],
+                    "humedadRelativa": [{"value": "58", "periodo": "10"}],
+                    "sensTermica": [{"value": "31", "periodo": "10"}],
                     "vientoAndRachaMax": [
                         {"direccion": ["NE"], "velocidad": ["17"], "periodo": "10"},
                         {"value": "34", "periodo": "10"},
@@ -55,5 +57,7 @@ def test_actual_aemet_formato_horario_arrays():
     act = actual_aemet_from_item(item, hora=10)
     assert act["tiempo_texto"] == "Despejado"
     assert act["temp_c"] == 29.0
+    assert act["sensacion_c"] == 31.0
+    assert act["humedad_pct"] == 58
     assert act["viento_unidad"] == "km/h"
     assert act["viento_vel"] == 17.0

@@ -85,10 +85,14 @@ def _actual_openmeteo(data: dict) -> dict:
     icon, texto = _wmo_tiempo(code)
     temp = cur.get("temperature_2m")
     vel = cur.get("wind_speed_10m")
+    sens = cur.get("apparent_temperature")
+    hum = cur.get("relative_humidity_2m")
     return {
         "tiempo_icon": icon,
         "tiempo_texto": texto,
         "temp_c": round(float(temp), 1) if temp is not None else None,
+        "sensacion_c": round(float(sens), 1) if sens is not None else None,
+        "humedad_pct": int(round(float(hum))) if hum is not None else None,
         "viento_vel": round(float(vel), 1) if vel is not None else None,
         "viento_unidad": "m/s",
         "viento_dir_grados": cur.get("wind_direction_10m"),
@@ -132,7 +136,7 @@ def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> d
         data = fetch_json(OPEN_METEO_WEATHER_URL, {
             "latitude": lat,
             "longitude": lon,
-            "current": "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m",
+            "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m",
             "hourly": "precipitation,precipitation_probability",
             "wind_speed_unit": "ms",
             "timezone": "Europe/Madrid",

@@ -321,6 +321,25 @@ body {
   line-height: 1.2;
 }
 
+.sira-meteo-extra {
+  font-size: 0.82rem;
+  color: var(--sira-detail);
+  line-height: 1.35;
+}
+
+.sira-meteo-extra-label {
+  color: var(--sira-muted);
+}
+
+.sira-meteo-extra-val {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.sira-meteo-extra-sep {
+  color: var(--sira-muted);
+}
+
 .sira-meteo-viento {
   font-size: 0.82rem;
   color: var(--sira-detail);

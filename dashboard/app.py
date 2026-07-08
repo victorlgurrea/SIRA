@@ -105,7 +105,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=31">
+        <link rel="stylesheet" href="/assets/sira.css?v=32">
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -1073,29 +1073,39 @@ def _fig_historial(municipio_id: str | None, uirev: str) -> go.Figure:
 _MESES_EJE_LLUVIA = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 
 
-def _fmt_eje_lluvia(ts) -> str:
-    dt = pd.to_datetime(ts, errors="coerce")
-    if pd.isna(dt):
-        return ""
-    return f"{dt.day:02d}-{_MESES_EJE_LLUVIA[dt.month - 1]} {dt.strftime('%H:%M')}"
-
-
-def _xaxis_lluvia(timestamps: pd.Series, *, max_ticks: int = 10) -> dict:
+def _xaxis_lluvia(timestamps: pd.Series) -> dict:
     ts = timestamps.dropna().sort_values().reset_index(drop=True)
     if ts.empty:
         return {"type": "date"}
-    n = len(ts)
-    step = max(1, (n - 1) // max(1, max_ticks - 1)) if n > 1 else 1
-    idx = list(range(0, n, step))
-    if idx[-1] != n - 1:
-        idx.append(n - 1)
-    pick = ts.iloc[idx]
+
+    pick_idx = [0]
+    for i in range(1, len(ts)):
+        dt = pd.Timestamp(ts.iloc[i])
+        if dt.minute != 0 or dt.hour % 3 != 0:
+            continue
+        last = pd.Timestamp(ts.iloc[pick_idx[-1]])
+        if (dt - last).total_seconds() >= 2 * 3600:
+            pick_idx.append(i)
+
+    tickvals = ts.iloc[pick_idx]
+    ticktext: list[str] = []
+    prev_date = None
+    for i, tv in enumerate(tickvals):
+        dt = pd.Timestamp(tv)
+        d = dt.date()
+        if i == 0 or prev_date is None or d != prev_date:
+            mes = _MESES_EJE_LLUVIA[dt.month - 1]
+            ticktext.append(f"{dt.day:02d}-{mes} {dt.strftime('%H:%M')}")
+        else:
+            ticktext.append(dt.strftime("%H:%M"))
+        prev_date = d
+
     return {
         "type": "date",
         "tickmode": "array",
-        "tickvals": pick,
-        "ticktext": [_fmt_eje_lluvia(t) for t in pick],
-        "tickangle": -35,
+        "tickvals": tickvals.tolist(),
+        "ticktext": ticktext,
+        "tickangle": -90,
     }
 
 
@@ -1115,7 +1125,7 @@ def _fig_lluvia(serie: list) -> go.Figure:
     else:
         xaxis = {"type": "date"}
     fig.update_layout(
-        margin=dict(t=10, b=36, l=0, r=0),
+        margin=dict(t=10, b=58, l=0, r=0),
         autosize=True,
         xaxis=xaxis,
         yaxis=yaxis,
@@ -1301,7 +1311,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
             "Tiempo ahora",
             meteo_ahora(res_met),
             f"Según {met.get('fuente', '—')} · {loc_label}",
-            "Estado del cielo, temperatura y viento en la localidad seleccionada.",
+            "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
             accent=C_CYAN,
         ),
     ]
@@ -1501,7 +1511,7 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=31">
+  <link rel="stylesheet" href="/assets/sira.css?v=32">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
