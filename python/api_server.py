@@ -29,7 +29,7 @@ from db import count_subscriptions, get_historial_municipio, migrar_desde_json
 from geo_es import municipio_mas_cercano, municipio_por_id, provincia_de_municipio, provincias
 from ingesta import ejecutar_ingesta
 from meteo_live import meteo_localidad
-from push_web import add_subscription, notify_new_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
+from push_web import add_subscription, notify_new_alerts, notify_new_meteo_alerts, remove_subscription, send_test_meteo_push, send_test_push, vapid_enabled, vapid_public_key
 from push_web import debug_aemet_matches, debug_push_state
 from test_meteo_alerts import save_test_alert
 
@@ -231,6 +231,18 @@ def cron_ingesta(x_cron_secret: str | None = Header(default=None, alias="X-Cron-
         raise HTTPException(401, "No autorizado")
     ejecutar_ingesta()
     n = notify_new_alerts(CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com")
+    return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
+
+
+@app.post("/api/cron/meteo")
+def cron_meteo(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
+    """Cron ligero: solo revisa avisos meteo AEMET y manda push (sin reingestar todo)."""
+    if not CRON_SECRET:
+        raise HTTPException(503, "CRON_SECRET no configurado")
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
+        raise HTTPException(401, "No autorizado")
+    dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
+    n = notify_new_meteo_alerts(dashboard_url)
     return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
 
 

@@ -5,7 +5,7 @@ import re
 import tarfile
 import unicodedata
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from config import AEMET_ALERT_PHENOMENA, AEMET_PUSH_MIN_LEVEL, HTTP_TIMEOUT
@@ -360,9 +360,13 @@ def _is_active(onset: str | None, expires: str | None) -> bool:
     now = datetime.now(timezone.utc)
     d_on = _parse_iso(onset)
     d_ex = _parse_iso(expires)
-    if d_on and now < d_on:
-        return False
+    # AEMET distribuye avisos CAP a veces antes del "onset" real.
+    # Para que SIRA pueda notificar cuando la alerta ya está anunciada,
+    # aceptamos avisos cuyo onset ocurra dentro de una ventana de gracia.
+    grace = timedelta(hours=3)
     if d_ex and now >= d_ex:
+        return False
+    if d_on and d_on > now + grace:
         return False
     return True
 

@@ -581,6 +581,54 @@ def notify_new_alerts(dashboard_url: str) -> int:
     return sent
 
 
+def notify_new_meteo_alerts(dashboard_url: str) -> int:
+    """Notifica solo avisos AEMET (CAP) de meteo (sin sismos/incendios/tsunami)."""
+    if not vapid_enabled():
+        return 0
+    if not AEMET_API_KEY:
+        return 0
+
+    subs = list_subscriptions()
+    state = _state()
+    prev_meteo = set(state["ids_meteo"])
+
+    try:
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AEMET CAP (meteo-only): %s", exc)
+        avisos = []
+
+    prev_meteo, nuevos_meteo = _split_meteo_bootstrap(avisos, prev_meteo)
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    procesados_meteo: set[str] = set()
+
+    for a in nuevos_meteo:
+        key = meteo_push_key(a)
+        if not key:
+            continue
+        for sub in subs:
+            if not _meteo_should_notify(a, sub):
+                continue
+            result = send_push(sub, _build_aemet_payload(a, dashboard_url))
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_meteo.add(key)
+
+    if procesados_meteo:
+        clear_meteo_live_cache()
+
+    if invalid_endpoints:
+        subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(subs)
+
+    state["ids_meteo"] = sorted(prev_meteo | procesados_meteo)
+    _save_state(state)
+    return sent
+
+
 def send_test_push(
     dashboard_url: str,
     *,
