@@ -181,9 +181,14 @@
         const geo = getGeoPayload();
         const muniTxt = geo.municipio;
         setStatus(muniTxt ? "Push activo (" + muniTxt + ")" : "Push activo", true);
+        button.textContent = "Desactivar notificaciones";
       } catch (e) {
         console.warn("No se pudo restaurar estado push", e);
       }
+    }
+
+    function setButtonState() {
+      button.textContent = pushActive ? "Desactivar notificaciones" : "Activar notificaciones";
     }
 
     async function registerOrUpdatePush(skipPermission) {
@@ -221,15 +226,51 @@
       const muniTxt = geo.municipio;
       setStatus(muniTxt ? "Push activo (" + muniTxt + ")" : "Push activo", true);
       pushActive = true;
+      setButtonState();
+    }
+
+    async function unsubscribePush() {
+      const apiBase = await getApiBase();
+      setStatus("Desregistrando push…", false);
+      const swReg = await ensureServiceWorker();
+      const existing = await swReg.pushManager.getSubscription();
+      if (!existing) {
+        pushActive = false;
+        setButtonState();
+        setStatus("Push: desactivado", true);
+        return { ok: true, removed: 0 };
+      }
+
+      // 1) Desuscribe del navegador (best effort)
+      try {
+        await existing.unsubscribe();
+      } catch (e) {}
+
+      // 2) Borra de SIRA por endpoint
+      const endpoint = existing.endpoint;
+      await fetchJson(apiBase + "/api/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: endpoint }),
+      });
+
+      pushActive = false;
+      setButtonState();
+      setStatus("Push: desactivado", true);
+      return { ok: true, removed: 1 };
     }
 
     button.addEventListener("click", async function () {
       button.disabled = true;
       try {
-        // El permiso debe pedirse en el primer await del clic (gesto de usuario).
-        setStatus("Solicitando permiso…", false);
-        await ensureNotificationPermission();
-        await registerOrUpdatePush(true);
+        if (pushActive) {
+          await unsubscribePush();
+        } else {
+          // El permiso debe pedirse en el primer await del clic (gesto de usuario).
+          setStatus("Solicitando permiso…", false);
+          await ensureNotificationPermission();
+          await registerOrUpdatePush(true);
+        }
       } catch (err) {
         console.error(err);
         setStatus(formatError(err), false);
@@ -252,6 +293,7 @@
     }
 
     pushBound = true;
+    setButtonState();
     restorePushState();
     return true;
   }

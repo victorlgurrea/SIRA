@@ -388,14 +388,27 @@ def send_bootstrap_meteo_for_subscription(dashboard_url: str, sub: dict) -> dict
     ]
     sent = 0
     errors = 0
+    keys_enviados: set[str] = set()
     for a in candidatos:
+        key = meteo_push_key(a)
         result = send_push(sub, _build_aemet_payload(a, dashboard_url, renotify=True))
         if result == "ok":
             sent += 1
+            if key:
+                keys_enviados.add(key)
         elif result == "gone":
             return {"ok": False, "enviados": sent, "error": "Suscripción caducada"}
         else:
             errors += 1
+
+    # Marca estos avisos como ya notificados en el estado global para evitar bucles
+    # con el cron /api/cron/meteo.
+    if keys_enviados:
+        state = _state()
+        prev = set(state.get("ids_meteo", []))
+        state["ids_meteo"] = sorted(prev | keys_enviados)
+        _save_state(state)
+
     return {
         "ok": sent > 0,
         "enviados": sent,
