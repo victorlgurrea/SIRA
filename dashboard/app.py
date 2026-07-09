@@ -240,13 +240,6 @@ app.layout = html.Div(className="sira-page", children=[
                         accent=C_TEAL,
                     ),
                 ]),
-                html.Div(className="sira-charts-row sira-charts-row--historial", children=[
-                    bloque(
-                        "termico_ccaa", "Mapa térmico AEMET — CCAA seleccionada",
-                        "Avisos AEMET de temperatura por provincia (amarillo, naranja, rojo).",
-                        map_chart=True, accent=C_ORANGE,
-                    ),
-                ]),
                 html.Div(className="sira-charts-row sira-charts-row--3", children=[
                     bloque(
                         "sst_med", "Previsión SST — Mediterráneo",
@@ -723,6 +716,7 @@ def _fig_mapa(
     lon_obs: float | None = None,
     obs_nombre: str = "",
     zonas_costeras: list | None = None,
+    alertas_meteo: list | None = None,
     embalses_mapa: list | None = None,
     aforos_mapa: list | None = None,
     viewport: dict | None = None,
@@ -733,6 +727,8 @@ def _fig_mapa(
     anadir_costa_ign(fig, viewport)
     anadir_bordes_ccaa(fig, provincia_id)
     anadir_bordes_provincias(fig, provincia_id)
+    if provincia_id and alertas_meteo:
+        _add_capa_temp_provincia(fig, str(provincia_id).zfill(2), alertas_meteo)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
 
@@ -1193,74 +1189,6 @@ def _pico_termico_24h(met: dict) -> tuple[float | None, float | None, str, str]:
     return (float(temp) if pd.notna(temp) else None, float(sens) if pd.notna(sens) else None, hora_txt, fuente)
 
 
-def _fig_termico_ccaa(provincia_id: str | None, *, uirev: str = "sira-termico-ccaa") -> go.Figure:
-    fig = go.Figure()
-    pid_sel = str(provincia_id or "").zfill(2)
-    ccaa_id = ccaa_de_provincia(pid_sel)
-    if not ccaa_id:
-        fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev, **PLOTLY_BG)
-        return fig
-    prov_ids = [str(p).zfill(2) for p in CCAA_PROVINCIAS.get(ccaa_id, [])]
-    feat_by_pid = _load_prov_rings()
-    pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
-    for pid in prov_ids:
-        feat = feat_by_pid.get(pid)
-        if not feat:
-            continue
-        met = _meteo_provincia(pid)
-        tmax, sens, hora, fuente = _pico_termico_24h(met)
-        color = _color_temp(tmax)
-        ttxt = f"{tmax:.1f} °C" if tmax is not None else "—"
-        stxt = f"{sens:.1f} °C" if sens is not None else "—"
-        prov_name = pmeta.get(pid, pid)
-        for ring in feat.get("rings", []):
-            lats = ring.get("lat") or []
-            lons = ring.get("lon") or []
-            if len(lats) < 3:
-                continue
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lats,
-                    lon=lons,
-                    mode="lines",
-                    fill="toself",
-                    fillcolor=color,
-                    line=dict(color="rgba(15,23,42,0.45)", width=0.7),
-                    showlegend=False,
-                    name=prov_name,
-                    hovertemplate=(
-                        f"{prov_name}<br>"
-                        f"T. máxima prevista (24 h): {ttxt}<br>"
-                        f"Sensación térmica en pico: {stxt}<br>"
-                        f"Hora pico: {hora}<br>"
-                        f"Fuente: {fuente}"
-                        "<extra></extra>"
-                    ),
-                )
-            )
-    anadir_bordes_ccaa(fig, pid_sel)
-    anadir_bordes_provincias(fig, pid_sel, color_base="rgba(30,41,59,0.45)", width_base=0.8, color_activa="rgba(2,132,199,0.95)", width_activa=1.6)
-    vp = viewport_ccaa(pid_sel, alejado=False)
-    fig.update_geos(
-        resolution=50,
-        showcountries=False,
-        showcoastlines=False,
-        showland=False,
-        lonaxis_range=[vp["lon_min"], vp["lon_max"]],
-        lataxis_range=[vp["lat_min"], vp["lat_max"]],
-        fitbounds=False,
-        projection_scale=projection_scale_for_viewport(vp),
-    )
-    fig.update_layout(
-        margin=dict(t=10, b=0, l=0, r=0),
-        autosize=True,
-        uirevision=f"{uirev}-{ccaa_id}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        **PLOTLY_BG,
-    )
-    return fig
-
-
 def _temp_alerta_por_provincia(prov_ids: list[str], alertas: list[dict]) -> dict[str, dict]:
     """Nivel máximo de aviso AEMET de temperatura por provincia."""
     pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
@@ -1289,93 +1217,60 @@ def _temp_alerta_por_provincia(prov_ids: list[str], alertas: list[dict]) -> dict
     return out
 
 
-def _fig_alertas_temp_ccaa(
-    provincia_id: str | None,
-    alertas: list[dict],
-    *,
-    uirev: str = "sira-termico-ccaa",
-) -> go.Figure:
-    """Mapa CCAA por avisos AEMET de temperatura (amarillo/naranja/rojo)."""
-    fig = go.Figure()
-    pid_sel = str(provincia_id or "").zfill(2)
-    ccaa_id = ccaa_de_provincia(pid_sel)
-    if not ccaa_id:
-        fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev, **PLOTLY_BG)
-        return fig
-    prov_ids = [str(p).zfill(2) for p in CCAA_PROVINCIAS.get(ccaa_id, [])]
+def _add_capa_temp_provincia(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
+    """Añade capa de temperatura (avisos + pico térmico 24h) sobre la provincia seleccionada."""
+    pid = str(provincia_id).zfill(2)
     feat_by_pid = _load_prov_rings()
+    feat = feat_by_pid.get(pid)
+    if not feat:
+        return
+    a_por_prov = _temp_alerta_por_provincia([pid], alertas)
+    aviso = a_por_prov.get(pid)
+    met = _meteo_provincia(pid)
+    tmax, sens, hora, fuente = _pico_termico_24h(met)
+    t_aviso = _temp_desde_parametro_alerta(aviso or {})
+    t_ref = t_aviso if t_aviso is not None else tmax
+    color = _color_temp(t_ref)
+    nivel = str((aviso or {}).get("level") or "").lower()
+    nivel_txt = nivel.upper() if nivel else "SIN AVISO DE TEMPERATURA"
+    fen = str((aviso or {}).get("fenomeno_desc") or "—")
+    prob = str((aviso or {}).get("probabilidad") or "—")
+    zona = str((aviso or {}).get("area_desc") or "—")
+    tmax_txt = f"{tmax:.1f} °C" if tmax is not None else "—"
+    talerta_txt = f"{t_aviso:.1f} °C" if t_aviso is not None else "—"
+    tsens_txt = f"{sens:.1f} °C" if sens is not None else "—"
     pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
-    a_por_prov = _temp_alerta_por_provincia(prov_ids, alertas)
-    for pid in prov_ids:
-        feat = feat_by_pid.get(pid)
-        if not feat:
+    prov_name = pmeta.get(pid, pid)
+    for ring in feat.get("rings", []):
+        lats = ring.get("lat") or []
+        lons = ring.get("lon") or []
+        if len(lats) < 3:
             continue
-        prov_name = pmeta.get(pid, pid)
-        aviso = a_por_prov.get(pid)
-        level = str((aviso or {}).get("level") or "").lower()
-        met = _meteo_provincia(pid)
-        tmax, sens, hora, fuente = _pico_termico_24h(met)
-        t_aviso = _temp_desde_parametro_alerta(aviso or {})
-        t_ref = t_aviso if t_aviso is not None else tmax
-        color = _color_temp(t_ref)
-        nivel_txt = level.upper() if level else "SIN AVISO DE TEMPERATURA"
-        fen = str((aviso or {}).get("fenomeno_desc") or "—")
-        prob = str((aviso or {}).get("probabilidad") or "—")
-        zona = str((aviso or {}).get("area_desc") or "—")
-        tmax_txt = f"{tmax:.1f} °C" if tmax is not None else "—"
-        talerta_txt = f"{t_aviso:.1f} °C" if t_aviso is not None else "—"
-        tsens_txt = f"{sens:.1f} °C" if sens is not None else "—"
-        for ring in feat.get("rings", []):
-            lats = ring.get("lat") or []
-            lons = ring.get("lon") or []
-            if len(lats) < 3:
-                continue
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lats,
-                    lon=lons,
-                    mode="lines",
-                    fill="toself",
-                    fillcolor=color,
-                    line=dict(color="rgba(15,23,42,0.45)", width=0.7),
-                    showlegend=False,
-                    name=prov_name,
-                    hovertemplate=(
-                        f"{prov_name}<br>"
-                        f"T. máxima prevista (24 h): {tmax_txt}<br>"
-                        f"Temperatura umbral aviso: {talerta_txt}<br>"
-                        f"Sensación térmica en pico: {tsens_txt}<br>"
-                        f"Hora pico: {hora}<br>"
-                        f"Fuente meteo: {fuente}<br>"
-                        f"Aviso temperatura AEMET: {nivel_txt}<br>"
-                        f"Fenómeno: {fen}<br>"
-                        f"Probabilidad: {prob}<br>"
-                        f"Zona: {zona}"
-                        "<extra></extra>"
-                    ),
-                )
+        fig.add_trace(
+            go.Scattergeo(
+                lat=lats,
+                lon=lons,
+                mode="lines",
+                fill="toself",
+                fillcolor=color,
+                line=dict(color="rgba(15,23,42,0.65)", width=0.9),
+                showlegend=False,
+                name=prov_name,
+                hovertemplate=(
+                    f"{prov_name}<br>"
+                    f"T. máxima prevista (24 h): {tmax_txt}<br>"
+                    f"Temperatura umbral aviso: {talerta_txt}<br>"
+                    f"Sensación térmica en pico: {tsens_txt}<br>"
+                    f"Hora pico: {hora}<br>"
+                    f"Fuente meteo: {fuente}<br>"
+                    f"Aviso temperatura AEMET: {nivel_txt}<br>"
+                    f"Fenómeno: {fen}<br>"
+                    f"Probabilidad: {prob}<br>"
+                    f"Zona: {zona}"
+                    "<extra></extra>"
+                ),
             )
-    anadir_bordes_ccaa(fig, pid_sel)
-    anadir_bordes_provincias(fig, pid_sel, color_base="rgba(30,41,59,0.45)", width_base=0.8, color_activa="rgba(2,132,199,0.95)", width_activa=1.6)
-    vp = viewport_ccaa(pid_sel, alejado=False)
-    fig.update_geos(
-        resolution=50,
-        showcountries=False,
-        showcoastlines=False,
-        showland=False,
-        lonaxis_range=[vp["lon_min"], vp["lon_max"]],
-        lataxis_range=[vp["lat_min"], vp["lat_max"]],
-        fitbounds=False,
-        projection_scale=projection_scale_for_viewport(vp),
-    )
-    fig.update_layout(
-        margin=dict(t=10, b=0, l=0, r=0),
-        autosize=True,
-        uirevision=f"{uirev}-{ccaa_id}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        **PLOTLY_BG,
-    )
-    return fig
+        )
 
 
 def _xaxis_lluvia(timestamps: pd.Series) -> dict:
@@ -1546,7 +1441,7 @@ def refresh_historial(pathname, municipio_id):
     return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial")
 
 
-def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure, go.Figure]:
+def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
     """Tarjetas, mapa y lluvia según la zona seleccionada."""
     geo = _geo_resuelto(geo)
     muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
@@ -1628,23 +1523,17 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure, go
     map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
     mapa = _fig_mapa(
         sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
-        embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
+        alertas_fuente, embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
         provincia_id=geo.get("provincia_id"),
     )
     lluvia = _fig_lluvia(met.get("serie_horaria", []))
-    termico = _fig_alertas_temp_ccaa(
-        geo.get("provincia_id"),
-        alertas_fuente,
-        uirev=f"sira-termico-{geo.get('provincia_id')}",
-    )
-    return cards, mapa, lluvia, termico
+    return cards, mapa, lluvia
 
 
 @callback(
     Output("cards", "children", allow_duplicate=True),
     Output("mapa", "figure", allow_duplicate=True),
     Output("lluvia", "figure", allow_duplicate=True),
-    Output("termico_ccaa", "figure", allow_duplicate=True),
     Input("geo-store", "data"),
     State("url", "pathname"),
     prevent_initial_call=True,
@@ -1659,7 +1548,6 @@ def refresh_geo(geo, pathname):
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
     Output("mapa", "figure"), Output("lluvia", "figure"),
-    Output("termico_ccaa", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
@@ -1687,7 +1575,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
         raise PreventUpdate
 
     geo = _geo_resuelto(geo)
-    cards, mapa, lluvia, termico = _build_panel_geo(geo, d)
+    cards, mapa, lluvia = _build_panel_geo(geo, d)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -1701,7 +1589,6 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
         cards, ts, refresh_token,
         mapa,
         lluvia,
-        termico,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
         _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),
