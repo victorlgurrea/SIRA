@@ -207,7 +207,7 @@ def calcular_riesgo_meteo(
         texto = f"Sin fenómenos adversos destacados en las próximas {h} h."
     else:
         nombres = ", ".join(e["desc"].lower() for e in elementos[:3])
-        texto = f"Perspectiva adversa en {h} h: {nombres}."
+        texto = f"Riesgo en {h} h: {nombres}."
 
     return {
         "horas": h,

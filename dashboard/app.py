@@ -417,8 +417,7 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
         "Riesgo meteorológico adverso",
         riesgo_meteo_panel(riesgo),
         riesgo.get("texto") or "",
-        f"Probabilidad según AEMET Meteoalerta y predicción horaria ({h} h). "
-        "El índice combinado es orientativo.",
+        f"AEMET Meteoalerta + predicción horaria ({h} h).",
         accent=accent,
     )
 

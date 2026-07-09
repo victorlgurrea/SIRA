@@ -237,7 +237,7 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
                 style={"color": color_global},
             ),
             html.Span(
-                "Resumen orientativo; no sustituye la probabilidad AEMET por fenómeno.",
+                "Índice orientativo.",
                 className="sira-riesgo-global-nota",
             ),
         ])
