@@ -728,7 +728,7 @@ def _fig_mapa(
     anadir_bordes_ccaa(fig, provincia_id)
     anadir_bordes_provincias(fig, provincia_id)
     if provincia_id and alertas_meteo:
-        _add_capa_temp_provincia(fig, str(provincia_id).zfill(2), alertas_meteo)
+        _add_capa_temp_ccaa(fig, str(provincia_id).zfill(2), alertas_meteo)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
 
@@ -1098,6 +1098,11 @@ _TEMP_COLORSCALE = [
     (48.0, "#a66ad6"),
 ]
 _TEMP_ALERT_LEVEL_ORDER = {"rojo": 3, "naranja": 2, "amarillo": 1}
+_TEMP_ALERT_LEVEL_COLOR = {
+    "rojo": "rgba(239, 68, 68, 0.85)",
+    "naranja": "rgba(249, 115, 22, 0.82)",
+    "amarillo": "rgba(234, 179, 8, 0.76)",
+}
 
 
 def _color_temp(temp_c: float | None) -> str:
@@ -1217,60 +1222,66 @@ def _temp_alerta_por_provincia(prov_ids: list[str], alertas: list[dict]) -> dict
     return out
 
 
-def _add_capa_temp_provincia(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
-    """Añade capa de temperatura (avisos + pico térmico 24h) sobre la provincia seleccionada."""
+def _add_capa_temp_ccaa(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
+    """Añade capa térmica en todas las provincias de la CCAA seleccionada."""
     pid = str(provincia_id).zfill(2)
-    feat_by_pid = _load_prov_rings()
-    feat = feat_by_pid.get(pid)
-    if not feat:
+    ccaa_id = ccaa_de_provincia(pid)
+    if not ccaa_id:
         return
-    a_por_prov = _temp_alerta_por_provincia([pid], alertas)
-    aviso = a_por_prov.get(pid)
-    met = _meteo_provincia(pid)
-    tmax, sens, hora, fuente = _pico_termico_24h(met)
-    t_aviso = _temp_desde_parametro_alerta(aviso or {})
-    t_ref = t_aviso if t_aviso is not None else tmax
-    color = _color_temp(t_ref)
-    nivel = str((aviso or {}).get("level") or "").lower()
-    nivel_txt = nivel.upper() if nivel else "SIN AVISO DE TEMPERATURA"
-    fen = str((aviso or {}).get("fenomeno_desc") or "—")
-    prob = str((aviso or {}).get("probabilidad") or "—")
-    zona = str((aviso or {}).get("area_desc") or "—")
-    tmax_txt = f"{tmax:.1f} °C" if tmax is not None else "—"
-    talerta_txt = f"{t_aviso:.1f} °C" if t_aviso is not None else "—"
-    tsens_txt = f"{sens:.1f} °C" if sens is not None else "—"
+    prov_ids = [str(p).zfill(2) for p in CCAA_PROVINCIAS.get(ccaa_id, [])] or [pid]
+    feat_by_pid = _load_prov_rings()
+    a_por_prov = _temp_alerta_por_provincia(prov_ids, alertas)
     pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
-    prov_name = pmeta.get(pid, pid)
-    for ring in feat.get("rings", []):
-        lats = ring.get("lat") or []
-        lons = ring.get("lon") or []
-        if len(lats) < 3:
+    for prov_id in prov_ids:
+        feat = feat_by_pid.get(prov_id)
+        if not feat:
             continue
-        fig.add_trace(
-            go.Scattergeo(
-                lat=lats,
-                lon=lons,
-                mode="lines",
-                fill="toself",
-                fillcolor=color,
-                line=dict(color="rgba(15,23,42,0.65)", width=0.9),
-                showlegend=False,
-                name=prov_name,
-                hovertemplate=(
-                    f"{prov_name}<br>"
-                    f"T. máxima prevista (24 h): {tmax_txt}<br>"
-                    f"Temperatura umbral aviso: {talerta_txt}<br>"
-                    f"Sensación térmica en pico: {tsens_txt}<br>"
-                    f"Hora pico: {hora}<br>"
-                    f"Fuente meteo: {fuente}<br>"
-                    f"Aviso temperatura AEMET: {nivel_txt}<br>"
-                    f"Fenómeno: {fen}<br>"
-                    f"Probabilidad: {prob}<br>"
-                    f"Zona: {zona}"
-                    "<extra></extra>"
-                ),
+        aviso = a_por_prov.get(prov_id)
+        met = _meteo_provincia(prov_id)
+        tmax, sens, hora, fuente = _pico_termico_24h(met)
+        t_aviso = _temp_desde_parametro_alerta(aviso or {})
+        t_ref = t_aviso if t_aviso is not None else tmax
+        nivel = str((aviso or {}).get("level") or "").lower()
+        # Si hay aviso AEMET, prioriza color del nivel para coherencia visual.
+        color = _TEMP_ALERT_LEVEL_COLOR.get(nivel, _color_temp(t_ref))
+        nivel_txt = nivel.upper() if nivel else "SIN AVISO DE TEMPERATURA"
+        fen = str((aviso or {}).get("fenomeno_desc") or "—")
+        prob = str((aviso or {}).get("probabilidad") or "—")
+        zona = str((aviso or {}).get("area_desc") or "—")
+        tmax_txt = f"{tmax:.1f} °C" if tmax is not None else "—"
+        talerta_txt = f"{t_aviso:.1f} °C" if t_aviso is not None else "—"
+        tsens_txt = f"{sens:.1f} °C" if sens is not None else "—"
+        prov_name = pmeta.get(prov_id, prov_id)
+        for ring in feat.get("rings", []):
+            lats = ring.get("lat") or []
+            lons = ring.get("lon") or []
+            if len(lats) < 3:
+                continue
+            fig.add_trace(
+                go.Scattergeo(
+                    lat=lats,
+                    lon=lons,
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=color,
+                    line=dict(color="rgba(15,23,42,0.65)", width=0.9),
+                    showlegend=False,
+                    name=prov_name,
+                    hovertemplate=(
+                        f"{prov_name}<br>"
+                        f"T. máxima prevista (24 h): {tmax_txt}<br>"
+                        f"Temperatura umbral aviso: {talerta_txt}<br>"
+                        f"Sensación térmica en pico: {tsens_txt}<br>"
+                        f"Hora pico: {hora}<br>"
+                        f"Fuente meteo: {fuente}<br>"
+                        f"Aviso temperatura AEMET: {nivel_txt}<br>"
+                        f"Fenómeno: {fen}<br>"
+                        f"Probabilidad: {prob}<br>"
+                        f"Zona: {zona}"
+                        "<extra></extra>"
+                    ),
+                )
             )
-        )
 
 
 def _xaxis_lluvia(timestamps: pd.Series) -> dict:
