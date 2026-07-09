@@ -6,6 +6,7 @@ import _bootstrap  # noqa: F401
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -242,7 +243,7 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row sira-charts-row--historial", children=[
                     bloque(
                         "termico_ccaa", "Mapa térmico AEMET — CCAA seleccionada",
-                        "Temperatura máxima prevista 24 h por provincia (AEMET/Open-Meteo si falta dato).",
+                        "Avisos AEMET de temperatura por provincia (amarillo, naranja, rojo).",
                         map_chart=True, accent=C_ORANGE,
                     ),
                 ]),
@@ -1084,13 +1085,23 @@ _PROV_BORDES_FILE = Path(__file__).resolve().parent.parent / "data" / "geo" / "p
 _METEO_PROV_CACHE_TTL_S = 30 * 60
 _METEO_PROV_CACHE: dict[str, dict] = {}
 _TEMP_COLORSCALE = [
-    (-20.0, "#f8fafc"),
-    (15.0, "#fde047"),
-    (25.0, "#f59e0b"),
-    (32.0, "#f97316"),
-    (38.0, "#ef4444"),
-    (50.0, "#b91c1c"),
+    (-20.0, "#22c3e6"),
+    (-12.0, "#2e6be6"),
+    (-4.0, "#77d4f5"),
+    (0.0, "#b7e3ff"),
+    (8.0, "#d8f2da"),
+    (12.0, "#a8dc6f"),
+    (16.0, "#d6e64f"),
+    (20.0, "#f0db3f"),
+    (24.0, "#f7b733"),
+    (28.0, "#f58b1f"),
+    (32.0, "#f45a1b"),
+    (36.0, "#ef2f1b"),
+    (40.0, "#d6151a"),
+    (44.0, "#b20f4a"),
+    (48.0, "#a66ad6"),
 ]
+_TEMP_ALERT_LEVEL_ORDER = {"rojo": 3, "naranja": 2, "amarillo": 1}
 
 
 def _color_temp(temp_c: float | None) -> str:
@@ -1101,6 +1112,22 @@ def _color_temp(temp_c: float | None) -> str:
         if temp_c >= threshold:
             color = c
     return color
+
+
+def _temp_desde_parametro_alerta(alerta: dict) -> float | None:
+    """Extrae temperatura de aviso CAP (ej. 'TA;Temperatura maxima;39 C')."""
+    raw = str(alerta.get("parametro") or "")
+    if ";" in raw:
+        parts = [p.strip() for p in raw.split(";") if p.strip()]
+        if len(parts) >= 3:
+            raw = parts[2]
+    m = re.search(r"(-?\d+(?:[.,]\d+)?)", raw)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
 
 
 def _load_prov_rings() -> dict[str, dict]:
@@ -1207,6 +1234,123 @@ def _fig_termico_ccaa(provincia_id: str | None, *, uirev: str = "sira-termico-cc
                         f"Sensación térmica en pico: {stxt}<br>"
                         f"Hora pico: {hora}<br>"
                         f"Fuente: {fuente}"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+    anadir_bordes_ccaa(fig, pid_sel)
+    anadir_bordes_provincias(fig, pid_sel, color_base="rgba(30,41,59,0.45)", width_base=0.8, color_activa="rgba(2,132,199,0.95)", width_activa=1.6)
+    vp = viewport_ccaa(pid_sel, alejado=False)
+    fig.update_geos(
+        resolution=50,
+        showcountries=False,
+        showcoastlines=False,
+        showland=False,
+        lonaxis_range=[vp["lon_min"], vp["lon_max"]],
+        lataxis_range=[vp["lat_min"], vp["lat_max"]],
+        fitbounds=False,
+        projection_scale=projection_scale_for_viewport(vp),
+    )
+    fig.update_layout(
+        margin=dict(t=10, b=0, l=0, r=0),
+        autosize=True,
+        uirevision=f"{uirev}-{ccaa_id}",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        **PLOTLY_BG,
+    )
+    return fig
+
+
+def _temp_alerta_por_provincia(prov_ids: list[str], alertas: list[dict]) -> dict[str, dict]:
+    """Nivel máximo de aviso AEMET de temperatura por provincia."""
+    pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
+    out: dict[str, dict] = {}
+    for pid in prov_ids:
+        pnombre = pmeta.get(pid, pid)
+        mejor: dict | None = None
+        mejor_rank = -1
+        for a in alertas:
+            if not isinstance(a, dict):
+                continue
+            fen = str(a.get("fenomeno") or "").upper()
+            if fen not in {"AT", "BT"}:
+                continue
+            level = str(a.get("level") or "").lower()
+            rank = _TEMP_ALERT_LEVEL_ORDER.get(level, 0)
+            if rank <= 0:
+                continue
+            if not alerta_coincide_zona(a, provincia_id=pid, provincia=pnombre):
+                continue
+            if rank > mejor_rank:
+                mejor = a
+                mejor_rank = rank
+        if mejor:
+            out[pid] = mejor
+    return out
+
+
+def _fig_alertas_temp_ccaa(
+    provincia_id: str | None,
+    alertas: list[dict],
+    *,
+    uirev: str = "sira-termico-ccaa",
+) -> go.Figure:
+    """Mapa CCAA por avisos AEMET de temperatura (amarillo/naranja/rojo)."""
+    fig = go.Figure()
+    pid_sel = str(provincia_id or "").zfill(2)
+    ccaa_id = ccaa_de_provincia(pid_sel)
+    if not ccaa_id:
+        fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev, **PLOTLY_BG)
+        return fig
+    prov_ids = [str(p).zfill(2) for p in CCAA_PROVINCIAS.get(ccaa_id, [])]
+    feat_by_pid = _load_prov_rings()
+    pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
+    a_por_prov = _temp_alerta_por_provincia(prov_ids, alertas)
+    for pid in prov_ids:
+        feat = feat_by_pid.get(pid)
+        if not feat:
+            continue
+        prov_name = pmeta.get(pid, pid)
+        aviso = a_por_prov.get(pid)
+        level = str((aviso or {}).get("level") or "").lower()
+        met = _meteo_provincia(pid)
+        tmax, sens, hora, fuente = _pico_termico_24h(met)
+        t_aviso = _temp_desde_parametro_alerta(aviso or {})
+        t_ref = t_aviso if t_aviso is not None else tmax
+        color = _color_temp(t_ref)
+        nivel_txt = level.upper() if level else "SIN AVISO DE TEMPERATURA"
+        fen = str((aviso or {}).get("fenomeno_desc") or "—")
+        prob = str((aviso or {}).get("probabilidad") or "—")
+        zona = str((aviso or {}).get("area_desc") or "—")
+        tmax_txt = f"{tmax:.1f} °C" if tmax is not None else "—"
+        talerta_txt = f"{t_aviso:.1f} °C" if t_aviso is not None else "—"
+        tsens_txt = f"{sens:.1f} °C" if sens is not None else "—"
+        for ring in feat.get("rings", []):
+            lats = ring.get("lat") or []
+            lons = ring.get("lon") or []
+            if len(lats) < 3:
+                continue
+            fig.add_trace(
+                go.Scattergeo(
+                    lat=lats,
+                    lon=lons,
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=color,
+                    line=dict(color="rgba(15,23,42,0.45)", width=0.7),
+                    showlegend=False,
+                    name=prov_name,
+                    hovertemplate=(
+                        f"{prov_name}<br>"
+                        f"T. máxima prevista (24 h): {tmax_txt}<br>"
+                        f"Temperatura umbral aviso: {talerta_txt}<br>"
+                        f"Sensación térmica en pico: {tsens_txt}<br>"
+                        f"Hora pico: {hora}<br>"
+                        f"Fuente meteo: {fuente}<br>"
+                        f"Aviso temperatura AEMET: {nivel_txt}<br>"
+                        f"Fenómeno: {fen}<br>"
+                        f"Probabilidad: {prob}<br>"
+                        f"Zona: {zona}"
                         "<extra></extra>"
                     ),
                 )
@@ -1488,7 +1632,11 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure, go
         provincia_id=geo.get("provincia_id"),
     )
     lluvia = _fig_lluvia(met.get("serie_horaria", []))
-    termico = _fig_termico_ccaa(geo.get("provincia_id"), uirev=f"sira-termico-{geo.get('provincia_id')}")
+    termico = _fig_alertas_temp_ccaa(
+        geo.get("provincia_id"),
+        alertas_fuente,
+        uirev=f"sira-termico-{geo.get('provincia_id')}",
+    )
     return cards, mapa, lluvia, termico
 
 
