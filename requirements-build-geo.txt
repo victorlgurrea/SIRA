@@ -1,0 +1,3 @@
+# Solo para regenerar data/geo/aemet_zonas_aviso.json
+pyshp>=2.3.0
+pyproj>=3.6.0
