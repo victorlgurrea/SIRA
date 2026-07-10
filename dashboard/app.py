@@ -725,10 +725,10 @@ def _fig_mapa(
 ) -> go.Figure:
     fig = go.Figure()
     anadir_costa_ign(fig, viewport)
+    if provincia_id:
+        _add_capa_temp_ccaa(fig, str(provincia_id).zfill(2), alertas_meteo or [])
     anadir_bordes_ccaa(fig, provincia_id)
     anadir_bordes_provincias(fig, provincia_id)
-    if provincia_id and alertas_meteo:
-        _add_capa_temp_ccaa(fig, str(provincia_id).zfill(2), alertas_meteo)
     df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
     hoy_df = pd.DataFrame()
 
@@ -1264,7 +1264,7 @@ def _add_capa_temp_ccaa(fig: go.Figure, provincia_id: str, alertas: list[dict]) 
                     mode="lines",
                     fill="toself",
                     fillcolor=color,
-                    line=dict(color="rgba(15,23,42,0.65)", width=0.9),
+                    line=dict(color="rgba(34,211,238,0.55)", width=1.15),
                     showlegend=False,
                     name=prov_name,
                     hovertemplate=(

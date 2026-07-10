@@ -195,12 +195,12 @@ def anadir_bordes_provincias(
     fig: go.Figure,
     provincia_id: str | None = None,
     *,
-    color_base: str = "rgba(100, 116, 139, 0.38)",
-    width_base: float = 0.65,
-    color_activa: str = "rgba(125, 211, 252, 0.9)",
-    width_activa: float = 1.1,
+    color_base: str = "rgba(148, 163, 184, 0.82)",
+    width_base: float = 1.15,
+    color_activa: str = "rgba(34, 211, 238, 0.98)",
+    width_activa: float = 2.2,
 ) -> None:
-    """Dibuja contornos provinciales (línea más fina que CCAA)."""
+    """Dibuja contornos provinciales visibles dentro de la CCAA seleccionada."""
     _add_lineas(
         fig,
         _features_provincias_visibles(provincia_id),
