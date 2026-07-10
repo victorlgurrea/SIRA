@@ -289,6 +289,29 @@ body {
   line-height: 1.4;
 }
 
+.sira-card--lluvia .sira-card-lluvia-chart {
+  height: 120px;
+  min-height: 108px;
+}
+
+.sira-card-lluvia-chart {
+  height: 120px;
+  width: 100%;
+  margin-top: 0.35rem;
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 108px;
+}
+
+.sira-card-lluvia-chart .dash-graph,
+.sira-card-lluvia-chart .js-plotly-plot,
+.sira-card-lluvia-chart .plot-container,
+.sira-card-lluvia-chart .svg-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
 .sira-meteo-ahora {
   display: flex;
   align-items: center;
@@ -1003,6 +1026,10 @@ body {
   width: 100%;
 }
 
+.sira-charts-row--map-full {
+  grid-template-columns: 1fr;
+}
+
 .sira-charts-row--map-lluvia {
   grid-template-columns: minmax(0, 1fr) minmax(240px, 28%);
   align-items: stretch;
@@ -1053,8 +1080,8 @@ body {
 }
 
 .sira-graph-wrap--map {
-  height: min(52vh, 520px);
-  min-height: 400px;
+  height: min(56vh, 560px);
+  min-height: 420px;
 }
 
 /* Plotly: el contenedor SVG sí puede ir al 100%; .geolayer es un <g> interno
@@ -1185,6 +1212,7 @@ body {
   }
 
   .sira-charts-row,
+  .sira-charts-row--map-full,
   .sira-charts-row--map-lluvia,
   .sira-charts-row--3 {
     grid-template-columns: 1fr;
@@ -1200,8 +1228,13 @@ body {
   }
 
   .sira-graph-wrap--map {
-    height: min(48vh, 380px);
-    min-height: 300px;
+    height: min(50vh, 420px);
+    min-height: 320px;
+  }
+
+  .sira-card-lluvia-chart {
+    height: 132px;
+    min-height: 120px;
   }
 
   .sira-footer {
@@ -1274,13 +1307,14 @@ body {
     padding-right: 2.5%;
   }
 
-  .sira-charts-row--map-lluvia {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 32%);
+  .sira-charts-row--map-full .sira-graph-wrap--map {
+    height: min(58vh, 600px);
+    min-height: 440px;
   }
 
   .sira-graph-wrap--map {
-    height: min(52vh, 540px);
-    min-height: 400px;
+    height: min(58vh, 600px);
+    min-height: 440px;
   }
 }
 
@@ -1318,15 +1352,21 @@ body {
   }
 
   .sira-cards {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
-  .sira-charts-row--map-lluvia {
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  .sira-card--lluvia .sira-card-lluvia-chart {
+    height: 128px;
+    min-height: 116px;
+  }
+
+  .sira-charts-row--map-full .sira-graph-wrap--map {
+    height: min(64vh, 720px);
+    min-height: 480px;
   }
 
   .sira-graph-wrap--map {
-    height: min(58vh, 640px);
-    min-height: 440px;
+    height: min(64vh, 720px);
+    min-height: 480px;
   }
 }

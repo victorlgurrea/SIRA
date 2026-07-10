@@ -15,7 +15,7 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, card_sismos_combinada, dir_compass, lluvia_embalses_valor, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
+from components import bloque, card, card_doble, card_lluvia, card_sismos_combinada, dir_compass, lluvia_embalses_valor, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
@@ -225,18 +225,15 @@ app.layout = html.Div(className="sira-page", children=[
                         html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
                     ]),
                 ]),
-                html.Div(id="cards", className="sira-cards"),
+                html.Div(id="cards", className="sira-cards", children=[
+                    card_lluvia("—", "Cargando previsión…", "", accent=C_TEAL),
+                ]),
                 html.Div(className="sira-charts", children=[
-                html.Div(className="sira-charts-row sira-charts-row--map-lluvia", children=[
+                html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
-                        None,
+                        "Avisos AEMET por zona · sismos, incendios, embalses y aforos según la localidad seleccionada.",
                         map_chart=True, accent=C_ORANGE,
-                    ),
-                    bloque(
-                        "lluvia", "Previsión de lluvia",
-                        "Según la localidad seleccionada · AEMET o Open-Meteo · embalses y aforos SAIH.",
-                        accent=C_TEAL,
                     ),
                 ]),
                 html.Div(className="sira-charts-row sira-charts-row--3", children=[
@@ -1208,11 +1205,12 @@ def _fig_lluvia(serie: list) -> go.Figure:
     else:
         xaxis = {"type": "date"}
     fig.update_layout(
-        margin=dict(t=10, b=58, l=0, r=0),
+        margin=dict(t=6, b=42, l=4, r=4),
         autosize=True,
+        showlegend=False,
         xaxis=xaxis,
         yaxis=yaxis,
-        yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%"),
+        yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%", titlefont=dict(size=10), tickfont=dict(size=9)),
         uirevision="sira-lluvia",
         **PLOTLY_BG,
     )
@@ -1383,8 +1381,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
         ),
-        card(
-            "Lluvia 24h",
+        card_lluvia(
             lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
             f"{loc_label} · SAIH CHJ · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",

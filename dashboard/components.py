@@ -67,6 +67,36 @@ def lluvia_embalses_valor(
     return html.Div(className="sira-lluvia-embalses", children=filas)
 
 
+def card_lluvia(
+    valor,
+    detalle: str,
+    ayuda: str,
+    *,
+    accent: str = C_TEAL,
+) -> html.Div:
+    """Tarjeta Lluvia 24h con previsión horaria integrada."""
+    children: list = [
+        html.Div("Lluvia 24h", className="sira-card-title"),
+        html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,
+    ]
+    if detalle:
+        children.append(html.Div(detalle, className="sira-card-detail"))
+    children.append(html.Div(className="sira-card-lluvia-chart", children=[
+        dcc.Graph(
+            id="lluvia",
+            config={"displayModeBar": False, "responsive": True},
+            style={"height": "100%", "width": "100%"},
+        ),
+    ]))
+    if ayuda:
+        children.append(html.P(ayuda, className="sira-card-help"))
+    return html.Div(
+        className="sira-card sira-card--lluvia",
+        style={"borderLeftColor": accent},
+        children=children,
+    )
+
+
 def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
     children: list = [
         html.Div(titulo, className="sira-card-title"),
