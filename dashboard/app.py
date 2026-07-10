@@ -1210,7 +1210,11 @@ def _fig_lluvia(serie: list) -> go.Figure:
         showlegend=False,
         xaxis=xaxis,
         yaxis=yaxis,
-        yaxis2=dict(overlaying="y", side="right", range=[0, 100], title="%", titlefont=dict(size=10), tickfont=dict(size=9)),
+        yaxis2=dict(
+            overlaying="y", side="right", range=[0, 100],
+            title=dict(text="%", font=dict(size=10)),
+            tickfont=dict(size=9),
+        ),
         uirevision="sira-lluvia",
         **PLOTLY_BG,
     )
