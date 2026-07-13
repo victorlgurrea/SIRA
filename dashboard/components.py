@@ -281,8 +281,62 @@ def meteo_ahora(
     proximas_horas: list[dict] | None = None,
     *,
     fuente: str | None = None,
+    alertas: list[dict] | None = None,
     horas: int = 6,
 ) -> html.Div:
+    from aemet_alerts import fmt_alerta_detalle
+
+    def _parse_dt(value: str | None):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def _nivel_rank(level: str | None) -> int:
+        return {"amarillo": 1, "naranja": 2, "rojo": 3}.get(str(level or "").lower(), 0)
+
+    def _temp_alerta(ts: str) -> dict | None:
+        objetivo = _parse_dt(ts)
+        if objetivo is None:
+            return None
+        mejor = None
+        mejor_rank = 0
+        for alerta in alertas or []:
+            if str(alerta.get("fenomeno") or "").upper() not in {"AT", "BT"}:
+                continue
+            ini = _parse_dt(alerta.get("onset"))
+            fin = _parse_dt(alerta.get("expires"))
+            if ini and objetivo < ini:
+                continue
+            if fin and objetivo > fin:
+                continue
+            rank = _nivel_rank(alerta.get("level"))
+            if rank > mejor_rank:
+                mejor = alerta
+                mejor_rank = rank
+        return mejor
+
+    def _bg_alerta(level: str | None) -> dict:
+        lv = str(level or "").lower()
+        if lv == "rojo":
+            return {
+                "background": "rgba(239, 68, 68, 0.24)",
+                "borderColor": "rgba(248, 113, 113, 0.65)",
+            }
+        if lv == "naranja":
+            return {
+                "background": "rgba(249, 115, 22, 0.22)",
+                "borderColor": "rgba(251, 146, 60, 0.65)",
+            }
+        if lv == "amarillo":
+            return {
+                "background": "rgba(250, 204, 21, 0.22)",
+                "borderColor": "rgba(250, 204, 21, 0.62)",
+            }
+        return {}
+
     icon = resumen.get("tiempo_icon") or "🌡️"
     estado = resumen.get("tiempo_texto") or "—"
     temp = resumen.get("temp_c")
@@ -356,6 +410,8 @@ def meteo_ahora(
                 sens_txt_h = f"{float(sens_n):.1f}°"
             except (TypeError, ValueError):
                 sens_txt_h = "—"
+            alerta_h = _temp_alerta(ts)
+            item_style = _bg_alerta((alerta_h or {}).get("level"))
             item_nodes.append(
                 html.Div(
                     children=[
@@ -364,12 +420,38 @@ def meteo_ahora(
                         html.Div(f"Sens. {sens_txt_h}", className="sira-meteo-next-sens"),
                     ],
                     className="sira-meteo-next-item",
+                    style=item_style,
+                )
+            )
+
+        resumen_alertas: list = []
+        seen = set()
+        for alerta in sorted(
+            [a for a in (alertas or []) if str(a.get("fenomeno") or "").upper() in {"AT", "BT"}],
+            key=lambda a: (-_nivel_rank(a.get("level")), str(a.get("area_desc") or "")),
+        ):
+            key = (
+                str(alerta.get("level") or "").lower(),
+                str(alerta.get("area_desc") or ""),
+                str(alerta.get("parametro") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            nivel_txt = str(alerta.get("level") or "").upper()
+            zona = str(alerta.get("area_desc") or "Zona AEMET")
+            detalle = fmt_alerta_detalle(alerta)
+            resumen_alertas.append(
+                html.Div(
+                    f"{nivel_txt} · {zona} · {detalle}",
+                    className="sira-meteo-alerta-linea",
                 )
             )
 
         next_nodes = [
             html.Div("Próx. horas — AEMET (temperatura)", className="sira-meteo-next-title"),
             html.Div(item_nodes, className="sira-meteo-next-grid"),
+            html.Div(resumen_alertas, className="sira-meteo-alertas-list") if resumen_alertas else None,
         ]
     return html.Div(
         className="sira-meteo-ahora",

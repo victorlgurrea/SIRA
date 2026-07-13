@@ -415,6 +415,19 @@ body {
   margin-top: 0.05rem;
 }
 
+.sira-meteo-alertas-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  margin-top: 0.35rem;
+}
+
+.sira-meteo-alerta-linea {
+  font-size: 0.68rem;
+  color: #cbd5e1;
+  line-height: 1.25;
+}
+
 .sira-meteo-viento-label {
   color: var(--sira-muted);
 }

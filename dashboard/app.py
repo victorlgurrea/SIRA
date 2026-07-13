@@ -1398,6 +1398,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
                 res_met,
                 met.get("proximas_horas", []),
                 fuente=met.get("fuente"),
+                alertas=alertas_meteo,
             ),
             f"Según {met.get('fuente', '—')} · {loc_label}",
             "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
