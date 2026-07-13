@@ -7,7 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_aemet_zonas import aviso_maximo_zona, zonas_ccaa  # noqa: E402
+from geo_aemet_zonas import aviso_maximo_zona, fenomeno_aplica_zona, zonas_ccaa  # noqa: E402
+from geo_aemet_zonas import _aviso_coincide_zona  # noqa: E402
 
 
 def test_zonas_ccaa_valencia_tiene_tres_provincias():
@@ -26,9 +27,10 @@ def test_zonas_ccaa_andalucia_amplia():
 
 def test_aviso_maximo_zona_por_codigo():
     zonas = zonas_ccaa("46")
-    zona = next(z for z in zonas if z["id"])
+    zona = next(z for z in zonas if z["id"] and not z.get("costera"))
     aviso = {
         "level": "naranja",
+        "fenomeno": "AT",
         "zona": zona["id"],
         "area_desc": zona["nombre"],
         "fenomeno_desc": "temperatura maxima",
@@ -38,3 +40,64 @@ def test_aviso_maximo_zona_por_codigo():
     mejor = aviso_maximo_zona(zona, [aviso])
     assert mejor is not None
     assert mejor["level"] == "naranja"
+
+
+def test_aviso_temperatura_no_pinta_zona_costera():
+    zonas = zonas_ccaa("41")
+    costa = next(z for z in zonas if z.get("costera"))
+    aviso_at = {
+        "level": "amarillo",
+        "fenomeno": "AT",
+        "zona": costa["id"],
+        "area_desc": costa["nombre"],
+        "fenomeno_desc": "temperatura maxima",
+    }
+    assert aviso_maximo_zona(costa, [aviso_at]) is None
+    assert fenomeno_aplica_zona("AT", costa) is False
+    assert fenomeno_aplica_zona("CO", costa) is True
+
+
+def test_aviso_costero_pinta_zona_mar():
+    zonas = zonas_ccaa("41")
+    costa = next(z for z in zonas if z.get("costera"))
+    aviso_co = {
+        "level": "amarillo",
+        "fenomeno": "CO",
+        "zona": costa["id"],
+        "area_desc": costa["nombre"],
+        "fenomeno_desc": "fenomeno costero",
+    }
+    mejor = aviso_maximo_zona(costa, [aviso_co])
+    assert mejor is not None
+    assert mejor["fenomeno"] == "CO"
+
+
+def test_aviso_litoral_tierra_no_matchea_poligono_mar():
+    zonas = zonas_ccaa("46")
+    costa = next(z for z in zonas if z.get("costera"))
+    tierra = next(
+        z for z in zonas
+        if not z.get("costera") and "litoral" in (z.get("nombre") or "").lower()
+    )
+    aviso_tierra = {
+        "level": "amarillo",
+        "fenomeno": "AT",
+        "zona": tierra["id"],
+        "area_desc": tierra["nombre"],
+    }
+    assert _aviso_coincide_zona(aviso_tierra, tierra)
+    assert not _aviso_coincide_zona(aviso_tierra, costa)
+    assert aviso_maximo_zona(costa, [aviso_tierra]) is None
+
+
+def test_aviso_costero_no_pinta_zona_tierra():
+    zonas = zonas_ccaa("41")
+    tierra = next(z for z in zonas if not z.get("costera"))
+    aviso_co = {
+        "level": "amarillo",
+        "fenomeno": "CO",
+        "zona": tierra["id"],
+        "area_desc": tierra["nombre"],
+        "fenomeno_desc": "fenomeno costero",
+    }
+    assert aviso_maximo_zona(tierra, [aviso_co]) is None

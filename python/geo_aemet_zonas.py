@@ -41,9 +41,22 @@ NIVEL_COLOR: dict[str, str] = {
     "rojo": "rgba(244, 67, 54, 0.72)",
 }
 NIVEL_ORDEN = {"amarillo": 1, "naranja": 2, "rojo": 3}
+# Fenómenos que pueden colorear polígonos marítimos (shapefile costeras).
+FENOMENOS_ZONA_COSTERA = frozenset({"CO", "RI", "GA"})
+# En tierra no pintar avisos exclusivos de mar (oleaje, rissaga…).
+FENOMENOS_EXCLUIDOS_TIERRA = frozenset({"CO", "RI"})
 SIN_AVISO_FILL = "rgba(180, 186, 195, 0.18)"
+# Opaco: tapa el color de avisos terrestres que se cuela bajo polígonos marítimos.
+SIN_AVISO_COSTA_FILL = "rgba(238, 241, 245, 0.98)"
 SIN_AVISO_LINE = "rgba(90, 98, 110, 0.55)"
+SIN_AVISO_COSTA_LINE = "rgba(120, 140, 160, 0.55)"
 AVISO_LINE = "rgba(55, 65, 81, 0.75)"
+
+
+def es_zona_costera(zona: dict) -> bool:
+    if zona.get("costera"):
+        return True
+    return str(zona.get("id") or "").strip().upper().endswith("C")
 
 
 def _norm(text: str | None) -> str:
@@ -114,15 +127,36 @@ def zonas_ccaa(provincia_id: str | None) -> list[dict]:
     return [z for z in zonas if str(z.get("ccaa_id") or "") == ccaa_aemet]
 
 
+def zonas_ccaa_pintado(provincia_id: str | None) -> list[dict]:
+    """Zonas ordenadas: tierra primero, mar encima (enmascara sangrado de avisos terrestres)."""
+    return sorted(zonas_ccaa(provincia_id), key=es_zona_costera)
+
+
 def _aviso_coincide_zona(aviso: dict, zona: dict) -> bool:
     cod_zona = str(aviso.get("zona") or "").strip()
-    if cod_zona and cod_zona == str(zona.get("id") or "").strip():
+    zona_id = str(zona.get("id") or "").strip()
+    if cod_zona and zona_id and cod_zona == zona_id:
         return True
     area = _norm(aviso.get("area_desc"))
     nombre = _norm(zona.get("nombre"))
-    if area and nombre and (area == nombre or area in nombre or nombre in area):
-        return True
-    return False
+    if not area or not nombre:
+        return False
+    if es_zona_costera(zona):
+        # Polígono marítimo: solo nombre exacto (no heredar avisos de zona litoral terrestre).
+        return area == nombre
+    if nombre.startswith("costa "):
+        return area == nombre
+    return area == nombre or area in nombre or nombre in area
+
+
+def fenomeno_aplica_zona(fenomeno: str | None, zona: dict) -> bool:
+    """True si el fenómeno CAP puede colorear este polígono (tierra vs mar)."""
+    fen = str(fenomeno or "").upper().strip()
+    if not fen:
+        return False
+    if es_zona_costera(zona):
+        return fen in FENOMENOS_ZONA_COSTERA
+    return fen not in FENOMENOS_EXCLUIDOS_TIERRA
 
 
 def aviso_maximo_zona(zona: dict, alertas: list[dict]) -> dict | None:
@@ -134,6 +168,8 @@ def aviso_maximo_zona(zona: dict, alertas: list[dict]) -> dict | None:
             continue
         if not _aviso_coincide_zona(aviso, zona):
             continue
+        if not fenomeno_aplica_zona(aviso.get("fenomeno"), zona):
+            continue
         nivel = str(aviso.get("level") or "").lower()
         rank = NIVEL_ORDEN.get(nivel, 0)
         if rank > mejor_rank:
@@ -142,9 +178,11 @@ def aviso_maximo_zona(zona: dict, alertas: list[dict]) -> dict | None:
     return mejor
 
 
-def color_nivel(nivel: str | None) -> tuple[str, str]:
+def color_nivel(nivel: str | None, *, costera: bool = False) -> tuple[str, str]:
     """(fill, line) para una zona según nivel de aviso."""
     key = str(nivel or "").lower()
     if key in NIVEL_COLOR:
         return NIVEL_COLOR[key], AVISO_LINE
+    if costera:
+        return SIN_AVISO_COSTA_FILL, SIN_AVISO_COSTA_LINE
     return SIN_AVISO_FILL, SIN_AVISO_LINE

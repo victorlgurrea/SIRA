@@ -44,7 +44,7 @@ from config import (  # noqa: E402
 from db import count_subscriptions, get_historial_municipio
 from core import fmt_ingesta_local, read_dashboard  # noqa: E402
 from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias, anadir_costa_ign
-from geo_aemet_zonas import aviso_maximo_zona, color_nivel, zonas_ccaa
+from geo_aemet_zonas import aviso_maximo_zona, color_nivel, es_zona_costera, zonas_ccaa_pintado
 from geo_es import (
     coords_observacion,
     localidades,
@@ -1112,10 +1112,11 @@ def _add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]
     """Capa estilo AEMET: zonas Meteoalerta oficiales coloreadas por aviso CAP."""
     from aemet_alerts import fmt_alerta_detalle
 
-    for zona in zonas_ccaa(provincia_id):
+    for zona in zonas_ccaa_pintado(provincia_id):
         aviso = aviso_maximo_zona(zona, alertas)
         nivel = str((aviso or {}).get("level") or "").lower()
-        fill, line_color = color_nivel(nivel if aviso else None)
+        es_costa = es_zona_costera(zona)
+        fill, line_color = color_nivel(nivel if aviso else None, costera=es_costa)
         nombre = str(zona.get("nombre") or zona.get("id") or "Zona AEMET")
         if aviso:
             nivel_txt = nivel.upper()
