@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from dash import dcc, html
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from theme import C_CYAN, C_GREEN, C_MUTED, C_ORANGE, C_TEAL, COLORES
 
@@ -286,13 +287,18 @@ def meteo_ahora(
 ) -> html.Div:
     from aemet_alerts import fmt_alerta_detalle
 
+    _MADRID = ZoneInfo("Europe/Madrid")
+
     def _parse_dt(value: str | None):
         if not value:
             return None
         try:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         except ValueError:
             return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_MADRID)
+        return dt.astimezone(timezone.utc)
 
     def _nivel_rank(level: str | None) -> int:
         return {"amarillo": 1, "naranja": 2, "rojo": 3}.get(str(level or "").lower(), 0)
