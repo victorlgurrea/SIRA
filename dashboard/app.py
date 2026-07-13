@@ -1394,7 +1394,11 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
         ),
         card(
             "Tiempo ahora",
-            meteo_ahora(res_met),
+            meteo_ahora(
+                res_met,
+                met.get("serie_horaria", []),
+                fuente=met.get("fuente"),
+            ),
             f"Según {met.get('fuente', '—')} · {loc_label}",
             "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
             accent=C_CYAN,

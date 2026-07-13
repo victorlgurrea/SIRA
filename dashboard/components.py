@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dash import dcc, html
+from datetime import datetime
 
 from theme import C_CYAN, C_GREEN, C_MUTED, C_ORANGE, C_TEAL, COLORES
 
@@ -275,7 +276,13 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
     return html.Div(className="sira-riesgo-meteo", children=filas)
 
 
-def meteo_ahora(resumen: dict) -> html.Div:
+def meteo_ahora(
+    resumen: dict,
+    serie_horaria: list[dict] | None = None,
+    *,
+    fuente: str | None = None,
+    horas: int = 6,
+) -> html.Div:
     icon = resumen.get("tiempo_icon") or "🌡️"
     estado = resumen.get("tiempo_texto") or "—"
     temp = resumen.get("temp_c")
@@ -322,7 +329,53 @@ def meteo_ahora(resumen: dict) -> html.Div:
         html.Div(f"Humedad relativa: {hum_txt}%", className="sira-meteo-extra"),
         html.Div(viento_txt, className="sira-meteo-viento"),
     ]
-    return html.Div(className="sira-meteo-ahora", children=[
-        html.Span(icon, className="sira-meteo-icon", title=estado),
-        html.Div(className="sira-meteo-body", children=cuerpo),
-    ])
+
+    # Predicción “próximas horas” (AEMET): en SIRA la serie horaria viene
+    # principalmente con precipitación y probabilidad.
+    next_nodes: list = []
+    if (serie_horaria or []) and (str(fuente or "").upper() == "AEMET"):
+        # Tomamos las primeras “horas” como aproximación (la serie suele venir ordenada).
+        serie_ok = [r for r in serie_horaria if isinstance(r, dict) and r.get("timestamp")]
+        serie_ok = serie_ok[:max(1, int(horas))]
+
+        item_nodes: list = []
+        for i, row in enumerate(serie_ok):
+            ts = str(row.get("timestamp") or "")
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                hora_txt = "Ahora" if i == 0 else dt.strftime("%H:%M")
+            except ValueError:
+                hora_txt = "Ahora" if i == 0 else "—"
+            prob = row.get("prob_precip_pct")
+            mm = row.get("precip_mm")
+            prob_txt = f"{int(prob)}%" if prob is not None else "—"
+            # Si AEMET no trae mm o viene como None, lo mostramos como —
+            if mm is None:
+                mm_txt = "—"
+            else:
+                try:
+                    mm_txt = f"{float(mm):.1f}mm"
+                except (TypeError, ValueError):
+                    mm_txt = "—"
+            item_nodes.append(
+                html.Div(
+                    children=[
+                        html.Div(hora_txt, className="sira-meteo-next-h"),
+                        html.Div(prob_txt, className="sira-meteo-next-prob"),
+                        html.Div(mm_txt, className="sira-meteo-next-mm"),
+                    ],
+                    className="sira-meteo-next-item",
+                )
+            )
+
+        next_nodes = [
+            html.Div("Próx. horas — AEMET", className="sira-meteo-next-title"),
+            html.Div(item_nodes, className="sira-meteo-next-grid"),
+        ]
+    return html.Div(
+        className="sira-meteo-ahora",
+        children=[
+            html.Span(icon, className="sira-meteo-icon", title=estado),
+            html.Div(className="sira-meteo-body", children=cuerpo + next_nodes),
+        ],
+    )

@@ -372,6 +372,49 @@ body {
   line-height: 1.35;
 }
 
+.sira-meteo-next-title {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--sira-help);
+  font-weight: 600;
+}
+
+.sira-meteo-next-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.sira-meteo-next-item {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.35rem;
+  background: rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+}
+
+.sira-meteo-next-h {
+  font-size: 0.7rem;
+  color: #cbd5e1;
+  line-height: 1.1;
+}
+
+.sira-meteo-next-prob {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--sira-cyan);
+  line-height: 1.2;
+  margin-top: 0.15rem;
+}
+
+.sira-meteo-next-mm {
+  font-size: 0.7rem;
+  color: var(--sira-help);
+  line-height: 1.2;
+  margin-top: 0.05rem;
+}
+
 .sira-meteo-viento-label {
   color: var(--sira-muted);
 }
