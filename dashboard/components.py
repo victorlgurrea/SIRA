@@ -278,7 +278,7 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
 
 def meteo_ahora(
     resumen: dict,
-    serie_horaria: list[dict] | None = None,
+    proximas_horas: list[dict] | None = None,
     *,
     fuente: str | None = None,
     horas: int = 6,
@@ -330,12 +330,11 @@ def meteo_ahora(
         html.Div(viento_txt, className="sira-meteo-viento"),
     ]
 
-    # Predicción “próximas horas” (AEMET): en SIRA la serie horaria viene
-    # principalmente con precipitación y probabilidad.
+    # Predicción de temperatura para próximas horas (AEMET), ya filtrada
+    # desde la próxima hora local en meteo_live.
     next_nodes: list = []
-    if (serie_horaria or []) and (str(fuente or "").upper() == "AEMET"):
-        # Tomamos las primeras “horas” como aproximación (la serie suele venir ordenada).
-        serie_ok = [r for r in serie_horaria if isinstance(r, dict) and r.get("timestamp")]
+    if (proximas_horas or []) and (str(fuente or "").upper() == "AEMET"):
+        serie_ok = [r for r in proximas_horas if isinstance(r, dict) and r.get("timestamp")]
         serie_ok = serie_ok[:max(1, int(horas))]
 
         item_nodes: list = []
@@ -343,33 +342,33 @@ def meteo_ahora(
             ts = str(row.get("timestamp") or "")
             try:
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                hora_txt = "Ahora" if i == 0 else dt.strftime("%H:%M")
+                hora_txt = dt.strftime("%H:%M")
             except ValueError:
-                hora_txt = "Ahora" if i == 0 else "—"
-            prob = row.get("prob_precip_pct")
-            mm = row.get("precip_mm")
-            prob_txt = f"{int(prob)}%" if prob is not None else "—"
-            # Si AEMET no trae mm o viene como None, lo mostramos como —
-            if mm is None:
-                mm_txt = "—"
-            else:
-                try:
-                    mm_txt = f"{float(mm):.1f}mm"
-                except (TypeError, ValueError):
-                    mm_txt = "—"
+                hora_txt = "—"
+
+            temp_n = row.get("temp_c")
+            sens_n = row.get("sensacion_c")
+            try:
+                temp_txt = f"{float(temp_n):.1f}°"
+            except (TypeError, ValueError):
+                temp_txt = "—"
+            try:
+                sens_txt_h = f"{float(sens_n):.1f}°"
+            except (TypeError, ValueError):
+                sens_txt_h = "—"
             item_nodes.append(
                 html.Div(
                     children=[
                         html.Div(hora_txt, className="sira-meteo-next-h"),
-                        html.Div(prob_txt, className="sira-meteo-next-prob"),
-                        html.Div(mm_txt, className="sira-meteo-next-mm"),
+                        html.Div(temp_txt, className="sira-meteo-next-temp"),
+                        html.Div(f"Sens. {sens_txt_h}", className="sira-meteo-next-sens"),
                     ],
                     className="sira-meteo-next-item",
                 )
             )
 
         next_nodes = [
-            html.Div("Próx. horas — AEMET", className="sira-meteo-next-title"),
+            html.Div("Próx. horas — AEMET (temperatura)", className="sira-meteo-next-title"),
             html.Div(item_nodes, className="sira-meteo-next-grid"),
         ]
     return html.Div(

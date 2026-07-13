@@ -400,7 +400,7 @@ body {
   line-height: 1.1;
 }
 
-.sira-meteo-next-prob {
+.sira-meteo-next-temp {
   font-size: 0.78rem;
   font-weight: 700;
   color: var(--sira-cyan);
@@ -408,7 +408,7 @@ body {
   margin-top: 0.15rem;
 }
 
-.sira-meteo-next-mm {
+.sira-meteo-next-sens {
   font-size: 0.7rem;
   color: var(--sira-help);
   line-height: 1.2;

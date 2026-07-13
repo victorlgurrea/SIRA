@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -22,6 +24,8 @@ log = logging.getLogger(__name__)
 _AEMET_DIR_GRADOS = {
     "N": 0, "NE": 45, "E": 90, "SE": 135, "S": 180, "SO": 225, "O": 270, "NO": 315,
 }
+
+_MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 
 def _wmo_tiempo(code: int | None) -> tuple[str, str]:
@@ -103,13 +107,107 @@ def _actual_aemet(item: dict) -> dict:
     return actual_aemet_from_item(item)
 
 
-def _pack_local(fuente: str, municipio: str, serie: list[dict], actual: dict) -> dict:
+def _aemet_proximas_horas(item: dict, *, horas: int = 6) -> list[dict]:
+    """Bloque horario de temperatura AEMET desde la próxima hora local."""
+    dias = item.get("prediccion", {}).get("dia", [])
+    if not isinstance(dias, list):
+        return []
+
+    ahora = datetime.now(_MADRID_TZ)
+    corte = ahora.replace(minute=0, second=0, microsecond=0)
+    if ahora.minute or ahora.second or ahora.microsecond:
+        corte = corte + timedelta(hours=1)
+
+    out: list[dict] = []
+
+    for dia in dias:
+        if not isinstance(dia, dict):
+            continue
+        fecha = str(dia.get("fecha") or "").split("T")[0]
+        if not fecha:
+            continue
+
+        # Formato legacy: dia["hora"] con objetos por hora
+        if isinstance(dia.get("hora"), list) and dia.get("hora"):
+            for h in dia.get("hora", []):
+                if not isinstance(h, dict):
+                    continue
+                per = str(h.get("periodo") or "").strip()
+                if not per.isdigit():
+                    continue
+                dt_txt = f"{fecha}T{per.zfill(2)}:00"
+                try:
+                    dt = datetime.fromisoformat(dt_txt).replace(tzinfo=_MADRID_TZ)
+                except ValueError:
+                    continue
+                if dt < corte:
+                    continue
+                temp = _num(h.get("temperatura"), default=-999)
+                sens = _num(h.get("sensTermica"), default=-999)
+                out.append({
+                    "timestamp": dt.strftime("%Y-%m-%dT%H:%M"),
+                    "temp_c": round(temp, 1) if temp > -900 else None,
+                    "sensacion_c": round(sens, 1) if sens > -900 else None,
+                })
+        else:
+            # Formato arrays por día: temperatura/sensTermica con periodo+value
+            temp_by_h: dict[int, float | None] = {}
+            sens_by_h: dict[int, float | None] = {}
+            for t in dia.get("temperatura", []) or []:
+                if not isinstance(t, dict):
+                    continue
+                per = str(t.get("periodo") or "").strip().rstrip("nN")
+                if per.isdigit():
+                    h = int(per)
+                    if 0 <= h <= 23:
+                        v = _num(t.get("value"), default=-999)
+                        temp_by_h[h] = round(v, 1) if v > -900 else None
+            for s in dia.get("sensTermica", []) or []:
+                if not isinstance(s, dict):
+                    continue
+                per = str(s.get("periodo") or "").strip().rstrip("nN")
+                if per.isdigit():
+                    h = int(per)
+                    if 0 <= h <= 23:
+                        v = _num(s.get("value"), default=-999)
+                        sens_by_h[h] = round(v, 1) if v > -900 else None
+
+            for h in sorted(temp_by_h.keys() | sens_by_h.keys()):
+                dt_txt = f"{fecha}T{h:02d}:00"
+                try:
+                    dt = datetime.fromisoformat(dt_txt).replace(tzinfo=_MADRID_TZ)
+                except ValueError:
+                    continue
+                if dt < corte:
+                    continue
+                out.append({
+                    "timestamp": dt.strftime("%Y-%m-%dT%H:%M"),
+                    "temp_c": temp_by_h.get(h),
+                    "sensacion_c": sens_by_h.get(h),
+                })
+
+        if len(out) >= horas:
+            break
+
+    out.sort(key=lambda x: x.get("timestamp", ""))
+    return out[:horas]
+
+
+def _pack_local(
+    fuente: str,
+    municipio: str,
+    serie: list[dict],
+    actual: dict,
+    *,
+    proximas_horas: list[dict] | None = None,
+) -> dict:
     resumen = {**_resumen_lluvia(serie), **actual}
     return {
         "fuente": fuente,
         "municipio": municipio,
         "serie_horaria": serie[:48],
         "resumen": resumen,
+        "proximas_horas": proximas_horas or [],
     }
 
 
@@ -127,7 +225,13 @@ def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> d
             item = (data[0] if isinstance(data, list) else data) or {}
             serie = _parse_aemet(data)
             if serie:
-                return _pack_local("AEMET", item.get("nombre", nombre), serie, _actual_aemet(item))
+                return _pack_local(
+                    "AEMET",
+                    item.get("nombre", nombre),
+                    serie,
+                    _actual_aemet(item),
+                    proximas_horas=_aemet_proximas_horas(item, horas=6),
+                )
         except (requests.RequestException, ValueError, OSError) as exc:
             log.warning("AEMET %s: %s", codigo, exc)
 

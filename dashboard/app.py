@@ -1396,7 +1396,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
             "Tiempo ahora",
             meteo_ahora(
                 res_met,
-                met.get("serie_horaria", []),
+                met.get("proximas_horas", []),
                 fuente=met.get("fuente"),
             ),
             f"Según {met.get('fuente', '—')} · {loc_label}",
