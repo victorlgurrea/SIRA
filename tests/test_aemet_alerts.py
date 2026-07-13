@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
 from aemet_alerts import (  # noqa: E402
+    _cap_vigente,
+    _is_active,
     alerta_coincide_zona,
     meteo_push_key,
     parse_cap_xml,
@@ -100,3 +102,22 @@ def test_meteo_push_key_cambia_si_sube_nivel():
     base = parse_cap_xml(_cap_xml(area_desc="Interior de Guadalajara-Guadalajara"))[0]
     naranja = {**base, "level": "naranja"}
     assert meteo_push_key(base) != meteo_push_key(naranja)
+
+
+def test_cap_vigente_incluye_onsent_futuro_meteoalerta():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    onset = (now + timedelta(hours=36)).isoformat()
+    expires = (now + timedelta(hours=48)).isoformat()
+    assert _cap_vigente(onset, expires) is True
+    assert _is_active(onset, expires) is False
+
+
+def test_cap_vigente_excluye_caducados():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    onset = (now - timedelta(hours=10)).isoformat()
+    expires = (now - timedelta(hours=1)).isoformat()
+    assert _cap_vigente(onset, expires) is False

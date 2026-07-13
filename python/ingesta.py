@@ -166,9 +166,9 @@ def descargar_meteo() -> dict:
 def _descargar_alertas_cap() -> list[dict]:
     if not AEMET_API_KEY:
         return []
-    from aemet_alerts import fetch_active_alerts
+    from aemet_alerts import fetch_vigentes_alerts
 
-    return fetch_active_alerts(AEMET_API_KEY)
+    return fetch_vigentes_alerts(AEMET_API_KEY)
 
 
 def _fmt_error_fuente(exc: Exception) -> str:

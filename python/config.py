@@ -161,6 +161,8 @@ OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-m
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
 AEMET_MUNICIPIO = os.getenv("AEMET_MUNICIPIO", "46250")
 AEMET_PUSH_MIN_LEVEL = os.getenv("AEMET_PUSH_MIN_LEVEL", "amarillo").strip().lower()
+# Ventana de predicción Meteoalerta (avisos CAP hasta D+3 / 72 h).
+AEMET_CAP_FORECAST_HOURS = _i("AEMET_CAP_FORECAST_HOURS", "72")
 AEMET_ALERT_PHENOMENA = tuple(
     p.strip().upper()
     for p in os.getenv(

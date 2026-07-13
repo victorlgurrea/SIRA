@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
-from config import AEMET_ALERT_PHENOMENA, AEMET_PUSH_MIN_LEVEL, HTTP_TIMEOUT
+from config import AEMET_ALERT_PHENOMENA, AEMET_CAP_FORECAST_HOURS, AEMET_PUSH_MIN_LEVEL, HTTP_TIMEOUT
 from core import fetch_aemet_bytes
 
 CAP_NS = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
@@ -357,6 +357,7 @@ def _valid_level(level: str) -> bool:
 
 
 def _is_active(onset: str | None, expires: str | None) -> bool:
+    """Aviso inmediato para push: ventana corta antes del onset."""
     now = datetime.now(timezone.utc)
     d_on = _parse_iso(onset)
     d_ex = _parse_iso(expires)
@@ -367,6 +368,18 @@ def _is_active(onset: str | None, expires: str | None) -> bool:
     if d_ex and now >= d_ex:
         return False
     if d_on and d_on > now + grace:
+        return False
+    return True
+
+
+def _cap_vigente(onset: str | None, expires: str | None) -> bool:
+    """Aviso vigente para mapa/dashboard: incluye predicción Meteoalerta (hasta 72 h)."""
+    now = datetime.now(timezone.utc)
+    d_ex = _parse_iso(expires)
+    if d_ex and now >= d_ex:
+        return False
+    d_on = _parse_iso(onset)
+    if d_on and d_on > now + timedelta(hours=max(1, int(AEMET_CAP_FORECAST_HOURS))):
         return False
     return True
 
@@ -390,7 +403,11 @@ def _iter_cap_members(tar_bytes: bytes):
         yield tar_bytes
 
 
-def _alertas_desde_cap_root(root: ET.Element) -> list[dict]:
+def _alertas_desde_cap_root(
+    root: ET.Element,
+    *,
+    vigente_fn=_cap_vigente,
+) -> list[dict]:
     msg_type = (root.findtext("cap:msgType", default="", namespaces=CAP_NS) or "").lower()
     if msg_type == "cancel":
         return []
@@ -399,7 +416,7 @@ def _alertas_desde_cap_root(root: ET.Element) -> list[dict]:
         return []
     onset = info.findtext("cap:onset", default="", namespaces=CAP_NS)
     expires = info.findtext("cap:expires", default="", namespaces=CAP_NS)
-    if not _is_active(onset, expires):
+    if not vigente_fn(onset, expires):
         return []
     severity = info.findtext("cap:severity", default="", namespaces=CAP_NS)
     headline = info.findtext("cap:headline", default="", namespaces=CAP_NS) or ""
@@ -437,17 +454,16 @@ def _alertas_desde_cap_root(root: ET.Element) -> list[dict]:
     return out
 
 
-def parse_cap_xml(xml_bytes: bytes) -> list[dict]:
+def parse_cap_xml(xml_bytes: bytes, *, vigente_fn=_cap_vigente) -> list[dict]:
     """Parsea un mensaje CAP AEMET (XML) en avisos normalizados."""
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError:
         return []
-    return _alertas_desde_cap_root(root)
+    return _alertas_desde_cap_root(root, vigente_fn=vigente_fn)
 
 
-def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
-    """Devuelve avisos CAP activos y filtrados por fenómeno/nivel configurados."""
+def _fetch_cap_alerts(aemet_api_key: str, vigente_fn) -> list[dict]:
     raw = fetch_aemet_bytes("avisos_cap/ultimoelaborado/area/esp", aemet_api_key, timeout=max(45, HTTP_TIMEOUT))
     out: list[dict] = []
     for xml_bytes in _iter_cap_members(raw):
@@ -455,5 +471,15 @@ def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
             root = ET.fromstring(xml_bytes)
         except ET.ParseError:
             continue
-        out.extend(_alertas_desde_cap_root(root))
+        out.extend(_alertas_desde_cap_root(root, vigente_fn=vigente_fn))
     return out
+
+
+def fetch_vigentes_alerts(aemet_api_key: str) -> list[dict]:
+    """Avisos CAP vigentes para mapa/dashboard (predicción hasta 72 h)."""
+    return _fetch_cap_alerts(aemet_api_key, _cap_vigente)
+
+
+def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
+    """Avisos CAP inmediatos para notificaciones push (onset ≤ 3 h)."""
+    return _fetch_cap_alerts(aemet_api_key, _is_active)

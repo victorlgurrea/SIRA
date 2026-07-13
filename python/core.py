@@ -141,9 +141,9 @@ def _live_meteo_alerts() -> list[dict]:
     if now - float(_meteo_live_cache.get("at", 0)) < ttl_sec:
         return list(_meteo_live_cache.get("alerts", []))
     try:
-        from aemet_alerts import fetch_active_alerts
+        from aemet_alerts import fetch_vigentes_alerts
 
-        alerts = fetch_active_alerts(AEMET_API_KEY)
+        alerts = fetch_vigentes_alerts(AEMET_API_KEY)
         _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_CACHE_SEC)
     except Exception as exc:  # noqa: BLE001
         if _is_http_429(exc):

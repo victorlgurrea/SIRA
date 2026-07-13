@@ -132,12 +132,20 @@ def zonas_ccaa_pintado(provincia_id: str | None) -> list[dict]:
     return sorted(zonas_ccaa(provincia_id), key=es_zona_costera)
 
 
+def _area_zona_key(text: str | None) -> str:
+    """Normaliza areaDesc CAP: «Litoral sur de Valencia-Valencia/Valencia» → zona base."""
+    area = _norm(text)
+    if "-" in area:
+        area = area.split("-", 1)[0].strip()
+    return area
+
+
 def _aviso_coincide_zona(aviso: dict, zona: dict) -> bool:
     cod_zona = str(aviso.get("zona") or "").strip()
     zona_id = str(zona.get("id") or "").strip()
     if cod_zona and zona_id and cod_zona == zona_id:
         return True
-    area = _norm(aviso.get("area_desc"))
+    area = _area_zona_key(aviso.get("area_desc"))
     nombre = _norm(zona.get("nombre"))
     if not area or not nombre:
         return False

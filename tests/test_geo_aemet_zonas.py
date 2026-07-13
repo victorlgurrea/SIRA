@@ -83,7 +83,7 @@ def test_aviso_litoral_tierra_no_matchea_poligono_mar():
         "level": "amarillo",
         "fenomeno": "AT",
         "zona": tierra["id"],
-        "area_desc": tierra["nombre"],
+        "area_desc": f"{tierra['nombre']}-Valencia/Valencia",
     }
     assert _aviso_coincide_zona(aviso_tierra, tierra)
     assert not _aviso_coincide_zona(aviso_tierra, costa)
