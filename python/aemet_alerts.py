@@ -5,7 +5,7 @@ import re
 import tarfile
 import unicodedata
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 from config import AEMET_ALERT_PHENOMENA, AEMET_CAP_FORECAST_HOURS, AEMET_PUSH_MIN_LEVEL, HTTP_TIMEOUT
@@ -354,6 +354,28 @@ def _severity_to_level(severity: str | None, fallback: str) -> str:
 
 def _valid_level(level: str) -> bool:
     return LEVEL_ORDER.get(level, 0) >= LEVEL_ORDER.get(AEMET_PUSH_MIN_LEVEL, 2)
+
+
+def alerta_intersecta_dia(alerta: dict, dia: date | None = None) -> bool:
+    """True si el aviso CAP afecta al menos un instante del día civil (Europe/Madrid)."""
+    from zoneinfo import ZoneInfo
+
+    madrid = ZoneInfo("Europe/Madrid")
+    dia = dia or datetime.now(madrid).date()
+    ini = _parse_iso(alerta.get("onset"))
+    fin = _parse_iso(alerta.get("expires"))
+    start = datetime.combine(dia, datetime.min.time(), tzinfo=madrid)
+    end = start + timedelta(days=1)
+    if fin is not None and fin <= start:
+        return False
+    if ini is not None and ini >= end:
+        return False
+    return True
+
+
+def alertas_para_dia(alertas: list[dict], dia: date | None = None) -> list[dict]:
+    """Filtra avisos que aplican a un día concreto (por defecto, hoy en Madrid)."""
+    return [a for a in alertas if isinstance(a, dict) and alerta_intersecta_dia(a, dia)]
 
 
 def _is_active(onset: str | None, expires: str | None) -> bool:

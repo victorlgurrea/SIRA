@@ -61,7 +61,7 @@ from geo_es import (
 )
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, alerta_firma, deduplicar_alertas
+from aemet_alerts import alerta_coincide_zona, alerta_firma, alertas_para_dia, deduplicar_alertas
 from costa_mapa import alertas_a_capa_costera
 from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
@@ -1109,7 +1109,7 @@ _MESES_EJE_LLUVIA = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "se
 
 
 def _add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
-    """Capa estilo AEMET: zonas Meteoalerta oficiales coloreadas por aviso CAP."""
+    """Capa estilo AEMET: zonas Meteoalerta oficiales coloreadas por aviso CAP (día actual)."""
     from aemet_alerts import fmt_alerta_detalle
 
     for zona in zonas_ccaa_pintado(provincia_id):
@@ -1123,16 +1123,20 @@ def _add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]
             fen = str(aviso.get("fenomeno_desc") or "—")
             prob = str(aviso.get("probabilidad") or "—")
             detalle = fmt_alerta_detalle(aviso)
+            vigencia = ""
+            if aviso.get("onset") or aviso.get("expires"):
+                vigencia = f"<br>Vigencia: {aviso.get('onset') or '—'} → {aviso.get('expires') or '—'}"
             hover = (
                 f"{nombre}<br>"
-                f"Nivel: {nivel_txt}<br>"
+                f"Nivel: {nivel_txt} (hoy)<br>"
                 f"Fenómeno: {fen}<br>"
                 f"Detalle: {detalle}<br>"
                 f"Probabilidad: {prob}"
+                f"{vigencia}"
                 "<extra></extra>"
             )
         else:
-            hover = f"{nombre}<br>Sin aviso activo<extra></extra>"
+            hover = f"{nombre}<br>Sin aviso para hoy<extra></extra>"
         for ring in zona.get("rings") or []:
             lats = ring.get("lat") or []
             lons = ring.get("lon") or []
@@ -1359,7 +1363,8 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
     aforos_mapa = aforos_para_mapa(aforos_all, lat_obs, lon_obs)
     alertas_fuente = _alertas_meteo_fuente(d)
     alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
-    zonas_costeras = alertas_a_capa_costera(alertas_fuente)
+    alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
+    zonas_costeras = alertas_a_capa_costera(alertas_mapa_hoy)
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
@@ -1412,7 +1417,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
     map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
     mapa = _fig_mapa(
         sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
-        alertas_fuente, embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
+        alertas_mapa_hoy, embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
         provincia_id=geo.get("provincia_id"),
     )
     lluvia = _fig_lluvia(met.get("serie_horaria", []))

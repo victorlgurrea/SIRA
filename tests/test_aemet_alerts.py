@@ -10,7 +10,9 @@ sys.path.insert(0, str(ROOT / "python"))
 from aemet_alerts import (  # noqa: E402
     _cap_vigente,
     _is_active,
+    alerta_intersecta_dia,
     alerta_coincide_zona,
+    alertas_para_dia,
     meteo_push_key,
     parse_cap_xml,
     texto_push_meteo,
@@ -121,3 +123,20 @@ def test_cap_vigente_excluye_caducados():
     onset = (now - timedelta(hours=10)).isoformat()
     expires = (now - timedelta(hours=1)).isoformat()
     assert _cap_vigente(onset, expires) is False
+
+
+def test_alerta_intersecta_dia():
+    from datetime import date
+
+    alerta_hoy = {
+        "onset": "2026-07-14T13:00:00+02:00",
+        "expires": "2026-07-14T20:59:59+02:00",
+    }
+    alerta_manana = {
+        "onset": "2026-07-15T13:00:00+02:00",
+        "expires": "2026-07-15T20:59:59+02:00",
+    }
+    dia = date(2026, 7, 14)
+    assert alerta_intersecta_dia(alerta_hoy, dia) is True
+    assert alerta_intersecta_dia(alerta_manana, dia) is False
+    assert len(alertas_para_dia([alerta_hoy, alerta_manana], dia)) == 1

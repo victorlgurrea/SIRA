@@ -101,3 +101,43 @@ def test_aviso_costero_no_pinta_zona_tierra():
         "fenomeno_desc": "fenomeno costero",
     }
     assert aviso_maximo_zona(tierra, [aviso_co]) is None
+
+
+def test_aviso_maximo_zona_respeta_dia_no_mezcla_manana():
+    from datetime import date
+
+    from aemet_alerts import alertas_para_dia  # noqa: E402
+
+    zonas = zonas_ccaa("46")
+    zona_int = next(z for z in zonas if str(z.get("id")) == "774601")
+    zona_lit = next(z for z in zonas if str(z.get("id")) == "774602")
+    alertas = [
+        {
+            "level": "amarillo",
+            "fenomeno": "AT",
+            "zona": "774601",
+            "area_desc": "Interior norte de Valencia",
+            "onset": "2026-07-14T13:00:00+02:00",
+            "expires": "2026-07-14T20:59:59+02:00",
+        },
+        {
+            "level": "naranja",
+            "fenomeno": "AT",
+            "zona": "774601",
+            "area_desc": "Interior norte de Valencia",
+            "onset": "2026-07-15T13:00:00+02:00",
+            "expires": "2026-07-15T20:59:59+02:00",
+        },
+        {
+            "level": "naranja",
+            "fenomeno": "AT",
+            "zona": "774602",
+            "area_desc": "Litoral norte de Valencia",
+            "onset": "2026-07-15T13:00:00+02:00",
+            "expires": "2026-07-15T20:59:59+02:00",
+        },
+    ]
+    hoy = alertas_para_dia(alertas, dia=date(2026, 7, 14))
+    assert aviso_maximo_zona(zona_int, hoy)["level"] == "amarillo"
+    assert aviso_maximo_zona(zona_lit, hoy) is None
+    assert aviso_maximo_zona(zona_int, alertas)["level"] == "naranja"
