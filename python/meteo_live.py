@@ -107,6 +107,44 @@ def _actual_aemet(item: dict) -> dict:
     return actual_aemet_from_item(item)
 
 
+def _proximas_horas_desde_serie(serie: list[dict], *, horas: int = 6) -> list[dict]:
+    """Próximas horas con temperatura desde una serie horaria normalizada."""
+    ahora = datetime.now(_MADRID_TZ)
+    corte = ahora.replace(minute=0, second=0, microsecond=0)
+    if ahora.minute or ahora.second or ahora.microsecond:
+        corte = corte + timedelta(hours=1)
+
+    out: list[dict] = []
+    for row in sorted(serie, key=lambda x: str(x.get("timestamp") or "")):
+        if not isinstance(row, dict):
+            continue
+        ts = str(row.get("timestamp") or "")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_MADRID_TZ)
+            else:
+                dt = dt.astimezone(_MADRID_TZ)
+        except ValueError:
+            continue
+        if dt < corte:
+            continue
+        temp = row.get("temp_c")
+        sens = row.get("sensacion_c")
+        if temp is None and sens is None:
+            continue
+        out.append({
+            "timestamp": dt.strftime("%Y-%m-%dT%H:%M"),
+            "temp_c": round(float(temp), 1) if temp is not None else None,
+            "sensacion_c": round(float(sens), 1) if sens is not None else None,
+        })
+        if len(out) >= horas:
+            break
+    return out
+
+
 def _aemet_proximas_horas(item: dict, *, horas: int = 6) -> list[dict]:
     """Bloque horario de temperatura AEMET desde la próxima hora local."""
     dias = item.get("prediccion", {}).get("dia", [])
@@ -225,12 +263,15 @@ def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> d
             item = (data[0] if isinstance(data, list) else data) or {}
             serie = _parse_aemet(data)
             if serie:
+                prox = _aemet_proximas_horas(item, horas=6)
+                if not prox:
+                    prox = _proximas_horas_desde_serie(serie, horas=6)
                 return _pack_local(
                     "AEMET",
                     item.get("nombre", nombre),
                     serie,
                     _actual_aemet(item),
-                    proximas_horas=_aemet_proximas_horas(item, horas=6),
+                    proximas_horas=prox,
                 )
         except (requests.RequestException, ValueError, OSError) as exc:
             log.warning("AEMET %s: %s", codigo, exc)
@@ -241,15 +282,30 @@ def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> d
             "latitude": lat,
             "longitude": lon,
             "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m",
-            "hourly": "precipitation,precipitation_probability",
+            "hourly": "temperature_2m,apparent_temperature,precipitation,precipitation_probability",
             "wind_speed_unit": "ms",
             "timezone": "Europe/Madrid",
             "forecast_days": FORECAST_DAYS,
         })
-        serie = _hourly(data, {"precip_mm": "precipitation", "prob_precip_pct": "precipitation_probability"})
+        serie = _hourly(data, {
+            "temp_c": "temperature_2m",
+            "sensacion_c": "apparent_temperature",
+            "precip_mm": "precipitation",
+            "prob_precip_pct": "precipitation_probability",
+        })
         for row in serie:
-            row["precip_mm"] = row["precip_mm"] or 0.0
-        return _pack_local("Open-Meteo", nombre, serie, _actual_openmeteo(data))
+            row["precip_mm"] = row.get("precip_mm") or 0.0
+            if row.get("temp_c") is not None:
+                row["temp_c"] = round(float(row["temp_c"]), 1)
+            if row.get("sensacion_c") is not None:
+                row["sensacion_c"] = round(float(row["sensacion_c"]), 1)
+        return _pack_local(
+            "Open-Meteo",
+            nombre,
+            serie,
+            _actual_openmeteo(data),
+            proximas_horas=_proximas_horas_desde_serie(serie, horas=6),
+        )
     except (requests.RequestException, ValueError, OSError) as exc:
         log.warning("Open-Meteo %s: %s", codigo, exc)
         return VACIO_METEO

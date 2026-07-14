@@ -462,13 +462,11 @@ def meteo_ahora(
         html.Div(viento_txt, className="sira-meteo-viento"),
     ]
 
-    # Predicción de temperatura para próximas horas (AEMET), ya filtrada
-    # desde la próxima hora local en meteo_live.
+    # Predicción de temperatura para próximas horas (AEMET / Open-Meteo).
     next_nodes: list = []
-    if (proximas_horas or []) and (str(fuente or "").upper() == "AEMET"):
-        serie_ok = [r for r in proximas_horas if isinstance(r, dict) and r.get("timestamp")]
-        serie_ok = serie_ok[:max(1, int(horas))]
-
+    serie_ok = [r for r in (proximas_horas or []) if isinstance(r, dict) and r.get("timestamp")]
+    serie_ok = serie_ok[:max(1, int(horas))]
+    if serie_ok:
         item_nodes: list = []
         for i, row in enumerate(serie_ok):
             ts = str(row.get("timestamp") or "")
@@ -519,7 +517,10 @@ def meteo_ahora(
             )
 
         next_nodes = [
-            html.Div("Próx. horas — AEMET (temperatura)", className="sira-meteo-next-title"),
+            html.Div(
+                f"Próx. horas — {str(fuente or '—').strip()} (temperatura)",
+                className="sira-meteo-next-title",
+            ),
             html.Div(item_nodes, className="sira-meteo-next-grid"),
             html.Div(resumen_alertas, className="sira-meteo-alertas-list") if resumen_alertas else None,
         ]
