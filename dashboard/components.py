@@ -277,6 +277,78 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
     return html.Div(className="sira-riesgo-meteo", children=filas)
 
 
+def _zona_alerta_corta(area_desc: str | None) -> str:
+    """«Litoral sur de Valencia-Valencia/Valencia» → «Litoral sur de Valencia»."""
+    txt = str(area_desc or "").strip()
+    if "-" in txt:
+        txt = txt.split("-", 1)[0].strip()
+    return txt or "Zona AEMET"
+
+
+def _detalle_alerta_tiempo(alerta: dict, fmt_detalle) -> tuple[str, str]:
+    """(detalle corto, texto adicional) a partir del aviso CAP."""
+    full = str(fmt_detalle(alerta) or "").strip()
+    if not full:
+        return "", ""
+    if ". " in full:
+        corto, extra = full.split(". ", 1)
+        return corto.strip(), extra.strip()
+    return full, ""
+
+
+def _agrupar_resumen_alertas_tiempo(
+    alertas: list[dict] | None,
+    timestamps: list[str],
+    *,
+    parse_dt,
+    nivel_rank,
+    fmt_detalle,
+) -> list[tuple[str, str, str]]:
+    """Agrupa avisos térmicos: una línea por nivel+detalle, zonas unidas."""
+    if not alertas:
+        return []
+
+    def _vigente_en_serie(alerta: dict) -> bool:
+        if not timestamps:
+            return True
+        ini = parse_dt(alerta.get("onset"))
+        fin = parse_dt(alerta.get("expires"))
+        for ts in timestamps:
+            t = parse_dt(ts)
+            if t is None:
+                continue
+            if ini and t < ini:
+                continue
+            if fin and t > fin:
+                continue
+            return True
+        return False
+
+    grupos: dict[tuple[str, str, str], list[str]] = {}
+    for alerta in alertas:
+        if str(alerta.get("fenomeno") or "").upper() not in {"AT", "BT"}:
+            continue
+        if not _vigente_en_serie(alerta):
+            continue
+        nivel = str(alerta.get("level") or "").lower()
+        corto, extra = _detalle_alerta_tiempo(alerta, fmt_detalle)
+        if not corto:
+            continue
+        zona = _zona_alerta_corta(alerta.get("area_desc"))
+        key = (nivel, corto, extra)
+        bucket = grupos.setdefault(key, [])
+        if zona not in bucket:
+            bucket.append(zona)
+
+    lineas: list[tuple[str, str, str]] = []
+    for (nivel, corto, extra), zonas in grupos.items():
+        zonas_txt = ", ".join(sorted(zonas, key=str.lower))
+        lineas.append((nivel, zonas_txt, corto if not extra else f"{corto}. {extra}"))
+
+    lineas.sort(key=lambda row: (-nivel_rank(row[0]), row[1].lower()))
+    return lineas
+
+
 def meteo_ahora(
     resumen: dict,
     proximas_horas: list[dict] | None = None,
@@ -431,25 +503,17 @@ def meteo_ahora(
             )
 
         resumen_alertas: list = []
-        seen = set()
-        for alerta in sorted(
-            [a for a in (alertas or []) if str(a.get("fenomeno") or "").upper() in {"AT", "BT"}],
-            key=lambda a: (-_nivel_rank(a.get("level")), str(a.get("area_desc") or "")),
+        timestamps = [str(r.get("timestamp") or "") for r in serie_ok if r.get("timestamp")]
+        for nivel, zonas_txt, detalle in _agrupar_resumen_alertas_tiempo(
+            alertas,
+            timestamps,
+            parse_dt=_parse_dt,
+            nivel_rank=_nivel_rank,
+            fmt_detalle=fmt_alerta_detalle,
         ):
-            key = (
-                str(alerta.get("level") or "").lower(),
-                str(alerta.get("area_desc") or ""),
-                str(alerta.get("parametro") or ""),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            nivel_txt = str(alerta.get("level") or "").upper()
-            zona = str(alerta.get("area_desc") or "Zona AEMET")
-            detalle = fmt_alerta_detalle(alerta)
             resumen_alertas.append(
                 html.Div(
-                    f"{nivel_txt} · {zona} · {detalle}",
+                    f"{nivel.upper()} · {zonas_txt} · {detalle}",
                     className="sira-meteo-alerta-linea",
                 )
             )
