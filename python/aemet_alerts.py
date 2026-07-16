@@ -9,7 +9,14 @@ from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 from config import AEMET_ALERT_PHENOMENA, AEMET_CAP_FORECAST_HOURS, AEMET_PUSH_MIN_LEVEL, HTTP_TIMEOUT
-from core import fetch_aemet_bytes
+from core import fetch_aemet_bytes, fetch_bytes, fetch_text
+
+import logging
+
+log = logging.getLogger(__name__)
+
+ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+AEMET_ATOM_ESP = "https://www.aemet.es/documentos_d/eltiempo/prediccion/avisos/rss/CAP_AFAE_ATOM.xml"
 
 CAP_NS = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
 SEV_TO_COLOR = {
@@ -485,8 +492,7 @@ def parse_cap_xml(xml_bytes: bytes, *, vigente_fn=_cap_vigente) -> list[dict]:
     return _alertas_desde_cap_root(root, vigente_fn=vigente_fn)
 
 
-def _fetch_cap_alerts(aemet_api_key: str, vigente_fn) -> list[dict]:
-    raw = fetch_aemet_bytes("avisos_cap/ultimoelaborado/area/esp", aemet_api_key, timeout=max(45, HTTP_TIMEOUT))
+def _alertas_desde_tar(raw: bytes, vigente_fn) -> list[dict]:
     out: list[dict] = []
     for xml_bytes in _iter_cap_members(raw):
         try:
@@ -497,11 +503,70 @@ def _fetch_cap_alerts(aemet_api_key: str, vigente_fn) -> list[dict]:
     return out
 
 
-def fetch_vigentes_alerts(aemet_api_key: str) -> list[dict]:
+def _tar_url_desde_atom(atom_xml: bytes) -> str | None:
+    """Primera entrada Atom = tar.gz con el estado completo de avisos."""
+    try:
+        root = ET.fromstring(atom_xml)
+    except ET.ParseError:
+        return None
+    for entry in root.findall("atom:entry", ATOM_NS):
+        link = entry.find("atom:link", ATOM_NS)
+        href = (link.get("href") if link is not None else "") or ""
+        if href.lower().endswith(".tar.gz"):
+            return href
+        # Algunas entradas usan <link>texto</link> sin href
+        if link is not None and not href and (link.text or "").lower().endswith(".tar.gz"):
+            return str(link.text).strip()
+    return None
+
+
+def _fetch_cap_opendata(aemet_api_key: str, vigente_fn) -> list[dict]:
+    if not aemet_api_key:
+        raise ValueError("AEMET_API_KEY no configurada")
+    raw = fetch_aemet_bytes("avisos_cap/ultimoelaborado/area/esp", aemet_api_key, timeout=max(45, HTTP_TIMEOUT))
+    return _alertas_desde_tar(raw, vigente_fn)
+
+
+def _fetch_cap_atom(vigente_fn) -> list[dict]:
+    """Fallback público: Atom AEMET → tar.gz CAP (sin API key)."""
+    atom_xml = fetch_text(AEMET_ATOM_ESP).encode("utf-8")
+    tar_url = _tar_url_desde_atom(atom_xml)
+    if not tar_url:
+        raise ValueError("Atom AEMET sin enlace tar.gz de avisos")
+    raw = fetch_bytes(tar_url, timeout=max(45, HTTP_TIMEOUT))
+    return _alertas_desde_tar(raw, vigente_fn)
+
+
+def _fetch_cap_alerts(aemet_api_key: str | None, vigente_fn) -> list[dict]:
+    """OpenData CAP; si falla (404/429/etc.), Atom público de AEMET."""
+    errors: list[str] = []
+    if aemet_api_key:
+        try:
+            out = _fetch_cap_opendata(aemet_api_key, vigente_fn)
+            if out:
+                return out
+            errors.append("OpenData CAP vacío")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"OpenData: {exc}")
+            log.warning("AEMET OpenData CAP falló, intento Atom: %s", exc)
+    else:
+        errors.append("sin AEMET_API_KEY")
+    try:
+        out = _fetch_cap_atom(vigente_fn)
+        if out:
+            return out
+        errors.append("Atom CAP vacío")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"Atom: {exc}")
+        log.warning("AEMET Atom CAP falló: %s", exc)
+    raise RuntimeError("No se pudieron obtener avisos CAP (" + "; ".join(errors) + ")")
+
+
+def fetch_vigentes_alerts(aemet_api_key: str | None = None) -> list[dict]:
     """Avisos CAP vigentes para mapa/dashboard (predicción hasta 72 h)."""
     return _fetch_cap_alerts(aemet_api_key, _cap_vigente)
 
 
-def fetch_active_alerts(aemet_api_key: str) -> list[dict]:
+def fetch_active_alerts(aemet_api_key: str | None = None) -> list[dict]:
     """Avisos CAP inmediatos para notificaciones push (onset ≤ 3 h)."""
     return _fetch_cap_alerts(aemet_api_key, _is_active)

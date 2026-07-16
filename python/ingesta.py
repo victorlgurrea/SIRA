@@ -164,11 +164,9 @@ def descargar_meteo() -> dict:
 
 
 def _descargar_alertas_cap() -> list[dict]:
-    if not AEMET_API_KEY:
-        return []
     from aemet_alerts import fetch_vigentes_alerts
 
-    return fetch_vigentes_alerts(AEMET_API_KEY)
+    return fetch_vigentes_alerts(AEMET_API_KEY or None)
 
 
 def _fmt_error_fuente(exc: Exception) -> str:
@@ -191,9 +189,9 @@ def ejecutar_ingesta():
     try:
         alertas_cap = _descargar_alertas_cap()
         fuentes_estado["aemet_cap"] = {
-            "ok": bool(AEMET_API_KEY),
+            "ok": True,
             "registros": len(alertas_cap),
-            "error": None if AEMET_API_KEY else "AEMET_API_KEY no configurada",
+            "error": None if alertas_cap else "Sin avisos CAP vigentes",
         }
     except Exception as exc:  # noqa: BLE001
         fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": _fmt_error_fuente(exc)}

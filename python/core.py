@@ -84,6 +84,14 @@ def fetch_aemet_bytes(path: str, api_key: str, *, timeout: int | None = None) ->
     return r.content
 
 
+def fetch_bytes(url: str, *, timeout: int | None = None) -> bytes:
+    """Descarga binaria de un host permitido (p. ej. tar.gz CAP de www.aemet.es)."""
+    _check_url(url)
+    r = requests.get(url, timeout=timeout or HTTP_TIMEOUT, allow_redirects=False)
+    r.raise_for_status()
+    return r.content
+
+
 def post_json(url: str, body: dict) -> dict:
     _check_url(url)
     r = requests.post(url, json=body, timeout=HTTP_TIMEOUT, allow_redirects=False)
@@ -134,8 +142,6 @@ def _is_http_429(exc: Exception) -> bool:
 
 def _live_meteo_alerts() -> list[dict]:
     """Avisos AEMET activos (CAP), con caché breve para no saturar la API."""
-    if not AEMET_API_KEY:
-        return []
     now = time.monotonic()
     ttl_sec = float(_meteo_live_cache.get("ttl_sec", METEO_LIVE_CACHE_SEC))
     if now - float(_meteo_live_cache.get("at", 0)) < ttl_sec:
@@ -143,7 +149,7 @@ def _live_meteo_alerts() -> list[dict]:
     try:
         from aemet_alerts import fetch_vigentes_alerts
 
-        alerts = fetch_vigentes_alerts(AEMET_API_KEY)
+        alerts = fetch_vigentes_alerts(AEMET_API_KEY or None)
         _meteo_live_cache["ttl_sec"] = float(METEO_LIVE_CACHE_SEC)
     except Exception as exc:  # noqa: BLE001
         if _is_http_429(exc):

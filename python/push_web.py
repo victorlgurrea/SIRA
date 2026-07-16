@@ -376,7 +376,7 @@ def send_bootstrap_meteo_for_subscription(dashboard_url: str, sub: dict) -> dict
         return {"ok": True, "enviados": 0, "motivo": "AEMET_API_KEY no configurada"}
 
     try:
-        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
     except Exception as exc:  # noqa: BLE001
         log.warning("AEMET CAP (bootstrap): %s", exc)
         avisos = []
@@ -436,7 +436,7 @@ def debug_aemet_matches(*, provincia_id: str | None = None, municipio_id: str | 
             "alertas": ["meteo"],
         }
     ]
-    avisos = fetch_active_alerts(AEMET_API_KEY) if AEMET_API_KEY else []
+    avisos = fetch_active_alerts(AEMET_API_KEY or None)
     evaluados = []
     for alerta in avisos:
         evaluados.append(
@@ -604,7 +604,7 @@ def notify_new_alerts(dashboard_url: str) -> int:
 
     if AEMET_API_KEY:
         try:
-            avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
+            avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
         except Exception as exc:  # noqa: BLE001
             log.warning("AEMET CAP: %s", exc)
             avisos = []
@@ -649,7 +649,7 @@ def notify_new_meteo_alerts(dashboard_url: str) -> int:
     prev_meteo = set(state["ids_meteo"])
 
     try:
-        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY))
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
     except Exception as exc:  # noqa: BLE001
         log.warning("AEMET CAP (meteo-only): %s", exc)
         avisos = []
