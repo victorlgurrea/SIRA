@@ -15,36 +15,28 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, card_lluvia, card_sismos_combinada, dir_compass, lluvia_embalses_valor, mag_con_riesgo, meteo_ahora, riesgo_meteo_panel
+from components import bloque, card, card_doble, card_lluvia, card_sismos_combinada, lluvia_embalses_valor, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
     API_KEY,
-    COSTERO_MAP_MAX,
     DASHBOARD_HOST,
     DASHBOARD_PORT,
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
-    AFORO_MAP_MAX,
     AFORO_RADIO_LOCAL_KM,
-    EMBALSE_MAP_MAX,
     EMBALSE_RADIO_LOCAL_KM,
     FORECAST_DAYS,
-    INCENDIO_MAP_MAX,
     INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
-    MAP_CIRCLE_POINTS,
     MARES,
-    MAPA,
     RIESGO_METEO_HORAS,
     ZONA,
 )
 from db import count_subscriptions, get_historial_municipio
 from core import fmt_ingesta_local, read_dashboard  # noqa: E402
-from geo_ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias, anadir_costa_ign
-from geo_aemet_zonas import aviso_maximo_zona, color_nivel, es_zona_costera, zonas_ccaa_pintado
 from geo_es import (
     coords_observacion,
     localidades,
@@ -53,17 +45,13 @@ from geo_es import (
     opciones,
     provincia_de_municipio,
     provincias,
-    viewport_ccaa,
     viewport_ccaa_centro,
-    viewport_fit_contenedor,
-    viewport_fit_observacion,
-    projection_scale_for_viewport,
 )
 from geo_ui import selector_geo
 from meteo_live import meteo_localidad
 from aemet_alerts import alerta_coincide_zona, alerta_firma, alertas_para_dia, deduplicar_alertas
 from costa_mapa import alertas_a_capa_costera
-from sismos import circle_disk_polygon, circle_perimeter, enriquecer_local
+from sismos import enriquecer_local
 from incendios import enriquecer_local as enriquecer_incendio_local
 from hidrologia import embalses_para_mapa, resumen_embalses
 from aforos import aforos_para_mapa, resumen_aforos
@@ -72,21 +60,20 @@ from riesgo_meteo import calcular_riesgo_meteo
 from theme import (
     C_CYAN,
     C_GREEN,
-    C_MUTED,
-    C_NAVY,
     C_ORANGE,
     C_TEAL,
-    C_TEXT,
     COLORES,
-    PLOTLY_BG,
 )
 
-SEMAFORO_COLORES = {
-    "VERDE": "#22c55e",
-    "AMARILLO": "#eab308",
-    "NARANJA": "#f97316",
-    "ROJO": "#ef4444",
-}
+from figures import (
+    fmt_sismo_fecha as _fmt_sismo_fecha,
+    fig_mapa as _fig_mapa,
+    fig_corrientes as _fig_corrientes,
+    fig_linea as _fig_linea,
+    fig_historial as _fig_historial_impl,
+    fig_lluvia as _fig_lluvia,
+    fig_termico_ccaa as _fig_termico_ccaa,
+)
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
 _LOGO_FILE = _ASSETS / "logo-sira_4.png"
@@ -223,6 +210,18 @@ app.layout = html.Div(className="sira-page", children=[
                         html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
                         html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
                         html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
+                        dcc.Checklist(
+                            id="push-prefs",
+                            options=[
+                                {"label": "Sismos", "value": "sismo"},
+                                {"label": "Meteo", "value": "meteo"},
+                                {"label": "Incendios", "value": "incendio"},
+                                {"label": "Tsunami", "value": "tsunami"},
+                            ],
+                            value=["sismo", "meteo", "incendio", "tsunami"],
+                            inline=True,
+                            className="sira-push-prefs",
+                        ),
                     ]),
                 ]),
                 html.Div(id="cards", className="sira-cards", children=[
@@ -230,9 +229,32 @@ app.layout = html.Div(className="sira-page", children=[
                 ]),
                 html.Div(className="sira-charts", children=[
                 html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
+                    html.Div(className="sira-map-layers", children=[
+                        dcc.Checklist(
+                            id="map-layers",
+                            options=[
+                                {"label": "Sismos", "value": "sismos"},
+                                {"label": "Incendios", "value": "incendios"},
+                                {"label": "Embalses", "value": "embalses"},
+                                {"label": "Aforos", "value": "aforos"},
+                                {"label": "Avisos AEMET", "value": "aemet"},
+                                {"label": "Costa/Tsunami", "value": "costa"},
+                            ],
+                            value=["sismos", "incendios", "embalses", "aforos", "aemet", "costa"],
+                            inline=True,
+                            className="sira-layer-checklist",
+                        ),
+                    ]),
                     bloque(
                         "mapa", "Mapa de riesgos — España",
                         "Avisos AEMET por zona · sismos, incendios, embalses y aforos según la localidad seleccionada.",
+                        map_chart=True, accent=C_ORANGE,
+                    ),
+                ]),
+                html.Div(className="sira-charts-row sira-charts-row--historial", children=[
+                    bloque(
+                        "termico_ccaa", "Mapa térmico — CCAA seleccionada",
+                        "Temperatura máxima prevista 24 h por provincia (precalculado en ingesta).",
                         map_chart=True, accent=C_ORANGE,
                     ),
                 ]),
@@ -318,18 +340,6 @@ def _meteo_para_geo(municipio_id: str, localidad: str | None = None) -> dict:
     return meteo_localidad(mid, localidad)
 
 
-def _es_sismo_hoy(ts) -> bool:
-    try:
-        return pd.to_datetime(ts, utc=True).date() == datetime.now(timezone.utc).date()
-    except (ValueError, TypeError):
-        return False
-
-
-def _fmt_sismo_fecha(ts) -> str:
-    try:
-        return pd.to_datetime(ts, utc=True).strftime("%d/%m/%Y %H:%M UTC")
-    except (ValueError, TypeError):
-        return "—"
 
 
 def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
@@ -422,86 +432,6 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
     )
 
 
-def _add_circulos_perceptibles(
-    fig: go.Figure,
-    rows: pd.DataFrame,
-    *,
-    legend_name: str,
-    legendgroup: str,
-    period_ms: int,
-    fill_rgb: str = "248, 113, 113",
-    border_rgb: str = "220, 38, 38",
-    radio_col: str = "radio_perceptible_km",
-    hover_label: str = "Zona perceptible",
-    show_legend: bool = True,
-) -> None:
-    """Disco + borde pulsante; animación vía pulse-map.js (meta.pulse=grow)."""
-    if rows.empty:
-        return
-    radios = (
-        rows[radio_col].tolist()
-        if radio_col in rows.columns
-        else [120.0] * len(rows)
-    )
-    for idx, row in enumerate(rows.itertuples(index=False)):
-        r = float(radios[idx]) if idx < len(radios) else 120.0
-        if r <= 0:
-            continue
-        lat0 = float(row.lat)
-        lon0 = float(row.lon)
-        mag = float(getattr(row, "magnitud", 0) or 0)
-        row_hover = getattr(row, "hover_label", None) or hover_label
-        area = getattr(row, "area_desc", "") or ""
-        if mag > 0:
-            hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>Mag {mag:.1f} · epicentro"
-            if area:
-                hover_body += f"<br>{area}"
-        elif area:
-            hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>{area}"
-        else:
-            hover_body = f"{row_hover} (hasta ~{r:.0f} km)"
-        r0 = max(r * 0.06, 3.0)
-        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r0, MAP_CIRCLE_POINTS)
-        lat_ring, lon_ring = circle_perimeter(lat0, lon0, r0, MAP_CIRCLE_POINTS)
-        pulse_meta = {
-            "center_lat": lat0,
-            "center_lon": lon0,
-            "radius_km": r,
-            "period_ms": period_ms,
-            "fill_rgb": fill_rgb,
-            "border_rgb": border_rgb,
-        }
-        fig.add_trace(
-            go.Scattergeo(
-                lat=lat_fill,
-                lon=lon_fill,
-                mode="lines",
-                name=legend_name,
-                legendgroup=legendgroup,
-                showlegend=show_legend and idx == 0,
-                fill="toself",
-                fillcolor=f"rgba({fill_rgb}, 0.08)",
-                line=dict(width=0, color="rgba(0, 0, 0, 0)"),
-                hovertemplate=hover_body + "<extra></extra>",
-                meta={**pulse_meta, "pulse": "grow", "part": "fill"},
-            )
-        )
-        fig.add_trace(
-            go.Scattergeo(
-                lat=lat_ring,
-                lon=lon_ring,
-                mode="lines",
-                name=legend_name,
-                legendgroup=legendgroup,
-                showlegend=False,
-                fill="none",
-                line=dict(width=2, color=f"rgba({border_rgb}, 0.75)"),
-                hoverinfo="skip",
-                meta={**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0},
-            )
-        )
-
-
 def _map_viewport(geo: dict | None) -> dict:
     zoom = (geo or {}).get("map_zoom")
     if zoom and zoom.get("lat_centro") is not None:
@@ -513,717 +443,8 @@ def _map_viewport(geo: dict | None) -> dict:
     return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
 
 
-def _geo_layout(
-    fig: go.Figure,
-    viewport: dict | None = None,
-    *,
-    uirevision: str = "sira-mapa",
-    estilo_aemet: bool = False,
-) -> None:
-    vp = viewport or {
-        "lat_centro": MAPA["lat_centro"],
-        "lon_centro": MAPA["lon_centro"],
-        "lat_min": MAPA["lat_min"],
-        "lat_max": MAPA["lat_max"],
-        "lon_min": MAPA["lon_min"],
-        "lon_max": MAPA["lon_max"],
-    }
-    if vp.get("centrar_obs"):
-        vp = viewport_fit_observacion(vp, aspect=2.85)
-    else:
-        vp = viewport_fit_contenedor(vp, aspect=2.85)
-    zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
-    proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
-    landcolor = "#d8dde3" if estilo_aemet else C_NAVY
-    oceancolor = "#eef1f5" if estilo_aemet else "#1e4976"
-    fig.update_geos(
-        scope="world",
-        projection_type="mercator",
-        center=dict(lat=vp["lat_centro"], lon=vp["lon_centro"]),
-        projection_scale=proj_scale,
-        lataxis_range=[vp["lat_min"], vp["lat_max"]],
-        lonaxis_range=[vp["lon_min"], vp["lon_max"]],
-        domain=dict(x=[0, 1], y=[0, 1]),
-        showland=True, landcolor=landcolor,
-        showocean=True, oceancolor=oceancolor,
-        showcountries=False,
-        showcoastlines=False,
-        resolution=110,
-    )
-    layout = dict(
-        margin=dict(t=10, b=0, l=0, r=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        autosize=True,
-        uirevision=uirevision,
-    )
-    if estilo_aemet:
-        layout.update(paper_bgcolor="#eef1f5", plot_bgcolor="#eef1f5", font=dict(color="#1f2937"))
-    else:
-        layout.update(**PLOTLY_BG)
-    fig.update_layout(**layout)
-
-
-def _add_marcador_observacion(fig: go.Figure, lat_obs: float | None, lon_obs: float | None, obs_nombre: str) -> None:
-    if lat_obs is not None and lon_obs is not None:
-        fig.add_trace(go.Scattergeo(
-            lat=[lat_obs], lon=[lon_obs], mode="markers+text",
-            text=[obs_nombre or "Ubicación"], showlegend=False,
-            marker=dict(size=11, color="#fbbf24", symbol="star", line=dict(width=1, color="white")),
-            textposition="top center",
-        ))
-
-
-def _add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name: str | None = None) -> None:
-    lat = float(inc["lat"])
-    lon = float(inc["lon"])
-    r = float(inc.get("radio_km") or 2)
-    fill_rgb = "239, 68, 68" if destacado else "249, 115, 22"
-    border_rgb = "220, 38, 38" if destacado else "234, 88, 12"
-    if destacado:
-        r_draw = max(r * 0.06, 1.5)
-        fill_op = 0.12
-        border_op = 0.75
-        pulse_meta = {
-            "center_lat": lat,
-            "center_lon": lon,
-            "radius_km": r,
-            "period_ms": 2000,
-            "fill_rgb": fill_rgb,
-            "border_rgb": border_rgb,
-        }
-        fill_meta = {**pulse_meta, "pulse": "grow", "part": "fill"}
-        border_meta = {**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0}
-    else:
-        r_draw = r
-        fill_op = 0.16
-        border_op = 1.0
-        fill_meta = None
-        border_meta = None
-    lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw, MAP_CIRCLE_POINTS)
-    lat_ring, lon_ring = circle_perimeter(lat, lon, r_draw, MAP_CIRCLE_POINTS)
-    fig.add_trace(go.Scattergeo(
-        lat=lat_fill, lon=lon_fill, mode="lines", name=legend_name or "Foco",
-        legendgroup="inc", showlegend=bool(legend_name),
-        fill="toself", fillcolor=f"rgba({fill_rgb}, {fill_op})",
-        line=dict(width=0, color="rgba(0, 0, 0, 0)"),
-        hovertemplate=(
-            f"Foco activo<br>"
-            f"Radio ~{r:.1f} km · área ~{inc.get('area_km2', '—')} km²<br>"
-            f"FRP {inc.get('frp_mw', '—')} MW · {inc.get('n_detecciones', 1)} detecciones"
-            + (" · cerca de tu zona<extra></extra>" if destacado else "<extra></extra>")
-        ),
-        meta=fill_meta,
-    ))
-    fig.add_trace(go.Scattergeo(
-        lat=lat_ring, lon=lon_ring, mode="lines", showlegend=False,
-        fill="none",
-        line=dict(width=2 if destacado else 1.6, color=f"rgba({border_rgb}, {border_op})"),
-        hoverinfo="skip",
-        meta=border_meta,
-    ))
-
-
-def _add_marcadores_embalses(fig: go.Figure, embalses: list[dict]) -> None:
-    """Puntos azules para embalses en vigilancia (no círculos de radio)."""
-    if not embalses:
-        return
-    colores = {
-        "critico": "#1d4ed8",
-        "alerta": "#2563eb",
-        "vigilancia": "#38bdf8",
-    }
-    leyenda = False
-    for emb in embalses:
-        lat = float(emb.get("lat") or 0)
-        lon = float(emb.get("lon") or 0)
-        if not lat and not lon:
-            continue
-        nivel = str(emb.get("nivel_riesgo") or "vigilancia")
-        color = colores.get(nivel, "#38bdf8")
-        size = {"critico": 13, "alerta": 11, "vigilancia": 9}.get(nivel, 9)
-        pct = emb.get("porcentaje", "—")
-        vol = emb.get("volumen_hm3", "—")
-        dist = emb.get("dist_local_km", "—")
-        fig.add_trace(go.Scattergeo(
-            lat=[lat],
-            lon=[lon],
-            mode="markers",
-            name="Embalse en vigilancia" if not leyenda else None,
-            legendgroup="embalses",
-            showlegend=not leyenda,
-            marker=dict(size=size, color=color, symbol="circle", line=dict(width=1.2, color="white")),
-            text=[emb.get("nombre", "Embalse")],
-            hovertemplate=(
-                "%{text}<br>"
-                f"Nivel: {pct}% · {vol} hm³<br>"
-                f"Riesgo: {nivel.title()}<br>"
-                f"Distancia: {dist} km"
-                "<extra></extra>"
-            ),
-        ))
-        leyenda = True
-
-
-def _add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
-    """Puntos verdes/teal para aforos CHJ con caudal en alerta."""
-    if not aforos:
-        return
-    colores = {
-        "critico": "#dc2626",
-        "alerta": "#f97316",
-        "vigilancia": "#14b8a6",
-    }
-    leyenda = False
-    for af in aforos:
-        lat = float(af.get("lat") or 0)
-        lon = float(af.get("lon") or 0)
-        if not lat and not lon:
-            continue
-        nivel = str(af.get("nivel_riesgo") or "vigilancia")
-        sin_datos = bool(af.get("sin_datos_recientes"))
-        if sin_datos:
-            color = "#f59e0b"
-            symbol = "x"
-            size = 10
-            tipo_txt = "Aforo — sensor sin datos"
-        else:
-            color = colores.get(nivel, "#14b8a6")
-            symbol = "diamond"
-            size = {"critico": 12, "alerta": 10, "vigilancia": 8}.get(nivel, 8)
-            tipo_txt = "Aforo CHJ"
-        q = af.get("caudal_m3s")
-        h = af.get("nivel_m")
-        dist = af.get("dist_local_km", "—")
-        q_txt = f"{q} m³/s" if q is not None else "—"
-        h_txt = f"{h} m" if h is not None else "—"
-        fig.add_trace(go.Scattergeo(
-            lat=[lat],
-            lon=[lon],
-            mode="markers",
-            name="Aforo CHJ en alerta" if not leyenda else None,
-            legendgroup="aforos",
-            showlegend=not leyenda,
-            marker=dict(size=size, color=color, symbol=symbol, line=dict(width=1.2, color="white")),
-            text=[af.get("nombre", "Aforo")],
-            hovertemplate=(
-                f"{tipo_txt}<br>"
-                "%{text}<br>"
-                f"Nivel: {h_txt} · Caudal: {q_txt}<br>"
-                f"Riesgo: {nivel.title()}{' · sin lectura reciente' if sin_datos else ''}<br>"
-                f"Distancia: {dist} km"
-                "<extra></extra>"
-            ),
-        ))
-        leyenda = True
-
-
-def _fig_mapa(
-    sismos: list,
-    incendios: list | None = None,
-    lat_obs: float | None = None,
-    lon_obs: float | None = None,
-    obs_nombre: str = "",
-    zonas_costeras: list | None = None,
-    alertas_meteo: list | None = None,
-    embalses_mapa: list | None = None,
-    aforos_mapa: list | None = None,
-    viewport: dict | None = None,
-    map_uirevision: str = "sira-mapa",
-    provincia_id: str | None = None,
-) -> go.Figure:
-    fig = go.Figure()
-    estilo_aemet = bool(provincia_id)
-    anadir_costa_ign(
-        fig, viewport,
-        color="#6b7280" if estilo_aemet else "#94a3b8",
-        width=0.9 if estilo_aemet else 0.8,
-    )
-    if provincia_id:
-        _add_capa_aemet_zonas(fig, str(provincia_id).zfill(2), alertas_meteo or [])
-    if estilo_aemet:
-        anadir_bordes_ccaa(
-            fig, provincia_id,
-            color_base="rgba(55, 65, 81, 0.42)",
-            width_base=1.4,
-            color_activa="rgba(17, 24, 39, 0.88)",
-            width_activa=2.6,
-        )
-        anadir_bordes_provincias(
-            fig, provincia_id,
-            color_base="rgba(75, 85, 99, 0.72)",
-            width_base=1.0,
-            color_activa="rgba(17, 24, 39, 0.95)",
-            width_activa=2.0,
-        )
-    else:
-        anadir_bordes_ccaa(fig, provincia_id)
-        anadir_bordes_provincias(fig, provincia_id)
-    df = pd.DataFrame(sismos) if sismos else pd.DataFrame()
-    hoy_df = pd.DataFrame()
-
-    if not df.empty and "nivel_local" not in df.columns:
-        df = df.copy()
-        if "nivel_alerta" in df.columns:
-            df["nivel_local"] = df["nivel_alerta"]
-        if "score_total" in df.columns:
-            df["score_local"] = df["score_total"]
-
-    if not df.empty and "es_prueba" in df.columns:
-        mask_prueba = df["es_prueba"].fillna(False)
-        df_prueba = df[mask_prueba]
-        df = df[~mask_prueba]
-    else:
-        df_prueba = pd.DataFrame()
-
-    if not df.empty and "perceptible_local" in df.columns:
-        en_mar_col = df["en_mar"].fillna(False) if "en_mar" in df.columns else False
-        perceptible_tierra = df["perceptible_local"].fillna(False)
-        tsunami_mar = (
-            df["alerta_tsunami"].fillna(False) & en_mar_col
-            if "alerta_tsunami" in df.columns
-            else False
-        )
-        hoy_col = (
-            df["timestamp"].map(_es_sismo_hoy)
-            if "timestamp" in df.columns
-            else pd.Series([False] * len(df), index=df.index)
-        )
-        radio_col = (
-            df["radio_perceptible_km"].fillna(0)
-            if "radio_perceptible_km" in df.columns
-            else pd.Series([0.0] * len(df), index=df.index)
-        )
-        hoy_tierra_zona = hoy_col & ~en_mar_col & (radio_col > 0)
-        mask_mapa = perceptible_tierra | tsunami_mar | hoy_tierra_zona
-        df_per = df[mask_mapa]
-    else:
-        df_per = df
-
-    inc_list = incendios or []
-    if inc_list:
-        leyenda_inc = False
-        for inc in sorted(inc_list, key=lambda x: (-float(x.get("frp_mw") or 0),))[:INCENDIO_MAP_MAX]:
-            _add_zona_incendio(
-                fig, inc, destacado=bool(inc.get("afecta_local")),
-                legend_name="Incendio activo" if not leyenda_inc else None,
-            )
-            leyenda_inc = True
-
-    for nivel, color in COLORES.items():
-        sub = df_per[df_per["nivel_local"] == nivel] if not df_per.empty else pd.DataFrame()
-        if sub.empty:
-            continue
-        reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
-        fechas = [_fmt_sismo_fecha(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else ["—"] * len(sub)
-        dist_loc = sub["dist_local_km"] if "dist_local_km" in sub.columns else [""] * len(sub)
-        hoy_mask = [_es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
-        base = sub["magnitud"] * 2 + 5
-        sizes = [9 if h else b for b, h in zip(base, hoy_mask)]
-        borders = [("white", 1) if h else ("white", 0.5) for h in hoy_mask]
-        fig.add_trace(go.Scattergeo(
-            lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
-            marker=dict(
-                size=sizes, color=color,
-                line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
-            ),
-            text=sub["lugar"],
-            customdata=list(zip(sub["magnitud"], sub["score_local"], reg_col, fechas, dist_loc)),
-            hovertemplate=(
-                "Sismo — %{text}<br>"
-                "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
-                "Distancia: %{customdata[4]} km"
-                "<extra></extra>"
-            ),
-        ))
-
-    if not df_per.empty and "timestamp" in df_per.columns:
-        hoy_df = df_per[df_per["timestamp"].map(_es_sismo_hoy)]
-    else:
-        hoy_df = pd.DataFrame()
-
-    if not hoy_df.empty:
-        if "en_mar" in hoy_df.columns:
-            hoy_perceptible = hoy_df[~hoy_df["en_mar"].fillna(False)]
-        else:
-            hoy_perceptible = hoy_df
-        if not hoy_perceptible.empty:
-            _add_circulos_perceptibles(
-                fig,
-                hoy_perceptible,
-                legend_name="Zona perceptible (hoy)",
-                legendgroup="hoy",
-                period_ms=1600,
-            )
-
-        if "alerta_tsunami" in hoy_df.columns:
-            mask_tsunami = hoy_df["alerta_tsunami"].fillna(False)
-            if "en_mar" in hoy_df.columns:
-                mask_tsunami = mask_tsunami & hoy_df["en_mar"].fillna(False)
-            df_tsunami = hoy_df[mask_tsunami]
-            if not df_tsunami.empty:
-                _add_circulos_perceptibles(
-                    fig,
-                    df_tsunami,
-                    legend_name="Alerta tsunami (hoy)",
-                    legendgroup="tsunami",
-                    period_ms=1800,
-                    fill_rgb="96, 165, 250",
-                    border_rgb="37, 99, 235",
-                    radio_col="radio_tsunami_km",
-                    hover_label="Alerta tsunami",
-                )
-
-    if zonas_costeras:
-        df_costa = pd.DataFrame(zonas_costeras)
-        if not df_costa.empty:
-            _add_circulos_perceptibles(
-                fig,
-                df_costa,
-                legend_name="Aviso mar AEMET",
-                legendgroup="costa_aemet",
-                period_ms=2000,
-                fill_rgb="96, 165, 250",
-                border_rgb="37, 99, 235",
-                radio_col="radio_tsunami_km",
-                hover_label="Aviso mar",
-            )
-
-    if embalses_mapa:
-        _add_marcadores_embalses(fig, embalses_mapa)
-
-    if aforos_mapa:
-        _add_marcadores_aforos(fig, aforos_mapa)
-
-    if not df_prueba.empty:
-        reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
-        fechas = [_fmt_sismo_fecha(ts) for ts in df_prueba["timestamp"]] if "timestamp" in df_prueba.columns else ["—"] * len(df_prueba)
-        dist_loc = df_prueba["dist_local_km"] if "dist_local_km" in df_prueba.columns else [""] * len(df_prueba)
-        hoy_mask_prueba = (
-            [_es_sismo_hoy(ts) for ts in df_prueba["timestamp"]]
-            if "timestamp" in df_prueba.columns
-            else [False] * len(df_prueba)
-        )
-        df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
-        if not df_prueba_hoy.empty:
-            _add_circulos_perceptibles(
-                fig,
-                df_prueba_hoy,
-                legend_name="Zona perceptible (prueba)",
-                legendgroup="prueba",
-                period_ms=1400,
-                show_legend=False,
-            )
-        prueba_sizes = [9 if h else (m * 2 + 8) for m, h in zip(df_prueba["magnitud"], hoy_mask_prueba)]
-        prueba_borders = [("white", 1) if h else ("#f87171", 2) for h in hoy_mask_prueba]
-        fig.add_trace(go.Scattergeo(
-            lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
-            marker=dict(
-                size=prueba_sizes,
-                color="rgba(239, 68, 68, 0.9)",
-                symbol="circle",
-                line=dict(width=[b[1] for b in prueba_borders], color=[b[0] for b in prueba_borders]),
-            ),
-            text=df_prueba["lugar"],
-            customdata=list(zip(df_prueba["magnitud"], df_prueba["score_local"], reg_col, fechas, dist_loc)),
-            hovertemplate=(
-                "🧪 %{text}<br>"
-                "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
-                "Distancia: %{customdata[4]} km"
-                "<extra></extra>"
-            ),
-        ))
-
-    _add_marcador_observacion(fig, lat_obs, lon_obs, obs_nombre)
-    from sismos import distancia_km
-
-    refs: list[tuple[float, float, str, str]] = []
-    if lat_obs is not None and lon_obs is not None:
-        if distancia_km(lat_obs, lon_obs, ZONA["lat_ref"], ZONA["lon_ref"]) < 8:
-            refs.append((ZONA["lat_ref"], ZONA["lon_ref"], ZONA["ciudad_ref"], C_CYAN))
-    for lat, lon, name, color in refs:
-        fig.add_trace(go.Scattergeo(
-            lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
-            marker=dict(size=10, color=color, symbol="star"),
-        ))
-    _geo_layout(fig, viewport, uirevision=map_uirevision, estilo_aemet=bool(provincia_id))
-    fig.update_layout(legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0))
-    return fig
-
-
-def _color_sst(temp_c: float | None) -> str:
-    if temp_c is None:
-        return C_MUTED
-    if temp_c >= 26:
-        return SEMAFORO_COLORES["ROJO"]
-    if temp_c >= 23:
-        return SEMAFORO_COLORES["NARANJA"]
-    if temp_c >= 20:
-        return SEMAFORO_COLORES["AMARILLO"]
-    return SEMAFORO_COLORES["VERDE"]
-
-
-def _color_corriente(vel_ms: float | None) -> str:
-    if vel_ms is None:
-        return C_MUTED
-    if vel_ms >= 1.0:
-        return SEMAFORO_COLORES["ROJO"]
-    if vel_ms >= 0.6:
-        return SEMAFORO_COLORES["NARANJA"]
-    if vel_ms >= 0.3:
-        return SEMAFORO_COLORES["AMARILLO"]
-    return SEMAFORO_COLORES["VERDE"]
-
-
-def _annots_ultima_con_semaforo(texto: str, color_dot: str) -> list[dict]:
-    """Círculo de color + lectura neutra, alineados a la derecha del gráfico."""
-    pad = max(72, int(len(texto) * 6.2))
-    return [
-        dict(
-            text=texto,
-            xref="paper", yref="paper", x=1, y=1.12,
-            xanchor="right", showarrow=False,
-            font=dict(color=C_TEXT, size=11),
-        ),
-        dict(
-            text="●",
-            xref="paper", yref="paper", x=1, y=1.12,
-            xanchor="right", xshift=-pad, showarrow=False,
-            font=dict(color=color_dot, size=13),
-        ),
-    ]
-
-
-def _fig_corrientes(serie: list, uirev: str) -> go.Figure:
-    fig = go.Figure()
-    dir_txt = "—"
-    ult_txt = "Última: — m/s"
-    dot_color = C_MUTED
-    if serie:
-        s = pd.DataFrame(serie)
-        s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        fig.add_trace(go.Scatter(
-            x=s["timestamp"], y=s["corriente_vel_ms"],
-            mode="lines", name="m/s", line=dict(color=C_GREEN),
-        ))
-        vel = s["corriente_vel_ms"].dropna()
-        if not vel.empty:
-            ult_val = float(vel.iloc[-1])
-            dot_color = _color_corriente(ult_val)
-            ult_txt = f"Última: {ult_val:.2f} m/s"
-        if s["corriente_dir_grados"].notna().any():
-            dir_txt = dir_compass(s["corriente_dir_grados"].dropna().iloc[-1])
-    annotations = [
-        dict(
-            text=f"Dirección: {dir_txt}",
-            xref="paper", yref="paper", x=0, y=1.12,
-            showarrow=False, font=dict(color=C_GREEN, size=11),
-        ),
-        *_annots_ultima_con_semaforo(ult_txt, dot_color),
-    ]
-    fig.update_layout(
-        margin=dict(t=28, b=0, l=0, r=0),
-        autosize=True,
-        yaxis_title="m/s",
-        uirevision=uirev,
-        annotations=annotations,
-        **PLOTLY_BG,
-    )
-    return fig
-
-
-def _stats_region(sismos: list) -> dict[str, int]:
-    reg: dict[str, int] = {}
-    for s in sismos:
-        r = s.get("region", "")
-        reg[r] = reg.get(r, 0) + 1
-    return reg
-
-
-def _fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, con_semaforo_sst: bool = False) -> go.Figure:
-    fig = go.Figure()
-    ult_txt = f"Última: — {unidad}"
-    dot_color = C_MUTED
-    if serie:
-        s = pd.DataFrame(serie)
-        s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
-        vals = s[campo].dropna()
-        if not vals.empty:
-            ult_val = float(vals.iloc[-1])
-            ult_txt = f"Última: {ult_val:.2f} {unidad}"
-            if con_semaforo_sst:
-                dot_color = _color_sst(ult_val)
-    if con_semaforo_sst:
-        annotations = _annots_ultima_con_semaforo(ult_txt, dot_color)
-    else:
-        annotations = [dict(
-            text=ult_txt,
-            xref="paper", yref="paper",
-            x=1, y=1.12,
-            xanchor="right",
-            showarrow=False,
-            font=dict(color=C_TEXT, size=11),
-        )]
-    fig.update_layout(
-        margin=dict(t=28, b=0, l=0, r=0),
-        autosize=True,
-        yaxis_title=unidad,
-        uirevision=uirev,
-        annotations=annotations,
-        **PLOTLY_BG,
-    )
-    return fig
-
-
 def _fig_historial(municipio_id: str | None, uirev: str) -> go.Figure:
-    fig = go.Figure()
-    mid = str(municipio_id or _DEFAULT_MUNI).zfill(5)
-    serie = get_historial_municipio(mid, 30)
-    if serie:
-        fechas = [r["fecha"] for r in serie]
-        fig.add_trace(go.Scatter(
-            x=fechas, y=[r["score_sismo_max"] for r in serie],
-            mode="lines+markers", name="Score sísmico máx.",
-            line=dict(color=C_ORANGE),
-        ))
-        fig.add_trace(go.Scatter(
-            x=fechas, y=[r["indice_riesgo_meteo"] for r in serie],
-            mode="lines+markers", name="Índice riesgo meteo",
-            line=dict(color=C_TEAL), yaxis="y2",
-        ))
-    fig.update_layout(
-        margin=dict(t=10, b=0, l=0, r=0),
-        autosize=True,
-        uirevision=uirev,
-        yaxis=dict(title="Score", rangemode="tozero"),
-        yaxis2=dict(title="Índice", overlaying="y", side="right", range=[0, 100]),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        **PLOTLY_BG,
-    )
-    return fig
-
-
-_MESES_EJE_LLUVIA = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
-
-
-def _add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
-    """Capa estilo AEMET: zonas Meteoalerta oficiales coloreadas por aviso CAP (día actual)."""
-    from aemet_alerts import fmt_alerta_detalle
-
-    for zona in zonas_ccaa_pintado(provincia_id):
-        aviso = aviso_maximo_zona(zona, alertas)
-        nivel = str((aviso or {}).get("level") or "").lower()
-        es_costa = es_zona_costera(zona)
-        fill, line_color = color_nivel(nivel if aviso else None, costera=es_costa)
-        nombre = str(zona.get("nombre") or zona.get("id") or "Zona AEMET")
-        if aviso:
-            nivel_txt = nivel.upper()
-            fen = str(aviso.get("fenomeno_desc") or "—")
-            prob = str(aviso.get("probabilidad") or "—")
-            detalle = fmt_alerta_detalle(aviso)
-            vigencia = ""
-            if aviso.get("onset") or aviso.get("expires"):
-                vigencia = f"<br>Vigencia: {aviso.get('onset') or '—'} → {aviso.get('expires') or '—'}"
-            hover = (
-                f"{nombre}<br>"
-                f"Nivel: {nivel_txt} (hoy)<br>"
-                f"Fenómeno: {fen}<br>"
-                f"Detalle: {detalle}<br>"
-                f"Probabilidad: {prob}"
-                f"{vigencia}"
-                "<extra></extra>"
-            )
-        else:
-            hover = f"{nombre}<br>Sin aviso para hoy<extra></extra>"
-        for ring in zona.get("rings") or []:
-            lats = ring.get("lat") or []
-            lons = ring.get("lon") or []
-            if len(lats) < 3:
-                continue
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lats,
-                    lon=lons,
-                    mode="lines",
-                    fill="toself",
-                    fillcolor=fill,
-                    line=dict(color=line_color, width=1.0 if aviso else 0.85),
-                    showlegend=False,
-                    name=nombre,
-                    hovertemplate=hover,
-                )
-            )
-
-
-def _xaxis_lluvia(timestamps: pd.Series) -> dict:
-    ts = timestamps.dropna().sort_values().reset_index(drop=True)
-    if ts.empty:
-        return {"type": "date"}
-
-    pick_idx = [0]
-    for i in range(1, len(ts)):
-        dt = pd.Timestamp(ts.iloc[i])
-        if dt.minute != 0 or dt.hour % 6 != 0:
-            continue
-        last = pd.Timestamp(ts.iloc[pick_idx[-1]])
-        if (dt - last).total_seconds() >= 5 * 3600:
-            pick_idx.append(i)
-
-    tickvals = ts.iloc[pick_idx]
-    ticktext: list[str] = []
-    prev_date = None
-    for i, tv in enumerate(tickvals):
-        dt = pd.Timestamp(tv)
-        d = dt.date()
-        if i == 0 or prev_date is None or d != prev_date:
-            mes = _MESES_EJE_LLUVIA[dt.month - 1]
-            ticktext.append(f"{dt.day:02d}-{mes} {dt.strftime('%H:%M')}")
-        else:
-            ticktext.append(dt.strftime("%H:%M"))
-        prev_date = d
-
-    return {
-        "type": "date",
-        "tickmode": "array",
-        "tickvals": tickvals.tolist(),
-        "ticktext": ticktext,
-        "tickangle": -90,
-        "tickfont": dict(size=9, color=C_MUTED),
-    }
-
-
-def _fig_lluvia(serie: list) -> go.Figure:
-    fig = go.Figure()
-    yaxis = dict(title="mm", rangemode="tozero")
-    if serie:
-        s = pd.DataFrame(serie)
-        s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        precip = s["precip_mm"].fillna(0)
-        fig.add_trace(go.Bar(x=s["timestamp"], y=precip, name="mm", marker_color=C_TEAL))
-        if s["prob_precip_pct"].notna().any():
-            fig.add_trace(go.Scatter(x=s["timestamp"], y=s["prob_precip_pct"], name="%", yaxis="y2", line=dict(color="#a78bfa")))
-        max_precip = float(precip.max())
-        yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
-        xaxis = _xaxis_lluvia(s["timestamp"])
-    else:
-        xaxis = {"type": "date"}
-    fig.update_layout(
-        margin=dict(t=6, b=42, l=4, r=4),
-        autosize=True,
-        showlegend=False,
-        xaxis=xaxis,
-        yaxis=yaxis,
-        yaxis2=dict(
-            overlaying="y", side="right", range=[0, 100],
-            title=dict(text="%", font=dict(size=10)),
-            tickfont=dict(size=9),
-        ),
-        uirevision="sira-lluvia",
-        **PLOTLY_BG,
-    )
-    return fig
+    return _fig_historial_impl(municipio_id, _DEFAULT_MUNI, uirev)
 
 
 @callback(
@@ -1330,15 +551,18 @@ def refresh_historial(pathname, municipio_id):
     return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial")
 
 
-def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
-    """Tarjetas, mapa y lluvia según la zona seleccionada."""
+def _capas_activas(capas: list[str] | None) -> set[str]:
+    return set(capas) if capas else {"sismos", "incendios", "embalses", "aforos", "aemet", "costa"}
+
+
+def _datos_mapa(geo: dict, d: dict) -> dict:
+    """Enriquece datos del dashboard para el mapa de riesgos (sin llamadas meteo)."""
     geo = _geo_resuelto(geo)
     muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
     localidad = geo.get("localidad") or ZONA["ciudad_ref"]
     lat_obs, lon_obs, _ = coords_observacion(muni_id, geo.get("localidad_id"))
 
-    sismos_all = d.get("sismos", [])
-    sismos_mapa = [enriquecer_local(s, lat_obs, lon_obs) for s in sismos_all]
+    sismos_mapa = [enriquecer_local(s, lat_obs, lon_obs) for s in d.get("sismos", [])]
     sismos_mapa = [
         anexar_boletin_tsunami(s, lat_obs, lon_obs, muni_id)
         if s.get("alerta_tsunami")
@@ -1348,32 +572,76 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
     for s in sismos_mapa:
         if s.get("alerta_tsunami") and s.get("tsunami_texto_ola"):
             s["area_desc"] = str(s["tsunami_texto_ola"])
+
+    incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in d.get("incendios", [])]
+    lluvia_24 = float((d.get("meteo") or {}).get("resumen", {}).get("precip_prox_24h_mm") or 0)
+    embalses_mapa = embalses_para_mapa(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
+    aforos_mapa = aforos_para_mapa(d.get("aforos", []), lat_obs, lon_obs)
+    alertas_fuente = _alertas_meteo_fuente(d)
+    alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
+    zonas_costeras = alertas_a_capa_costera(alertas_mapa_hoy)
+
+    return {
+        "geo": geo,
+        "muni_id": muni_id,
+        "localidad": localidad,
+        "lat_obs": lat_obs,
+        "lon_obs": lon_obs,
+        "sismos_mapa": sismos_mapa,
+        "incendios_mapa": incendios_mapa,
+        "embalses_mapa": embalses_mapa,
+        "aforos_mapa": aforos_mapa,
+        "alertas_mapa_hoy": alertas_mapa_hoy,
+        "zonas_costeras": zonas_costeras,
+    }
+
+
+def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None) -> go.Figure:
+    ctx = _datos_mapa(geo, d)
+    geo_r = ctx["geo"]
+    act = _capas_activas(capas)
+    viewport = _map_viewport(geo_r)
+    map_rev = f"sira-mapa-{ctx['muni_id']}-{viewport.get('nivel', 'municipio')}"
+    return _fig_mapa(
+        ctx["sismos_mapa"] if "sismos" in act else [],
+        ctx["incendios_mapa"] if "incendios" in act else None,
+        ctx["lat_obs"], ctx["lon_obs"], ctx["localidad"],
+        ctx["zonas_costeras"] if "costa" in act else None,
+        ctx["alertas_mapa_hoy"] if "aemet" in act else None,
+        ctx["embalses_mapa"] if "embalses" in act else None,
+        ctx["aforos_mapa"] if "aforos" in act else None,
+        viewport=viewport, map_uirevision=map_rev,
+        provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
+    )
+
+
+def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tuple[list, go.Figure, go.Figure, go.Figure]:
+    """Tarjetas, mapa, lluvia y mapa térmico según la zona seleccionada."""
+    ctx = _datos_mapa(geo, d)
+    geo_r = ctx["geo"]
+    muni_id = ctx["muni_id"]
+    localidad = ctx["localidad"]
+    lat_obs, lon_obs = ctx["lat_obs"], ctx["lon_obs"]
+    sismos_mapa = ctx["sismos_mapa"]
+    incendios_mapa = ctx["incendios_mapa"]
+
     sismos = [s for s in sismos_mapa if s.get("perceptible_local")]
-    incendios_all = d.get("incendios", [])
-    incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in incendios_all]
     incendios_local = [i for i in incendios_mapa if i.get("cerca_local")]
-    embalses_all = d.get("embalses", [])
-    aforos_all = d.get("aforos", [])
     met = _meteo_para_geo(muni_id, localidad)
     res_met = met.get("resumen", {})
     lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
-    res_emb = resumen_embalses(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
-    res_afor = resumen_aforos(aforos_all, lat_obs, lon_obs)
-    embalses_mapa = embalses_para_mapa(embalses_all, lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
-    aforos_mapa = aforos_para_mapa(aforos_all, lat_obs, lon_obs)
-    alertas_fuente = _alertas_meteo_fuente(d)
-    alertas_meteo = _alertas_meteo_locales(geo, alertas_fuente)
-    alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
-    zonas_costeras = alertas_a_capa_costera(alertas_mapa_hoy)
+    res_emb = resumen_embalses(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
+    res_afor = resumen_aforos(d.get("aforos", []), lat_obs, lon_obs)
+    alertas_meteo = _alertas_meteo_locales(geo_r, _alertas_meteo_fuente(d))
 
     mag_max = max((s["magnitud"] for s in sismos), default=0)
     sismo_max = _sismo_mag_max(sismos, mag_max)
     nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
-    loc_label = f"{localidad}, {geo.get('municipio') or ''}".strip(", ")
+    loc_label = f"{localidad}, {geo_r.get('municipio') or ''}".strip(", ")
 
     cards = [
         card_sismos_combinada(
-            len(sismos_all),
+            len(d.get("sismos", [])),
             len(sismos),
             localidad,
             float(mag_max),
@@ -1384,7 +652,7 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
         ),
         card_doble(
             "Incendios activos",
-            len(incendios_all),
+            len(d.get("incendios", [])),
             "España",
             len(incendios_local),
             f"cerca · {localidad}",
@@ -1410,46 +678,60 @@ def _build_panel_geo(geo: dict, d: dict) -> tuple[list, go.Figure, go.Figure]:
             accent=C_CYAN,
         ),
     ]
-    riesgo_meteo = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
-    cards.append(_riesgo_meteo_card(riesgo_meteo))
+    cards.append(_riesgo_meteo_card(calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)))
 
-    viewport = _map_viewport(geo)
-    map_rev = f"sira-mapa-{muni_id}-{viewport.get('nivel', 'municipio')}"
-    mapa = _fig_mapa(
-        sismos_mapa, incendios_mapa, lat_obs, lon_obs, localidad, zonas_costeras,
-        alertas_mapa_hoy, embalses_mapa, aforos_mapa, viewport=viewport, map_uirevision=map_rev,
-        provincia_id=geo.get("provincia_id"),
-    )
+    mapa = _build_mapa_fig(geo_r, d, capas)
     lluvia = _fig_lluvia(met.get("serie_horaria", []))
-    return cards, mapa, lluvia
+    termico = _fig_termico_ccaa(
+        geo_r.get("provincia_id"),
+        d.get("termico_ccaa"),
+        uirev=f"sira-termico-{muni_id}",
+    )
+    return cards, mapa, lluvia, termico
 
 
 @callback(
     Output("cards", "children", allow_duplicate=True),
     Output("mapa", "figure", allow_duplicate=True),
     Output("lluvia", "figure", allow_duplicate=True),
+    Output("termico_ccaa", "figure", allow_duplicate=True),
     Input("geo-store", "data"),
+    State("map-layers", "value"),
     State("url", "pathname"),
     prevent_initial_call=True,
 )
-def refresh_geo(geo, pathname):
+def refresh_geo(geo, capas, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     d = _load()
-    return _build_panel_geo(geo, d)
+    return _build_panel_geo(geo, d, capas)
+
+
+@callback(
+    Output("mapa", "figure", allow_duplicate=True),
+    Input("map-layers", "value"),
+    State("geo-store", "data"),
+    State("url", "pathname"),
+    prevent_initial_call=True,
+)
+def refresh_map_layers(capas, geo, pathname):
+    if pathname == "/historial":
+        raise PreventUpdate
+    return _build_mapa_fig(geo, _load(), capas)
 
 
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
-    Output("mapa", "figure"), Output("lluvia", "figure"),
+    Output("mapa", "figure"), Output("lluvia", "figure"), Output("termico_ccaa", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
     State("geo-store", "data"),
+    State("map-layers", "value"),
     State("data-ts-store", "data"),
     State("url", "pathname"),
 )
-def refresh(n_intervals, clicks, geo, last_ts, pathname):
+def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
@@ -1469,7 +751,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
         raise PreventUpdate
 
     geo = _geo_resuelto(geo)
-    cards, mapa, lluvia = _build_panel_geo(geo, d)
+    cards, mapa, lluvia, termico = _build_panel_geo(geo, d, capas)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -1481,8 +763,7 @@ def refresh(n_intervals, clicks, geo, last_ts, pathname):
 
     return (
         cards, ts, refresh_token,
-        mapa,
-        lluvia,
+        mapa, lluvia, termico,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
         _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),
@@ -1534,6 +815,7 @@ def _assetlinks():
 _FUENTE_ETIQUETAS = {
     "usgs": "USGS (sismos)",
     "aemet_meteo": "AEMET meteo",
+    "termico_ccaa": "Mapa térmico CCAA",
     "aemet_cap": "AEMET CAP",
     "open_meteo_marine": "Open-Meteo marine",
     "open_meteo_weather": "Open-Meteo weather",
@@ -1545,6 +827,7 @@ _FUENTE_ETIQUETAS = {
 _FUENTE_DESCRIPCIONES = {
     "usgs": "Sismos recientes en España y entorno (magnitud, epicentro, profundidad, alerta tsunami USGS).",
     "aemet_meteo": "Predicción horaria municipal AEMET (lluvia, probabilidad de precipitación, tiempo actual).",
+    "termico_ccaa": "Resumen térmico por provincia/CCAA precalculado en ingesta para evitar llamadas meteorológicas en el render.",
     "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",
     "open_meteo_marine": "Temperatura superficial del mar y corrientes (Mediterráneo, Cantábrico, Atlántico).",
     "open_meteo_weather": "Previsión horaria de precipitación (respaldo cuando AEMET no está disponible).",

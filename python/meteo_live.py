@@ -249,7 +249,12 @@ def _pack_local(
     }
 
 
-def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> dict:
+def meteo_localidad(
+    municipio_id: str | None,
+    localidad: str | None = None,
+    *,
+    prefer_aemet: bool = True,
+) -> dict:
     if not municipio_id:
         return VACIO_METEO
 
@@ -257,7 +262,7 @@ def meteo_localidad(municipio_id: str | None, localidad: str | None = None) -> d
     nombre = localidad or (muni["nombre"] if muni else ZONA["ciudad_ref"])
     codigo = str(municipio_id).zfill(5)
 
-    if AEMET_API_KEY:
+    if prefer_aemet and AEMET_API_KEY:
         try:
             data = fetch_aemet(f"prediccion/especifica/municipio/horaria/{codigo}", AEMET_API_KEY)
             item = (data[0] if isinstance(data, list) else data) or {}

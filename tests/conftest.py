@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PYTHON = ROOT / "python"
-if str(PYTHON) not in sys.path:
-    sys.path.insert(0, str(PYTHON))
+for subdir in ("python", "dashboard"):
+    p = str(ROOT / subdir)
+    if p not in sys.path:
+        sys.path.insert(0, p)

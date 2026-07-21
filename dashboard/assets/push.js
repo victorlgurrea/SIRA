@@ -68,6 +68,16 @@
     return meta.dataset.apiBase.replace(/\/+$/, "");
   }
 
+  function getPushPrefs() {
+    var container = document.getElementById("push-prefs");
+    if (!container) return ["sismo", "meteo", "incendio", "tsunami"];
+    var prefs = [];
+    container.querySelectorAll("input[type='checkbox']:checked").forEach(function (cb) {
+      if (cb.value) prefs.push(cb.value);
+    });
+    return prefs.length ? prefs : ["sismo", "meteo", "incendio", "tsunami"];
+  }
+
   function getGeoPayload() {
     const el = document.getElementById("push-geo");
     if (!el) return { provincia_id: null, municipio_id: null, localidad_id: null, municipio: "" };
@@ -221,11 +231,12 @@
       const sub = await subscribePush(swReg, vapidKey);
 
       const geo = getGeoPayload();
+      const alertas = getPushPrefs();
       const payload = Object.assign({}, sub.toJSON(), {
         provincia_id: geo.provincia_id,
         municipio_id: geo.municipio_id,
         localidad_id: geo.localidad_id,
-        alertas: ["sismo", "meteo", "incendio", "tsunami"],
+        alertas: alertas,
       });
 
       setStatus("Guardando suscripción…", false);

@@ -21,11 +21,13 @@ from config import (
 from core import fetch_aemet, fetch_json, write_dashboard
 from aemet_alerts import deduplicar_alertas
 from hidrologia import descargar_embalses
-from aforos import descargar_aforos
+from aforos_multi import descargar_aforos
 from incendios import descargar_incendios
 from fuentes import parse_usgs_feature
 from historial import guardar_snapshots_diarios
 from meteo_parse import VACIO_METEO, hourly as _hourly, num as _num, pack_meteo as _pack_meteo, parse_aemet as _parse_aemet
+from meteo_live import meteo_localidad
+from meteo_termico import construir_termico_ccaa
 from sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
 from test_overlay import clear_test_overlay
 
@@ -199,6 +201,12 @@ def ejecutar_ingesta():
     aforos, fuentes_estado["saih_chj"] = _estado_fuente(
         "SAIH CHJ", descargar_aforos, alertas_cap, default=[],
     )
+    termico_ccaa, fuentes_estado["termico_ccaa"] = _estado_fuente(
+        "Térmico CCAA",
+        construir_termico_ccaa,
+        lambda mid, nombre=None: meteo_localidad(mid, nombre, prefer_aemet=False),
+        default={"generado_en": None, "provincias": [], "ccaa": []},
+    )
     oceanografia, fuentes_estado["open_meteo_marine"] = _estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
@@ -240,6 +248,7 @@ def ejecutar_ingesta():
         "incendios": incendios,
         "embalses": embalses,
         "aforos": aforos,
+        "termico_ccaa": termico_ccaa,
         "oceanografia": oceanografia,
         "meteorologia": meteo,
         "meteo_alertas_cap": deduplicar_alertas(alertas_cap),
@@ -255,6 +264,7 @@ def ejecutar_ingesta():
             "n_aforos_alerta": sum(
                 1 for a in aforos if a.get("nivel_riesgo") in ("vigilancia", "alerta", "critico")
             ),
+            "n_termico_provincias": len(termico_ccaa.get("provincias") or []),
             "mag_max": max((s["magnitud"] for s in sismos), default=0),
             "score_max": max((s["score_total"] for s in sismos), default=0),
             "n_alto_critico": sum(1 for s in sismos if s["nivel_alerta"] in ("ALTO", "CRÍTICO")),

@@ -1399,6 +1399,59 @@ body {
   }
 }
 
+/* --- Preferencias push --- */
+
+.sira-push-prefs {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: 8px;
+}
+
+.sira-push-prefs label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.sira-push-prefs input[type="checkbox"] {
+  accent-color: #22c55e;
+  width: 13px;
+  height: 13px;
+}
+
+/* --- Capas del mapa --- */
+
+.sira-map-layers {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 2px;
+}
+
+.sira-layer-checklist {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sira-layer-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sira-layer-checklist input[type="checkbox"] {
+  accent-color: #f97316;
+  width: 14px;
+  height: 14px;
+}
+
 /* --- Responsive: PC --- */
 
 @media (min-width: 901px) {
