@@ -94,7 +94,9 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=32">
+        <link rel="stylesheet" href="/assets/sira.css?v=33">
+        <meta name="theme-color" content="#0a1628">
+        <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
@@ -167,6 +169,11 @@ def _geo_resuelto(geo: dict | None) -> dict:
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
+
+def _theme_val(theme: str | None) -> str:
+    return "light" if theme == "light" else "dark"
+
+
 app.layout = html.Div(className="sira-page", children=[
     dcc.Location(id="url", refresh=False),
     html.Div(id="sira-meta", **{"data-api-base": API_BASE_URL}, style={"display": "none"}),
@@ -188,6 +195,7 @@ app.layout = html.Div(className="sira-page", children=[
         html.Div(className="sira-container", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
+            dcc.Store(id="theme-store", data="dark"),
             dcc.Store(id="geo-store", data=_default_geo()),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
@@ -204,6 +212,17 @@ app.layout = html.Div(className="sira-page", children=[
                         ),
                     ]),
                     html.Div(className="sira-toolbar-actions", children=[
+                        html.Button(
+                            [
+                                html.Span("☀ Modo claro", className="sira-theme-label sira-theme-label--to-light"),
+                                html.Span("🌙 Modo oscuro", className="sira-theme-label sira-theme-label--to-dark"),
+                            ],
+                            id="theme-toggle",
+                            n_clicks=0,
+                            className="sira-btn-theme",
+                            title="Cambiar entre modo claro y oscuro",
+                            type="button",
+                        ),
                         html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
                         html.A("Estado", href="/status", className="sira-link-nav"),
                         html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
@@ -435,8 +454,8 @@ def _map_viewport(geo: dict | None) -> dict:
     return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
 
 
-def _fig_historial(municipio_id: str | None, uirev: str) -> go.Figure:
-    return _fig_historial_impl(municipio_id, _DEFAULT_MUNI, uirev)
+def _fig_historial(municipio_id: str | None, uirev: str, theme: str = "dark") -> go.Figure:
+    return _fig_historial_impl(municipio_id, _DEFAULT_MUNI, uirev, theme=theme)
 
 
 @callback(
@@ -536,11 +555,12 @@ def _activar_poll_geo(_n):
     Output("historial", "figure"),
     Input("url", "pathname"),
     Input("geo-municipio", "value"),
+    Input("theme-store", "data"),
 )
-def refresh_historial(pathname, municipio_id):
+def refresh_historial(pathname, municipio_id, theme):
     if pathname != "/historial":
         raise PreventUpdate
-    return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial")
+    return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial", _theme_val(theme))
 
 
 def _capas_activas(capas: list[str] | None) -> set[str]:
@@ -588,7 +608,7 @@ def _datos_mapa(geo: dict, d: dict) -> dict:
     }
 
 
-def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None) -> go.Figure:
+def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark") -> go.Figure:
     ctx = _datos_mapa(geo, d)
     geo_r = ctx["geo"]
     act = _capas_activas(capas)
@@ -604,10 +624,11 @@ def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None) -> go.Fi
         ctx["aforos_mapa"] if "aforos" in act else None,
         viewport=viewport, map_uirevision=map_rev,
         provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
+        theme=theme,
     )
 
 
-def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tuple[list, go.Figure, go.Figure]:
+def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark") -> tuple[list, go.Figure, go.Figure]:
     """Tarjetas, mapa y lluvia según la zona seleccionada."""
     ctx = _datos_mapa(geo, d)
     geo_r = ctx["geo"]
@@ -672,8 +693,8 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tupl
     ]
     cards.append(_riesgo_meteo_card(calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)))
 
-    mapa = _build_mapa_fig(geo_r, d, capas)
-    lluvia = _fig_lluvia(met.get("serie_horaria", []))
+    mapa = _build_mapa_fig(geo_r, d, capas, theme)
+    lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia
 
 
@@ -682,28 +703,31 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tupl
     Output("mapa", "figure", allow_duplicate=True),
     Output("lluvia", "figure", allow_duplicate=True),
     Input("geo-store", "data"),
+    Input("theme-store", "data"),
     State("map-layers", "value"),
     State("url", "pathname"),
     prevent_initial_call=True,
 )
-def refresh_geo(geo, capas, pathname):
+def refresh_geo(geo, theme, capas, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     d = _load()
-    return _build_panel_geo(geo, d, capas)
+    t = _theme_val(theme)
+    return _build_panel_geo(geo, d, capas, t)
 
 
 @callback(
     Output("mapa", "figure", allow_duplicate=True),
     Input("map-layers", "value"),
+    Input("theme-store", "data"),
     State("geo-store", "data"),
     State("url", "pathname"),
     prevent_initial_call=True,
 )
-def refresh_map_layers(capas, geo, pathname):
+def refresh_map_layers(capas, theme, geo, pathname):
     if pathname == "/historial":
         raise PreventUpdate
-    return _build_mapa_fig(geo, _load(), capas)
+    return _build_mapa_fig(geo, _load(), capas, _theme_val(theme))
 
 
 @callback(
@@ -712,12 +736,13 @@ def refresh_map_layers(capas, geo, pathname):
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
+    Input("theme-store", "data"),
     State("geo-store", "data"),
     State("map-layers", "value"),
     State("data-ts-store", "data"),
     State("url", "pathname"),
 )
-def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
+def refresh(n_intervals, clicks, theme, geo, capas, last_ts, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
@@ -737,7 +762,8 @@ def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
         raise PreventUpdate
 
     geo = _geo_resuelto(geo)
-    cards, mapa, lluvia = _build_panel_geo(geo, d, capas)
+    t = _theme_val(theme)
+    cards, mapa, lluvia = _build_panel_geo(geo, d, capas, t)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -750,12 +776,12 @@ def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
     return (
         cards, ts, refresh_token,
         mapa, lluvia,
-        _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
-        _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
-        _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),
-        _fig_corrientes(oce_med.get("serie_horaria", []), "sira-cor-med"),
-        _fig_corrientes(oce_cant.get("serie_horaria", []), "sira-cor-cant"),
-        _fig_corrientes(oce_atl.get("serie_horaria", []), "sira-cor-atl"),
+        _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True, theme=t),
+        _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True, theme=t),
+        _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True, theme=t),
+        _fig_corrientes(oce_med.get("serie_horaria", []), "sira-cor-med", theme=t),
+        _fig_corrientes(oce_cant.get("serie_horaria", []), "sira-cor-cant", theme=t),
+        _fig_corrientes(oce_atl.get("serie_horaria", []), "sira-cor-atl", theme=t),
     )
 
 
@@ -879,7 +905,9 @@ def _status_page():
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SIRA — Estado del sistema</title>
-  <link rel="stylesheet" href="/assets/sira.css?v=32">
+  <meta name="theme-color" content="#0a1628">
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/sira.css?v=33">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
@@ -921,6 +949,39 @@ def _manifest():
             ],
         }
     )
+
+
+clientside_callback(
+    """
+    function(pathname) {
+        if (window.siraTheme) {
+            return window.siraTheme.preferred();
+        }
+        return 'dark';
+    }
+    """,
+    Output("theme-store", "data"),
+    Input("url", "pathname"),
+)
+
+
+clientside_callback(
+    """
+    function(n_clicks, theme) {
+        if (!n_clicks) {
+            return window.dash_clientside.no_update;
+        }
+        if (window.siraTheme) {
+            return window.siraTheme.toggle(theme || 'dark');
+        }
+        return (theme === 'light') ? 'dark' : 'light';
+    }
+    """,
+    Output("theme-store", "data", allow_duplicate=True),
+    Input("theme-toggle", "n_clicks"),
+    State("theme-store", "data"),
+    prevent_initial_call=True,
+)
 
 
 clientside_callback(

@@ -11,6 +11,10 @@ C_GREEN = "#22c55e"
 C_TEXT = "#f0f9ff"
 C_MUTED = "#94a3b8"
 
+C_NAVY_LIGHT = "#f8fafc"
+C_TEXT_LIGHT = "#0f172a"
+C_MUTED_LIGHT = "#64748b"
+
 COLORES = {
     "MÍNIMO": "#2ECC71",
     "BAJO": "#F1C40F",
@@ -25,3 +29,22 @@ PLOTLY_BG = dict(
     plot_bgcolor=C_NAVY_MID,
     font=dict(color=C_TEXT),
 )
+
+PLOTLY_BG_LIGHT = dict(
+    paper_bgcolor=C_NAVY_LIGHT,
+    plot_bgcolor=C_NAVY_LIGHT,
+    font=dict(color=C_TEXT_LIGHT),
+)
+
+
+def plotly_bg(theme: str = "dark") -> dict:
+    return PLOTLY_BG_LIGHT if theme == "light" else PLOTLY_BG
+
+
+def chart_text(theme: str = "dark") -> str:
+    return C_TEXT_LIGHT if theme == "light" else C_TEXT
+
+
+def chart_muted(theme: str = "dark") -> str:
+    return C_MUTED_LIGHT if theme == "light" else C_MUTED
+

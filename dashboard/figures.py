@@ -37,7 +37,9 @@ from theme import (
     C_TEAL,
     C_TEXT,
     COLORES,
-    PLOTLY_BG,
+    chart_muted,
+    chart_text,
+    plotly_bg,
 )
 
 SEMAFORO_COLORES = {
@@ -137,14 +139,15 @@ def color_corriente(vel_ms: float | None) -> str:
     return SEMAFORO_COLORES["VERDE"]
 
 
-def annots_ultima_con_semaforo(texto: str, color_dot: str) -> list[dict]:
+def annots_ultima_con_semaforo(texto: str, color_dot: str, *, theme: str = "dark") -> list[dict]:
     pad = max(72, int(len(texto) * 6.2))
+    txt_color = chart_text(theme)
     return [
         dict(
             text=texto,
             xref="paper", yref="paper", x=1, y=1.12,
             xanchor="right", showarrow=False,
-            font=dict(color=C_TEXT, size=11),
+            font=dict(color=txt_color, size=11),
         ),
         dict(
             text="●",
@@ -427,6 +430,7 @@ def geo_layout(
     *,
     uirevision: str = "sira-mapa",
     estilo_aemet: bool = False,
+    theme: str = "dark",
 ) -> None:
     vp = viewport or {
         "lat_centro": MAPA["lat_centro"],
@@ -442,8 +446,9 @@ def geo_layout(
         vp = viewport_fit_contenedor(vp, aspect=2.85)
     zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
     proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
-    landcolor = "#d8dde3" if estilo_aemet else C_NAVY
-    oceancolor = "#eef1f5" if estilo_aemet else "#1e4976"
+    use_light = estilo_aemet or theme == "light"
+    landcolor = "#d8dde3" if use_light else C_NAVY
+    oceancolor = "#eef1f5" if use_light else "#1e4976"
     fig.update_geos(
         scope="world",
         projection_type="mercator",
@@ -467,7 +472,7 @@ def geo_layout(
     if estilo_aemet:
         layout.update(paper_bgcolor="#eef1f5", plot_bgcolor="#eef1f5", font=dict(color="#1f2937"))
     else:
-        layout.update(**PLOTLY_BG)
+        layout.update(**plotly_bg(theme))
     fig.update_layout(**layout)
 
 
@@ -488,6 +493,7 @@ def fig_mapa(
     viewport: dict | None = None,
     map_uirevision: str = "sira-mapa",
     provincia_id: str | None = None,
+    theme: str = "dark",
 ) -> go.Figure:
     fig = go.Figure()
     estilo_aemet = bool(provincia_id)
@@ -681,16 +687,16 @@ def fig_mapa(
             lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
             marker=dict(size=10, color=color, symbol="star"),
         ))
-    geo_layout(fig, viewport, uirevision=map_uirevision, estilo_aemet=bool(provincia_id))
+    geo_layout(fig, viewport, uirevision=map_uirevision, estilo_aemet=bool(provincia_id), theme=theme)
     fig.update_layout(legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0))
     return fig
 
 
-def fig_corrientes(serie: list, uirev: str) -> go.Figure:
+def fig_corrientes(serie: list, uirev: str, *, theme: str = "dark") -> go.Figure:
     fig = go.Figure()
     dir_txt = "—"
     ult_txt = "Última: — m/s"
-    dot_color = C_MUTED
+    dot_color = chart_muted(theme)
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
@@ -711,19 +717,19 @@ def fig_corrientes(serie: list, uirev: str) -> go.Figure:
             xref="paper", yref="paper", x=0, y=1.12,
             showarrow=False, font=dict(color=C_GREEN, size=11),
         ),
-        *annots_ultima_con_semaforo(ult_txt, dot_color),
+        *annots_ultima_con_semaforo(ult_txt, dot_color, theme=theme),
     ]
     fig.update_layout(
         margin=dict(t=28, b=0, l=0, r=0), autosize=True,
-        yaxis_title="m/s", uirevision=uirev, annotations=annotations, **PLOTLY_BG,
+        yaxis_title="m/s", uirevision=uirev, annotations=annotations, **plotly_bg(theme),
     )
     return fig
 
 
-def fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, con_semaforo_sst: bool = False) -> go.Figure:
+def fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, con_semaforo_sst: bool = False, theme: str = "dark") -> go.Figure:
     fig = go.Figure()
     ult_txt = f"Última: — {unidad}"
-    dot_color = C_MUTED
+    dot_color = chart_muted(theme)
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
@@ -735,20 +741,20 @@ def fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, c
             if con_semaforo_sst:
                 dot_color = color_sst(ult_val)
     if con_semaforo_sst:
-        annotations = annots_ultima_con_semaforo(ult_txt, dot_color)
+        annotations = annots_ultima_con_semaforo(ult_txt, dot_color, theme=theme)
     else:
         annotations = [dict(
             text=ult_txt, xref="paper", yref="paper", x=1, y=1.12,
-            xanchor="right", showarrow=False, font=dict(color=C_TEXT, size=11),
+            xanchor="right", showarrow=False, font=dict(color=chart_text(theme), size=11),
         )]
     fig.update_layout(
         margin=dict(t=28, b=0, l=0, r=0), autosize=True,
-        yaxis_title=unidad, uirevision=uirev, annotations=annotations, **PLOTLY_BG,
+        yaxis_title=unidad, uirevision=uirev, annotations=annotations, **plotly_bg(theme),
     )
     return fig
 
 
-def fig_historial(municipio_id: str, default_muni: str, uirev: str) -> go.Figure:
+def fig_historial(municipio_id: str, default_muni: str, uirev: str, *, theme: str = "dark") -> go.Figure:
     fig = go.Figure()
     mid = str(municipio_id or default_muni).zfill(5)
     serie = get_historial_municipio(mid, 30)
@@ -766,12 +772,12 @@ def fig_historial(municipio_id: str, default_muni: str, uirev: str) -> go.Figure
         margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev,
         yaxis=dict(title="Score", rangemode="tozero"),
         yaxis2=dict(title="Índice", overlaying="y", side="right", range=[0, 100]),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02), **PLOTLY_BG,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02), **plotly_bg(theme),
     )
     return fig
 
 
-def xaxis_lluvia(timestamps: pd.Series) -> dict:
+def xaxis_lluvia(timestamps: pd.Series, *, theme: str = "dark") -> dict:
     ts = timestamps.dropna().sort_values().reset_index(drop=True)
     if ts.empty:
         return {"type": "date"}
@@ -804,11 +810,11 @@ def xaxis_lluvia(timestamps: pd.Series) -> dict:
         "tickvals": tickvals.tolist(),
         "ticktext": ticktext,
         "tickangle": -90,
-        "tickfont": dict(size=9, color=C_MUTED),
+        "tickfont": dict(size=9, color=chart_muted(theme)),
     }
 
 
-def fig_lluvia(serie: list) -> go.Figure:
+def fig_lluvia(serie: list, *, theme: str = "dark") -> go.Figure:
     fig = go.Figure()
     yaxis = dict(title="mm", rangemode="tozero")
     if serie:
@@ -820,14 +826,14 @@ def fig_lluvia(serie: list) -> go.Figure:
             fig.add_trace(go.Scatter(x=s["timestamp"], y=s["prob_precip_pct"], name="%", yaxis="y2", line=dict(color="#a78bfa")))
         max_precip = float(precip.max())
         yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
-        x = xaxis_lluvia(s["timestamp"])
+        x = xaxis_lluvia(s["timestamp"], theme=theme)
     else:
         x = {"type": "date"}
     fig.update_layout(
         margin=dict(t=6, b=42, l=4, r=4), autosize=True, showlegend=False,
         xaxis=x, yaxis=yaxis,
         yaxis2=dict(overlaying="y", side="right", range=[0, 100], title=dict(text="%", font=dict(size=10)), tickfont=dict(size=9)),
-        uirevision="sira-lluvia", **PLOTLY_BG,
+        uirevision="sira-lluvia", **plotly_bg(theme),
     )
     return fig
 
@@ -837,13 +843,14 @@ def fig_termico_ccaa(
     termico_data: dict | None,
     *,
     uirev: str = "sira-termico-ccaa",
+    theme: str = "dark",
 ) -> go.Figure:
     """Mapa coroplético de temperatura máxima prevista (24 h) por provincia de la CCAA."""
     fig = go.Figure()
     pid_sel = str(provincia_id or "").zfill(2)
     ccaa_id = ccaa_de_provincia(pid_sel)
     if not ccaa_id:
-        fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev, **PLOTLY_BG)
+        fig.update_layout(margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev, **plotly_bg(theme))
         return fig
 
     por_prov = {
@@ -907,6 +914,6 @@ def fig_termico_ccaa(
         margin=dict(t=10, b=0, l=0, r=0), autosize=True,
         uirevision=f"{uirev}-{ccaa_id}",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        **PLOTLY_BG,
+        **plotly_bg(theme),
     )
     return fig
