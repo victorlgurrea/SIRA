@@ -72,7 +72,6 @@ from figures import (
     fig_linea as _fig_linea,
     fig_historial as _fig_historial_impl,
     fig_lluvia as _fig_lluvia,
-    fig_termico_ccaa as _fig_termico_ccaa,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -248,13 +247,6 @@ app.layout = html.Div(className="sira-page", children=[
                     bloque(
                         "mapa", "Mapa de riesgos — España",
                         "Avisos AEMET por zona · sismos, incendios, embalses y aforos según la localidad seleccionada.",
-                        map_chart=True, accent=C_ORANGE,
-                    ),
-                ]),
-                html.Div(className="sira-charts-row sira-charts-row--historial", children=[
-                    bloque(
-                        "termico_ccaa", "Mapa térmico — CCAA seleccionada",
-                        "Temperatura máxima prevista 24 h por provincia (precalculado en ingesta).",
                         map_chart=True, accent=C_ORANGE,
                     ),
                 ]),
@@ -615,8 +607,8 @@ def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None) -> go.Fi
     )
 
 
-def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tuple[list, go.Figure, go.Figure, go.Figure]:
-    """Tarjetas, mapa, lluvia y mapa térmico según la zona seleccionada."""
+def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tuple[list, go.Figure, go.Figure]:
+    """Tarjetas, mapa y lluvia según la zona seleccionada."""
     ctx = _datos_mapa(geo, d)
     geo_r = ctx["geo"]
     muni_id = ctx["muni_id"]
@@ -682,19 +674,13 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None) -> tupl
 
     mapa = _build_mapa_fig(geo_r, d, capas)
     lluvia = _fig_lluvia(met.get("serie_horaria", []))
-    termico = _fig_termico_ccaa(
-        geo_r.get("provincia_id"),
-        d.get("termico_ccaa"),
-        uirev=f"sira-termico-{muni_id}",
-    )
-    return cards, mapa, lluvia, termico
+    return cards, mapa, lluvia
 
 
 @callback(
     Output("cards", "children", allow_duplicate=True),
     Output("mapa", "figure", allow_duplicate=True),
     Output("lluvia", "figure", allow_duplicate=True),
-    Output("termico_ccaa", "figure", allow_duplicate=True),
     Input("geo-store", "data"),
     State("map-layers", "value"),
     State("url", "pathname"),
@@ -722,7 +708,7 @@ def refresh_map_layers(capas, geo, pathname):
 
 @callback(
     Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
-    Output("mapa", "figure"), Output("lluvia", "figure"), Output("termico_ccaa", "figure"),
+    Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
     Input("tick", "n_intervals"), Input("btn", "n_clicks"),
@@ -751,7 +737,7 @@ def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
         raise PreventUpdate
 
     geo = _geo_resuelto(geo)
-    cards, mapa, lluvia, termico = _build_panel_geo(geo, d, capas)
+    cards, mapa, lluvia = _build_panel_geo(geo, d, capas)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -763,7 +749,7 @@ def refresh(n_intervals, clicks, geo, capas, last_ts, pathname):
 
     return (
         cards, ts, refresh_token,
-        mapa, lluvia, termico,
+        mapa, lluvia,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True),
         _fig_linea(oce_atl.get("serie_horaria", []), "sst_c", C_CYAN, "°C", "sira-sst-atl", con_semaforo_sst=True),
@@ -815,25 +801,29 @@ def _assetlinks():
 _FUENTE_ETIQUETAS = {
     "usgs": "USGS (sismos)",
     "aemet_meteo": "AEMET meteo",
-    "termico_ccaa": "Mapa térmico CCAA",
+    "termico_ccaa": "Térmico CCAA (ingesta)",
     "aemet_cap": "AEMET CAP",
     "open_meteo_marine": "Open-Meteo marine",
     "open_meteo_weather": "Open-Meteo weather",
     "firms": "NASA FIRMS",
     "embals_es": "embals.es",
     "saih_chj": "SAIH CHJ",
+    "saih_che": "SAIH Ebro",
+    "saih_chs": "SAIH Segura",
 }
 
 _FUENTE_DESCRIPCIONES = {
     "usgs": "Sismos recientes en España y entorno (magnitud, epicentro, profundidad, alerta tsunami USGS).",
     "aemet_meteo": "Predicción horaria municipal AEMET (lluvia, probabilidad de precipitación, tiempo actual).",
-    "termico_ccaa": "Resumen térmico por provincia/CCAA precalculado en ingesta para evitar llamadas meteorológicas en el render.",
+    "termico_ccaa": "Temperatura máxima prevista 24 h por provincia/CCAA (alimenta el mapa de riesgos).",
     "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",
     "open_meteo_marine": "Temperatura superficial del mar y corrientes (Mediterráneo, Cantábrico, Atlántico).",
     "open_meteo_weather": "Previsión horaria de precipitación (respaldo cuando AEMET no está disponible).",
     "firms": "Puntos de calor e incendios activos detectados por satélite en territorio español.",
     "embals_es": "Niveles, capacidad y riesgo hidrológico de embalses (cuencas Júcar, Segura y Ebro).",
     "saih_chj": "Caudales y estaciones de aforo en tiempo casi real (SAIH, Confederación Hidrográfica del Júcar).",
+    "saih_che": "Aforos SAIH cuenca del Ebro (CHE). Pendiente de API pública MITECO.",
+    "saih_chs": "Caudales y niveles en tiempo casi real (SAIH, Confederación Hidrográfica del Segura).",
 }
 
 

@@ -21,7 +21,9 @@ from config import (
 from core import fetch_aemet, fetch_json, write_dashboard
 from aemet_alerts import deduplicar_alertas
 from hidrologia import descargar_embalses
-from aforos_multi import descargar_aforos
+from aforos import descargar_aforos as descargar_aforos_chj
+from aforos_ebro import descargar_aforos as descargar_aforos_ebro
+from aforos_segura import descargar_aforos as descargar_aforos_segura
 from incendios import descargar_incendios
 from fuentes import parse_usgs_feature
 from historial import guardar_snapshots_diarios
@@ -198,9 +200,22 @@ def ejecutar_ingesta():
     except Exception as exc:  # noqa: BLE001
         fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": _fmt_error_fuente(exc)}
 
-    aforos, fuentes_estado["saih_chj"] = _estado_fuente(
-        "SAIH CHJ", descargar_aforos, alertas_cap, default=[],
+    aforos_chj, fuentes_estado["saih_chj"] = _estado_fuente(
+        "SAIH CHJ", descargar_aforos_chj, alertas_cap, default=[],
     )
+    aforos_che, fuentes_estado["saih_che"] = _estado_fuente(
+        "SAIH Ebro", descargar_aforos_ebro, alertas_cap, default=[],
+    )
+    aforos_chs, fuentes_estado["saih_chs"] = _estado_fuente(
+        "SAIH Segura", descargar_aforos_segura, alertas_cap, default=[],
+    )
+    for af in aforos_chj:
+        af.setdefault("cuenca", "CHJ")
+    for af in aforos_che:
+        af.setdefault("cuenca", "CHE")
+    for af in aforos_chs:
+        af.setdefault("cuenca", "CHS")
+    aforos = aforos_chj + aforos_che + aforos_chs
     termico_ccaa, fuentes_estado["termico_ccaa"] = _estado_fuente(
         "Térmico CCAA",
         construir_termico_ccaa,
