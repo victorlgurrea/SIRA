@@ -95,7 +95,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=34">
+        <link rel="stylesheet" href="/assets/sira.css?v=35">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
@@ -653,7 +653,28 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
     nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
     loc_label = f"{localidad}, {geo_r.get('municipio') or ''}".strip(", ")
 
+    riesgo_met = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
+    riesgo_local = calcular_riesgo_local(
+        alertas_meteo=alertas_meteo,
+        meteo=met,
+        sismos=sismos_mapa,
+        incendios_local=incendios_local,
+        resumen_embalses=res_emb,
+        resumen_aforos=res_afor,
+        termico_ccaa=d.get("termico_ccaa"),
+        provincia_id=geo_r.get("provincia_id"),
+        horas_meteo=RIESGO_METEO_HORAS,
+    )
+
     cards = [
+        card_impacto_local(riesgo_local),
+        _riesgo_meteo_card(riesgo_met),
+        card_lluvia(
+            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
+            f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
+            f"{loc_label} · SAIH CHJ · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
+            accent=C_TEAL,
+        ),
         card_sismos_combinada(
             len(d.get("sismos", [])),
             len(sismos),
@@ -673,12 +694,6 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
         ),
-        card_lluvia(
-            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
-            f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            f"{loc_label} · SAIH CHJ · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
-            accent=C_TEAL,
-        ),
         card(
             "Tiempo ahora",
             meteo_ahora(
@@ -692,21 +707,6 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
             accent=C_CYAN,
         ),
     ]
-    cards.append(_riesgo_meteo_card(calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)))
-
-    riesgo_local = calcular_riesgo_local(
-        alertas_meteo=alertas_meteo,
-        meteo=met,
-        sismos=sismos_mapa,
-        incendios_local=incendios_local,
-        resumen_embalses=res_emb,
-        resumen_aforos=res_afor,
-        termico_ccaa=d.get("termico_ccaa"),
-        provincia_id=geo_r.get("provincia_id"),
-        horas_meteo=RIESGO_METEO_HORAS,
-    )
-    cards.insert(0, card_impacto_local(riesgo_local))
-
     mapa = _build_mapa_fig(geo_r, d, capas, theme)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia
@@ -921,7 +921,7 @@ def _status_page():
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=34">
+  <link rel="stylesheet" href="/assets/sira.css?v=35">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
