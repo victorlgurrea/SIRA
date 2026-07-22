@@ -37,3 +37,6 @@ def test_calcular_riesgo_meteo_cap_y_precip():
     riesgo = calcular_riesgo_meteo(alertas, meteo, horas=2)
     assert riesgo["indice_global"] >= 35
     assert riesgo["elementos"]
+    assert riesgo.get("motivo_indice")
+    assert "naranja" in riesgo["motivo_indice"].lower() or "Índice" in riesgo["motivo_indice"]
+    assert riesgo["elementos"][0].get("motivo")

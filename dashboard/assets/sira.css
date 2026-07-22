@@ -668,6 +668,11 @@ body {
   border-top: 1px dashed var(--sira-divider-dash);
 }
 
+.sira-riesgo-global[title],
+.sira-riesgo-elem[title] {
+  cursor: help;
+}
+
 .sira-riesgo-global-lbl {
   font-size: 0.68rem;
   color: var(--sira-muted);

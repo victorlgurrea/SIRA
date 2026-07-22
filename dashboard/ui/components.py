@@ -250,7 +250,8 @@ def _riesgo_elemento(elem: dict) -> html.Div:
     if area:
         cuerpo.append(html.Div(area, className="sira-riesgo-elem-zona"))
     cuerpo.append(html.Div(className="sira-riesgo-elem-secundario", children=secundario))
-    return html.Div(className="sira-riesgo-elem", children=cuerpo)
+    motivo = str(elem.get("motivo") or "").strip()
+    return html.Div(className="sira-riesgo-elem", title=motivo or None, children=cuerpo)
 
 
 def riesgo_meteo_panel(riesgo: dict) -> html.Div:
@@ -259,6 +260,7 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
     indice = riesgo.get("indice_global", riesgo.get("indice", 0))
     nivel = riesgo.get("nivel_global", riesgo.get("nivel", "MÍNIMO"))
     color_global = COLORES.get(nivel, C_MUTED)
+    motivo_indice = str(riesgo.get("motivo_indice") or "").strip()
 
     filas: list = [html.Div(f"Horizonte: próximas {horas} h", className="sira-riesgo-meteo-horas")]
 
@@ -270,18 +272,22 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
         filas.append(html.Div(item_nodes, className=scroll_cls))
 
     filas.append(
-        html.Div(className="sira-riesgo-global", children=[
-            html.Span("Índice combinado (opcional)", className="sira-riesgo-global-lbl"),
-            html.Span(
-                f"{indice}/100 · {nivel_etiqueta(nivel)}",
-                className="sira-riesgo-global-val",
-                style={"color": color_global},
-            ),
-            html.Span(
-                "Índice orientativo.",
-                className="sira-riesgo-global-nota",
-            ),
-        ])
+        html.Div(
+            className="sira-riesgo-global",
+            title=motivo_indice or None,
+            children=[
+                html.Span("Índice combinado (opcional)", className="sira-riesgo-global-lbl"),
+                html.Span(
+                    f"{indice}/100 · {nivel_etiqueta(nivel)}",
+                    className="sira-riesgo-global-val",
+                    style={"color": color_global},
+                ),
+                html.Span(
+                    "Índice orientativo.",
+                    className="sira-riesgo-global-nota",
+                ),
+            ],
+        )
     )
     return html.Div(className="sira-riesgo-meteo", children=filas)
 

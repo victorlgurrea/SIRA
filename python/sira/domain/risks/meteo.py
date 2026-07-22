@@ -11,6 +11,12 @@ from sira.config.settings import RIESGO_METEO_HORAS
 _MADRID = ZoneInfo("Europe/Madrid")
 _LEVEL_WEIGHT = {"rojo": 100, "naranja": 68, "amarillo": 38, "verde": 10}
 _NIVEL_AEMET = {"amarillo": "AMARILLO", "naranja": "NARANJA", "rojo": "ROJO", "verde": "VERDE"}
+_NIVEL_SIGNIFICADO = {
+    "rojo": "Rojo: riesgo extremo; tome medidas excepcionales y siga instrucciones oficiales.",
+    "naranja": "Naranja: riesgo importante; evite desplazamientos y actividades al aire libre.",
+    "amarillo": "Amarillo: riesgo bajo o moderado; extreme precaución y esté atento a la evolución.",
+    "verde": "Verde: sin peligro significativo.",
+}
 
 
 def _parse_prob_aemet(prob: str | None) -> tuple[int, int, str]:
@@ -168,6 +174,67 @@ def _elemento_precip(precip: dict, fuente: str, horas: int, *, indice: int = 0) 
     }
 
 
+def _explicacion_alerta(elem: dict) -> str:
+    """Texto plano: qué es el aviso y qué significa su nivel AEMET."""
+    desc = elem.get("desc") or "Fenómeno adverso"
+    nivel = str(elem.get("nivel_peligro") or "").lower()
+    significado = _NIVEL_SIGNIFICADO.get(nivel)
+    prob = elem.get("prob_principal") or "—"
+    partes = [f"{desc}: probabilidad AEMET {prob}"]
+    area = elem.get("area")
+    if area:
+        partes.append(f"zona {area}")
+    param = elem.get("parametro")
+    if param:
+        partes.append(str(param))
+    base = ". ".join(partes) + "."
+    if significado:
+        return f"{base} {significado}"
+    return base
+
+
+def _motivo_indice_combinado(
+    indice: int,
+    nivel_global: str,
+    elementos: list[dict],
+    *,
+    horas: int,
+    idx_cap: int,
+    idx_precip: int,
+    tiene_pr: bool,
+) -> str:
+    """Explica por qué sale el índice combinado y qué implican las alertas activas."""
+    if indice <= 0 and not elementos:
+        return (
+            f"Índice 0/100: sin avisos AEMET ni precipitación relevante en las próximas {horas} h. "
+            "Los colores AEMET: amarillo = precaución; naranja = riesgo importante; rojo = riesgo extremo."
+        )
+
+    partes: list[str] = [
+        f"Índice combinado {indice}/100 ({nivel_global}): pondera el nivel de peligro AEMET "
+        f"por la probabilidad del aviso (amarillo≈38, naranja≈68, rojo≈100 a probabilidad 100%)."
+    ]
+    if tiene_pr and idx_cap:
+        partes.append(f"Hay aviso de lluvia/tormenta: se usa el índice CAP ({idx_cap}).")
+    elif idx_cap and idx_precip and idx_precip > idx_cap:
+        partes.append(
+            f"Sin aviso de lluvia: se toma el máximo entre avisos CAP ({idx_cap}) "
+            f"y predicción horaria de precipitación ({idx_precip})."
+        )
+    elif idx_cap:
+        partes.append(f"Derivado del aviso AEMET con mayor índice ({idx_cap}).")
+    elif idx_precip:
+        partes.append(f"Derivado de la predicción horaria de precipitación ({idx_precip}).")
+
+    if elementos:
+        partes.append("Alertas activas:")
+        for elem in elementos[:3]:
+            partes.append(_explicacion_alerta(elem))
+        if len(elementos) > 3:
+            partes.append(f"… y {len(elementos) - 3} aviso(s) más.")
+    return " ".join(partes)
+
+
 def calcular_riesgo_meteo(
     alertas: list[dict],
     meteo: dict | None,
@@ -209,6 +276,19 @@ def calcular_riesgo_meteo(
         nombres = ", ".join(e["desc"].lower() for e in elementos[:3])
         texto = f"Riesgo en {h} h: {nombres}."
 
+    motivo_indice = _motivo_indice_combinado(
+        indice,
+        nivel_global,
+        elementos,
+        horas=h,
+        idx_cap=idx_cap,
+        idx_precip=idx_precip,
+        tiene_pr=tiene_pr,
+    )
+
+    for elem in elementos:
+        elem["motivo"] = _explicacion_alerta(elem)
+
     return {
         "horas": h,
         "elementos": elementos,
@@ -221,4 +301,5 @@ def calcular_riesgo_meteo(
         "indice": indice,
         "nivel": nivel_global,
         "fenomenos": elementos,
+        "motivo_indice": motivo_indice,
     }

@@ -172,6 +172,39 @@ def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
     return max(candidatos, key=lambda s: (s.get("score_local", s.get("score_total", 0)), s.get("magnitud", 0)))
 
 
+def _tooltip_sismos(
+    sismos_local: list[dict],
+    n_esp: int,
+    localidad: str,
+) -> str:
+    """Explica el recuento: dónde y con qué magnitud los perceptibles locales."""
+    partes = [f"{n_esp} sismo(s) recientes en España."]
+    if not sismos_local:
+        partes.append(f"Ninguno perceptible cerca de {localidad}.")
+        return " ".join(partes)
+
+    n = len(sismos_local)
+    partes.append(f"{n} perceptible(s) cerca de {localidad}:")
+    ordenados = sorted(
+        sismos_local,
+        key=lambda s: float(s.get("magnitud") or 0),
+        reverse=True,
+    )
+    for s in ordenados[:5]:
+        lugar = str(s.get("lugar") or "epicentro desconocido").strip()
+        mag = s.get("magnitud")
+        dist = s.get("dist_local_km")
+        linea = f"· {lugar}"
+        if mag is not None:
+            linea += f" · M{mag}"
+        if dist is not None:
+            linea += f" · a {dist} km"
+        partes.append(linea)
+    if n > 5:
+        partes.append(f"· … y {n - 5} más.")
+    return " ".join(partes)
+
+
 def _detalle_sismo(sismo: dict | None) -> html.Div | str:
     if not sismo:
         return "Sin eventos en el periodo"
@@ -202,7 +235,8 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
         riesgo.get("texto") or "",
         f"AEMET Meteoalerta + predicción horaria ({h} h).",
         accent=accent,
-        tooltip="Síntesis de avisos AEMET y predicción horaria para priorizar fenómenos adversos.",
+        tooltip=riesgo.get("motivo_indice")
+        or "Síntesis de avisos AEMET y predicción horaria para priorizar fenómenos adversos.",
     )
 
 
@@ -285,7 +319,7 @@ def build_panel_geo(
             _detalle_sismo(sismo_max),
             "",
             accent=C_ORANGE,
-            tooltip="Eventos sísmicos recientes en España y perceptibilidad local respecto a la localidad seleccionada.",
+            tooltip=_tooltip_sismos(sismos, len(d.get("sismos", [])), localidad),
         ),
         card_doble(
             "Incendios activos",
