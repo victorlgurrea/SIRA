@@ -75,6 +75,7 @@ def card_lluvia(
     ayuda: str,
     *,
     accent: str = C_TEAL,
+    tooltip: str | None = None,
 ) -> html.Div:
     """Tarjeta Lluvia 24h con previsión horaria integrada."""
     children: list = [
@@ -95,11 +96,12 @@ def card_lluvia(
     return html.Div(
         className="sira-card sira-card--lluvia",
         style={"borderLeftColor": accent},
+        title=tooltip,
         children=children,
     )
 
 
-def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
+def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN, tooltip: str | None = None) -> html.Div:
     children: list = [
         html.Div(titulo, className="sira-card-title"),
         html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,
@@ -110,7 +112,12 @@ def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN) -> html.Div:
         children.append(detalle)
     if ayuda:
         children.append(html.P(ayuda, className="sira-card-help"))
-    return html.Div(className="sira-card", style={"borderLeftColor": accent}, children=children)
+    return html.Div(
+        className="sira-card",
+        style={"borderLeftColor": accent},
+        title=tooltip,
+        children=children,
+    )
 
 
 def card_doble(
@@ -121,6 +128,7 @@ def card_doble(
     etiqueta_loc: str,
     ayuda: str,
     accent: str = C_CYAN,
+    tooltip: str | None = None,
 ) -> html.Div:
     """Tarjeta con dos cifras: España / localidad."""
     valor = html.Div(className="sira-card-dual", children=[
@@ -134,7 +142,7 @@ def card_doble(
             html.Span(etiqueta_loc, className="sira-card-dual-lbl"),
         ]),
     ])
-    return card(titulo, valor, "", ayuda, accent)
+    return card(titulo, valor, "", ayuda, accent, tooltip=tooltip)
 
 
 def card_sismos_combinada(
@@ -146,6 +154,7 @@ def card_sismos_combinada(
     detalle: str,
     ayuda: str,
     accent: str = C_ORANGE,
+    tooltip: str | None = None,
 ) -> html.Div:
     valor = html.Div(className="sira-card-sismos-combo", children=[
         html.Div(className="sira-card-dual", children=[
@@ -164,7 +173,7 @@ def card_sismos_combinada(
             html.Div(detalle, className="sira-card-detail") if detalle else None,
         ]),
     ])
-    return card("Sismos", valor, "", ayuda, accent)
+    return card("Sismos", valor, "", ayuda, accent, tooltip=tooltip)
 
 
 def regiones(reg: dict) -> html.Div:
@@ -328,6 +337,7 @@ def card_impacto_local(riesgo: dict) -> html.Div:
         riesgo.get("texto") or "",
         f"Combinación ponderada de meteo, hidrología, sismos, incendios y calor ({h} h).",
         accent=accent,
+        tooltip="Índice compuesto local (0-100). Prioriza señales concurrentes en meteo, hidrología, sismos, incendios y calor.",
     )
 
 

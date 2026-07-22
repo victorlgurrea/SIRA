@@ -217,6 +217,10 @@ body {
   box-shadow: 0 6px 24px var(--sira-card-hover), 0 0 0 1px var(--sira-accent-soft);
 }
 
+.sira-card[title] {
+  cursor: help;
+}
+
 .sira-card-title {
   color: var(--sira-muted);
   font-size: 0.8rem;

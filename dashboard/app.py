@@ -95,7 +95,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=35">
+        <link rel="stylesheet" href="/assets/sira.css?v=36">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
@@ -441,6 +441,34 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
         riesgo.get("texto") or "",
         f"AEMET Meteoalerta + predicción horaria ({h} h).",
         accent=accent,
+        tooltip="Síntesis de avisos AEMET y predicción horaria para priorizar fenómenos adversos.",
+    )
+
+
+def _cobertura_aforos(fuentes_estado: dict | None) -> tuple[str, str]:
+    fuentes = fuentes_estado if isinstance(fuentes_estado, dict) else {}
+    info_chj = fuentes.get("saih_chj") if isinstance(fuentes.get("saih_chj"), dict) else {}
+    info_che = fuentes.get("saih_che") if isinstance(fuentes.get("saih_che"), dict) else {}
+    info_chs = fuentes.get("saih_chs") if isinstance(fuentes.get("saih_chs"), dict) else {}
+
+    activas = []
+    if info_chj.get("ok"):
+        activas.append("CHJ")
+    if info_che.get("ok") and int(info_che.get("registros") or 0) > 0:
+        activas.append("CHE")
+    if info_chs.get("ok"):
+        activas.append("CHS")
+    if not activas:
+        activas.append("sin cobertura")
+
+    detalle_che = ""
+    msg_che = str(info_che.get("error") or "").lower()
+    if "pendiente" in msg_che or "sin api" in msg_che:
+        detalle_che = " · CHE sin API pública"
+
+    return (
+        "Cobertura aforos: " + ", ".join(activas) + detalle_che,
+        "Cobertura de cuencas SAIH activas para aforos y caudales de la zona.",
     )
 
 
@@ -665,6 +693,7 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
         provincia_id=geo_r.get("provincia_id"),
         horas_meteo=RIESGO_METEO_HORAS,
     )
+    cobertura_aforos, tooltip_aforos = _cobertura_aforos(d.get("fuentes_estado"))
 
     cards = [
         card_impacto_local(riesgo_local),
@@ -672,8 +701,9 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
         card_lluvia(
             lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
             f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            f"{loc_label} · SAIH CHJ · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
+            f"{loc_label} · {cobertura_aforos} · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
             accent=C_TEAL,
+            tooltip=tooltip_aforos,
         ),
         card_sismos_combinada(
             len(d.get("sismos", [])),
@@ -684,6 +714,7 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
             _detalle_sismo(sismo_max),
             "",
             accent=C_ORANGE,
+            tooltip="Eventos sísmicos recientes en España y perceptibilidad local respecto a la localidad seleccionada.",
         ),
         card_doble(
             "Incendios activos",
@@ -693,6 +724,7 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
             f"cerca · {localidad}",
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
+            tooltip="Focos térmicos satelitales (NASA FIRMS) con recuento nacional y proximidad local.",
         ),
         card(
             "Tiempo ahora",
@@ -705,6 +737,7 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
             f"Según {met.get('fuente', '—')} · {loc_label}",
             "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
             accent=C_CYAN,
+            tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
         ),
     ]
     mapa = _build_mapa_fig(geo_r, d, capas, theme)
@@ -903,6 +936,8 @@ def _status_page():
         ok = info.get("ok")
         if info.get("omitido"):
             estado = '<span class="sira-status-warn">omitido</span>'
+        elif clave == "saih_che" and ok and int(info.get("registros") or 0) == 0:
+            estado = '<span class="sira-status-warn">cobertura parcial</span> <span class="sira-status-meta">(sin API pública estable)</span>'
         elif ok:
             n = info.get("registros", "—")
             estado = f'<span class="sira-status-ok">OK</span> <span class="sira-status-meta">({n} registros)</span>'
@@ -921,7 +956,7 @@ def _status_page():
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=35">
+  <link rel="stylesheet" href="/assets/sira.css?v=36">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
