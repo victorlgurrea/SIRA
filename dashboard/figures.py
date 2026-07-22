@@ -765,13 +765,17 @@ def fig_historial(municipio_id: str, default_muni: str, uirev: str, *, theme: st
             mode="lines+markers", name="Score sísmico máx.", line=dict(color=C_ORANGE),
         ))
         fig.add_trace(go.Scatter(
+            x=fechas, y=[r["indice_impacto_local"] for r in serie],
+            mode="lines+markers", name="Impacto local %", line=dict(color=C_CYAN), yaxis="y2",
+        ))
+        fig.add_trace(go.Scatter(
             x=fechas, y=[r["indice_riesgo_meteo"] for r in serie],
-            mode="lines+markers", name="Índice riesgo meteo", line=dict(color=C_TEAL), yaxis="y2",
+            mode="lines+markers", name="Índice riesgo meteo", line=dict(color=C_TEAL, dash="dot"), yaxis="y2",
         ))
     fig.update_layout(
         margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev,
         yaxis=dict(title="Score", rangemode="tozero"),
-        yaxis2=dict(title="Índice", overlaying="y", side="right", range=[0, 100]),
+        yaxis2=dict(title="Índice / %", overlaying="y", side="right", range=[0, 100]),
         legend=dict(orientation="h", yanchor="bottom", y=1.02), **plotly_bg(theme),
     )
     return fig

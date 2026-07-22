@@ -6,9 +6,13 @@ from datetime import date
 
 from config import AEMET_MUNICIPIO
 from aemet_alerts import alerta_coincide_zona, deduplicar_alertas
+from aforos import resumen_aforos
 from db import historial_existe, insert_historial_municipio, list_subscriptions
-from geo_es import coords_observacion, municipio_por_id
+from geo_es import coords_observacion, municipio_por_id, provincia_de_municipio
+from hidrologia import resumen_embalses
+from incendios import enriquecer_local as enriquecer_incendio_local
 from meteo_live import meteo_localidad
+from riesgo_local import calcular_riesgo_local
 from riesgo_meteo import calcular_riesgo_meteo
 from sismos import enriquecer_local
 
@@ -24,33 +28,61 @@ def municipios_a_snapshot() -> set[str]:
     return ids
 
 
-def guardar_snapshots_diarios(sismos: list[dict], alertas_meteo: list[dict] | None) -> int:
+def guardar_snapshots_diarios(
+    sismos: list[dict],
+    alertas_meteo: list[dict] | None,
+    *,
+    embalses: list[dict] | None = None,
+    aforos: list[dict] | None = None,
+    incendios: list[dict] | None = None,
+    termico_ccaa: dict | None = None,
+) -> int:
     """Un snapshot por municipio y día (idempotente)."""
     fecha = date.today().isoformat()
     alertas = alertas_meteo or []
+    emb_list = embalses or []
+    afor_list = aforos or []
+    inc_list = incendios or []
     guardados = 0
     for mid in sorted(municipios_a_snapshot()):
         if historial_existe(fecha, mid):
             continue
         lat, lon, _ = coords_observacion(mid, None)
-        scores = [
-            int(enriquecer_local(s, lat, lon).get("score_local") or 0)
-            for s in sismos
-        ]
+        sismos_loc = [enriquecer_local(s, lat, lon) for s in sismos]
+        scores = [int(s.get("score_local") or 0) for s in sismos_loc]
         score_max = max(scores, default=0)
         muni = municipio_por_id(mid)
         loc = muni["nombre"] if muni else ""
         met = meteo_localidad(mid, loc)
+        lluvia_24 = float((met.get("resumen") or {}).get("precip_prox_24h_mm") or 0)
+        res_emb = resumen_embalses(emb_list, lat, lon, lluvia_24h_mm=lluvia_24)
+        res_afor = resumen_aforos(afor_list, lat, lon)
+        inc_local = [
+            i for i in (enriquecer_incendio_local(i, lat, lon) for i in inc_list)
+            if i.get("cerca_local")
+        ]
         alertas_loc = [
             a for a in alertas
             if isinstance(a, dict) and alerta_coincide_zona(a, municipio_id=mid)
         ]
-        riesgo = calcular_riesgo_meteo(deduplicar_alertas(alertas_loc), met)
+        alertas_loc = deduplicar_alertas(alertas_loc)
+        riesgo_met = calcular_riesgo_meteo(alertas_loc, met)
+        riesgo_loc = calcular_riesgo_local(
+            alertas_meteo=alertas_loc,
+            meteo=met,
+            sismos=sismos_loc,
+            incendios_local=inc_local,
+            resumen_embalses=res_emb,
+            resumen_aforos=res_afor,
+            termico_ccaa=termico_ccaa,
+            provincia_id=provincia_de_municipio(mid),
+        )
         insert_historial_municipio(
             fecha,
             mid,
             score_sismo_max=score_max,
-            indice_riesgo_meteo=int(riesgo.get("indice_global") or 0),
+            indice_riesgo_meteo=int(riesgo_met.get("indice_global") or 0),
+            indice_impacto_local=int(riesgo_loc.get("indice") or 0),
         )
         guardados += 1
     if guardados:

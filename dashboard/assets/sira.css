@@ -1478,6 +1478,84 @@ body {
   display: inline;
 }
 
+.sira-impacto-local {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sira-impacto-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sira-impacto-valor {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sira-impacto-unidad {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--sira-muted);
+}
+
+.sira-impacto-nivel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-left: 0.25rem;
+}
+
+.sira-impacto-concurrencia {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--sira-orange);
+}
+
+.sira-impacto-eje {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.sira-impacto-eje-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+
+.sira-impacto-eje-nom {
+  color: var(--sira-muted);
+}
+
+.sira-impacto-eje-pct {
+  color: var(--sira-text);
+  font-weight: 600;
+}
+
+.sira-impacto-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sira-divider);
+  overflow: hidden;
+}
+
+.sira-impacto-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.sira-impacto-nota {
+  font-size: 0.72rem;
+  color: var(--sira-help);
+  line-height: 1.35;
+  margin-top: 0.15rem;
+}
+
 /* --- Preferencias push --- */
 
 .sira-push-prefs {

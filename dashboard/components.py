@@ -277,6 +277,60 @@ def riesgo_meteo_panel(riesgo: dict) -> html.Div:
     return html.Div(className="sira-riesgo-meteo", children=filas)
 
 
+def impacto_local_panel(riesgo: dict) -> html.Div:
+    """Índice compuesto 0–100 % con barras por eje."""
+    indice = int(riesgo.get("indice") or 0)
+    nivel = str(riesgo.get("nivel") or "MÍNIMO")
+    color = COLORES.get(nivel, C_MUTED)
+    ejes = riesgo.get("ejes") or []
+
+    filas: list = [
+        html.Div(className="sira-impacto-header", children=[
+            html.Span(f"{indice}", className="sira-impacto-valor", style={"color": color}),
+            html.Span("%", className="sira-impacto-unidad"),
+            html.Span(nivel_etiqueta(nivel), className="sira-impacto-nivel", style={"color": color}),
+        ]),
+    ]
+    if riesgo.get("concurrencia"):
+        filas.append(html.Div("Varias amenazas simultáneas", className="sira-impacto-concurrencia"))
+
+    for eje in ejes:
+        pct = int(eje.get("pct") or 0)
+        if pct <= 0:
+            continue
+        filas.append(html.Div(className="sira-impacto-eje", children=[
+            html.Div(className="sira-impacto-eje-top", children=[
+                html.Span(eje.get("nombre") or "—", className="sira-impacto-eje-nom"),
+                html.Span(f"{pct}%", className="sira-impacto-eje-pct"),
+            ]),
+            html.Div(className="sira-impacto-bar", children=[
+                html.Div(
+                    className="sira-impacto-bar-fill",
+                    style={"width": f"{pct}%", "backgroundColor": color if pct >= 60 else C_TEAL},
+                ),
+            ]),
+        ]))
+
+    filas.append(html.Div(
+        "Índice orientativo según señales activas. No sustituye avisos oficiales.",
+        className="sira-impacto-nota",
+    ))
+    return html.Div(className="sira-impacto-local", children=filas)
+
+
+def card_impacto_local(riesgo: dict) -> html.Div:
+    nivel = str(riesgo.get("nivel") or "MÍNIMO")
+    accent = COLORES.get(nivel, C_ORANGE)
+    h = riesgo.get("horas_meteo", 48)
+    return card(
+        "Impacto grave local",
+        impacto_local_panel(riesgo),
+        riesgo.get("texto") or "",
+        f"Combinación ponderada de meteo, hidrología, sismos, incendios y calor ({h} h).",
+        accent=accent,
+    )
+
+
 def _zona_alerta_corta(area_desc: str | None) -> str:
     """«Litoral sur de Valencia-Valencia/Valencia» → «Litoral sur de Valencia»."""
     txt = str(area_desc or "").strip()

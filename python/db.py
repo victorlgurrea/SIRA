@@ -65,6 +65,15 @@ def init_db() -> None:
     with _lock:
         with _conn() as conn:
             conn.executescript(_SCHEMA)
+            _migrate_historial(conn)
+
+
+def _migrate_historial(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(historial_municipio)")}
+    if "indice_impacto_local" not in cols:
+        conn.execute(
+            "ALTER TABLE historial_municipio ADD COLUMN indice_impacto_local INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def _now_iso() -> str:
@@ -220,6 +229,7 @@ def insert_historial_municipio(
     *,
     score_sismo_max: int,
     indice_riesgo_meteo: int,
+    indice_impacto_local: int = 0,
 ) -> None:
     init_db()
     mid = str(municipio_id).zfill(5)
@@ -228,10 +238,10 @@ def insert_historial_municipio(
             conn.execute(
                 """
                 INSERT OR IGNORE INTO historial_municipio
-                (fecha, municipio_id, score_sismo_max, indice_riesgo_meteo)
-                VALUES (?, ?, ?, ?)
+                (fecha, municipio_id, score_sismo_max, indice_riesgo_meteo, indice_impacto_local)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (fecha, mid, int(score_sismo_max), int(indice_riesgo_meteo)),
+                (fecha, mid, int(score_sismo_max), int(indice_riesgo_meteo), int(indice_impacto_local)),
             )
 
 
@@ -243,7 +253,7 @@ def get_historial_municipio(municipio_id: str, dias: int = 30) -> list[dict]:
         with _conn() as conn:
             rows = conn.execute(
                 """
-                SELECT fecha, municipio_id, score_sismo_max, indice_riesgo_meteo
+                SELECT fecha, municipio_id, score_sismo_max, indice_riesgo_meteo, indice_impacto_local
                 FROM historial_municipio
                 WHERE municipio_id = ?
                 ORDER BY fecha DESC
@@ -257,6 +267,7 @@ def get_historial_municipio(municipio_id: str, dias: int = 30) -> list[dict]:
             "municipio_id": r["municipio_id"],
             "score_sismo_max": r["score_sismo_max"],
             "indice_riesgo_meteo": r["indice_riesgo_meteo"],
+            "indice_impacto_local": r["indice_impacto_local"],
         }
         for r in reversed(rows)
     ]

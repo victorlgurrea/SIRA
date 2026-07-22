@@ -15,7 +15,7 @@ from dash import Dash, Input, Output, State, callback, clientside_callback, ctx,
 from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, card_lluvia, card_sismos_combinada, lluvia_embalses_valor, meteo_ahora, riesgo_meteo_panel
+from components import bloque, card, card_doble, card_impacto_local, card_lluvia, card_sismos_combinada, lluvia_embalses_valor, meteo_ahora, riesgo_meteo_panel
 from config import (  # noqa: E402
     AEMET_MUNICIPIO,
     ALLOW_DATA_REFRESH,
@@ -57,6 +57,7 @@ from hidrologia import embalses_para_mapa, resumen_embalses
 from aforos import aforos_para_mapa, resumen_aforos
 from tsunami_oficial import anexar_boletin_tsunami
 from riesgo_meteo import calcular_riesgo_meteo
+from riesgo_local import calcular_riesgo_local
 from theme import (
     C_CYAN,
     C_GREEN,
@@ -94,7 +95,7 @@ app.index_string = """
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
-        <link rel="stylesheet" href="/assets/sira.css?v=33">
+        <link rel="stylesheet" href="/assets/sira.css?v=34">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
@@ -693,6 +694,19 @@ def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: 
     ]
     cards.append(_riesgo_meteo_card(calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)))
 
+    riesgo_local = calcular_riesgo_local(
+        alertas_meteo=alertas_meteo,
+        meteo=met,
+        sismos=sismos_mapa,
+        incendios_local=incendios_local,
+        resumen_embalses=res_emb,
+        resumen_aforos=res_afor,
+        termico_ccaa=d.get("termico_ccaa"),
+        provincia_id=geo_r.get("provincia_id"),
+        horas_meteo=RIESGO_METEO_HORAS,
+    )
+    cards.insert(0, card_impacto_local(riesgo_local))
+
     mapa = _build_mapa_fig(geo_r, d, capas, theme)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia
@@ -907,7 +921,7 @@ def _status_page():
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=33">
+  <link rel="stylesheet" href="/assets/sira.css?v=34">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">

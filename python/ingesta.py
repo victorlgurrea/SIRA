@@ -288,7 +288,14 @@ def ejecutar_ingesta():
     }
     path = write_dashboard(payload)
     try:
-        guardar_snapshots_diarios(sismos, alertas_cap)
+        guardar_snapshots_diarios(
+            sismos,
+            alertas_cap,
+            embalses=embalses,
+            aforos=aforos,
+            incendios=incendios,
+            termico_ccaa=termico_ccaa,
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("Historial municipal: %s", exc)
     log.info("Guardado: %s", path)
