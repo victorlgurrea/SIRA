@@ -1,0 +1,1 @@
+"""Contexto geográfico del dashboard."""

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "dashboard"))
 sys.path.insert(0, str(ROOT / "python"))
 
-from components import (  # noqa: E402
+from ui.components import (  # noqa: E402
     _agrupar_resumen_alertas_tiempo,
     _detalle_alerta_tiempo,
     _zona_alerta_corta,

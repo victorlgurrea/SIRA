@@ -1525,6 +1525,10 @@ body {
   gap: 0.2rem;
 }
 
+.sira-impacto-eje[title] {
+  cursor: help;
+}
+
 .sira-impacto-eje-top {
   display: flex;
   justify-content: space-between;

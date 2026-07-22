@@ -8,10 +8,35 @@ Estructura
 ──────────
   .env / .env.example     configuración local
   startup.py / startup.bat arranque API + dashboard
-  python/                 API, ingesta, push, meteo, geo
-  dashboard/              interfaz Dash (app.py, assets/)
+  python/                 entry points (api_server, ingesta, scheduler, bootstrap)
+  python/sira/            paquete principal
+    config/               variables de entorno (.env)
+    domain/
+      risks/              índices de riesgo (local, meteo)
+      seismic/            sismos, tsunami oficial
+      costa/              capas costeras en mapa
+    infrastructure/
+      http/               cliente HTTP seguro y AEMET
+      parsers/            parseo USGS, FIRMS, etc.
+      persistence/        SQLite (push, historial)
+      geo/                catálogo INE, topojson, zonas AEMET
+      sources/            hidrología, incendios, meteo
+    services/
+      ingesta/            orquestación, CLI (runner) y estado de fuentes
+      push/               Web Push VAPID
+      historial/          snapshots diarios por municipio
+      notifications/      email y Telegram
+      overlays/           sismos/avisos de prueba
+    api/                  FastAPI REST (/api/dashboard, push, cron)
+  dashboard/              interfaz Dash
+    geo/                  contexto, selector y panel geográfico
+    ui/                   componentes y tema
+    charts/               figuras Plotly
+    routes/               Flask (/status, PWA, manifest)
   data/geo/espana.json    catálogo INE (provincia/municipio/localidad)
   data/processed/         JSON generados en runtime + SQLite (ignorados por git)
+  scripts/build/          generadores de data/geo/*.json
+  scripts/research/       probes y utilidades de investigación de APIs
   r_analysis/             gráficos R opcionales (no usa el dashboard)
   render.yaml             despliegue Render (sira-api + sira-dashboard)
 
@@ -20,7 +45,12 @@ Estructura
 Uso local
 ─────────
   py startup.py
-  cd python && py ingesta.py     # actualización manual de datos
+  cd python && py ingesta.py                    # ingesta manual
+  cd python && py -m sira.services.ingesta        # equivalente
+  cd python && py scheduler.py --una-vez          # ingesta + alertas (una vez)
+  cd python && py -m sira.services.ingesta --scheduler --una-vez
+  py scripts/migrar_json_a_sqlite.py            # migración JSON → SQLite (una vez)
+  py scripts/build/build_geo_es.py              # regenerar data/geo/espana.json
 
 Seguridad (modo consulta por defecto)
 ─────────────────────────────────────
@@ -47,7 +77,7 @@ Persistencia SQLite (push + historial)
   DB_PATH=data/processed/sira.db (configurable en .env)
   Suscripciones Web Push, estado de notificaciones e historial municipal
   viven en SQLite, no en JSON efímero del disco de Render.
-  Migración única: cd python && py migrar_json_a_sqlite.py
+  Migración única: py scripts/migrar_json_a_sqlite.py
   En Render (disco efímero):
     1. Añade un volumen persistente (p. ej. montado en /data).
     2. Variable DB_PATH=/data/sira.db en sira-api y sira-dashboard.

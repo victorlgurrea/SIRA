@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_bordes_clip import contorno_exterior, solo_bordes_interiores  # noqa: E402
+from sira.infrastructure.geo.bordes_clip import contorno_exterior, solo_bordes_interiores  # noqa: E402
 
 
 def test_contorno_exterior_incluye_costa_y_omite_frontera_interna():

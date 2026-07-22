@@ -120,9 +120,9 @@ def main() -> None:
     ensure_deps()
 
     sys.path.insert(0, str(PYTHON_DIR))
-    from config import ALLOW_DATA_REFRESH, API_HOST, API_PORT, DASHBOARD_HOST, DASHBOARD_PORT, DATA_FILE, ENABLE_API_DOCS
-    from geo_es import ensure_geo
-    from ingesta import ejecutar_ingesta
+    from sira.config.settings import ALLOW_DATA_REFRESH, API_HOST, API_PORT, DASHBOARD_HOST, DASHBOARD_PORT, DATA_FILE, ENABLE_API_DOCS
+    from sira.infrastructure.geo.es import ensure_geo
+    from sira.services.ingesta.runner import run_ingesta_once
 
     ensure_geo()
 
@@ -135,7 +135,7 @@ def main() -> None:
 
     if not DATA_FILE.exists():
         say(False, "Ingesta inicial...")
-        ejecutar_ingesta()
+        run_ingesta_once()
     say(True, "Datos listos")
 
     api_h = "127.0.0.1" if API_HOST in ("0.0.0.0", "") else API_HOST

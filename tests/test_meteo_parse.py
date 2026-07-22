@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from meteo_parse import actual_aemet_from_item, aemet_val, parse_aemet, _entrada_por_hora  # noqa: E402
+from sira.infrastructure.sources.meteo.parse import actual_aemet_from_item, aemet_val, parse_aemet, _entrada_por_hora  # noqa: E402
 
 _VALENCIA_SNIPPET = [
     {

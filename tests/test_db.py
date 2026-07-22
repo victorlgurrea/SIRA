@@ -13,8 +13,8 @@ def db_tmp(tmp_path, monkeypatch):
 
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("DB_PATH", str(db_file))
-    import config
-    import db as db_mod
+    import sira.config.settings as config
+    import sira.infrastructure.persistence.sqlite as db_mod
 
     monkeypatch.setattr(config, "DB_PATH", db_file)
     importlib.reload(db_mod)

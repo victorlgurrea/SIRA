@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from push_web import _split_meteo_bootstrap  # noqa: E402
+from sira.services.push.web import _split_meteo_bootstrap  # noqa: E402
 
 
 def _alert(level: str, zona: str, valor: str) -> dict:

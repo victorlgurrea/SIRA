@@ -1,7 +1,7 @@
 """Tests de aforos.py."""
 from __future__ import annotations
 
-from aforos import _utm30n_a_wgs84, nivel_riesgo_aforo
+from sira.infrastructure.sources.hydrology.chj import _utm30n_a_wgs84, nivel_riesgo_aforo
 
 
 def test_utm30n_a_wgs84_dentro_espana():

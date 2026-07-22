@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from config import SISMO_PERCEPCION
-from sismos import (
+from sira.config.settings import SISMO_PERCEPCION
+from sira.domain.seismic.sismos import (
     distancia_km,
     distancia_perceptible_km,
     radio_tsunami_km,
@@ -24,8 +24,8 @@ def _params_percepcion_documentados(monkeypatch):
         "prof_km": 70.0,
         "max_km": 450.0,
     }
-    monkeypatch.setattr("sismos.SISMO_PERCEPCION", p)
-    monkeypatch.setattr("config.SISMO_PERCEPCION", p)
+    monkeypatch.setattr("sira.domain.seismic.sismos.SISMO_PERCEPCION", p)
+    monkeypatch.setattr("sira.config.settings.SISMO_PERCEPCION", p)
 
 
 @pytest.mark.parametrize(

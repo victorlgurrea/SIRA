@@ -13,7 +13,7 @@ PYTHON = ROOT / "python"
 if str(PYTHON) not in sys.path:
     sys.path.insert(0, str(PYTHON))
 
-import test_overlay as overlay_mod  # noqa: E402
+import sira.services.overlays.sismo as overlay_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

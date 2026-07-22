@@ -12,12 +12,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 from dash import Dash, Input, Output, State, callback, clientside_callback, ctx, dcc, html
-from flask import jsonify, send_from_directory
 from dash.exceptions import PreventUpdate
 
-from components import bloque, card, card_doble, card_impacto_local, card_lluvia, card_sismos_combinada, lluvia_embalses_valor, meteo_ahora, riesgo_meteo_panel
-from config import (  # noqa: E402
-    AEMET_MUNICIPIO,
+from ui.components import bloque, card_lluvia
+from sira.config.settings import (
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
     API_KEY,
@@ -26,18 +24,15 @@ from config import (  # noqa: E402
     DASHBOARD_REFRESH_MS,
     DASHBOARD_REFRESH_MIN,
     DATA_FILE,
-    AFORO_RADIO_LOCAL_KM,
-    EMBALSE_RADIO_LOCAL_KM,
     FORECAST_DAYS,
-    INCENDIO_RADIO_LOCAL_KM,
     INGESTA_INTERVAL_MIN,
     MARES,
-    RIESGO_METEO_HORAS,
-    ZONA,
 )
-from db import count_subscriptions, get_historial_municipio
-from core import fmt_ingesta_local, read_dashboard  # noqa: E402
-from geo_es import (
+from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard  # noqa: E402
+from routes.flask_routes import register_routes
+from geo.context import DEFAULT_LOC, DEFAULT_MUNI, DEFAULT_PROV, default_geo, geo_resuelto, theme_val
+from geo.panel import alertas_meteo_fuente, build_mapa_fig, build_panel_geo
+from sira.infrastructure.geo.es import (
     coords_observacion,
     localidades,
     municipio_por_id,
@@ -47,32 +42,15 @@ from geo_es import (
     provincias,
     viewport_ccaa_centro,
 )
-from geo_ui import selector_geo
-from meteo_live import meteo_localidad
-from aemet_alerts import alerta_coincide_zona, alerta_firma, alertas_para_dia, deduplicar_alertas
-from costa_mapa import alertas_a_capa_costera
-from sismos import enriquecer_local
-from incendios import enriquecer_local as enriquecer_incendio_local
-from hidrologia import embalses_para_mapa, resumen_embalses
-from aforos import aforos_para_mapa, resumen_aforos
-from tsunami_oficial import anexar_boletin_tsunami
-from riesgo_meteo import calcular_riesgo_meteo
-from riesgo_local import calcular_riesgo_local
-from theme import (
-    C_CYAN,
-    C_GREEN,
-    C_ORANGE,
-    C_TEAL,
-    COLORES,
-)
+from geo.ui import selector_geo
+from sira.infrastructure.sources.meteo.aemet_alerts import alerta_firma
+from sira.domain.costa.mapa import alertas_a_capa_costera
+from ui.theme import C_CYAN, C_GREEN, C_ORANGE, C_TEAL
 
-from figures import (
-    fmt_sismo_fecha as _fmt_sismo_fecha,
-    fig_mapa as _fig_mapa,
+from charts.figures import (
     fig_corrientes as _fig_corrientes,
     fig_linea as _fig_linea,
     fig_historial as _fig_historial_impl,
-    fig_lluvia as _fig_lluvia,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -115,64 +93,9 @@ app.index_string = """
 
 _LOGO = app.get_asset_url("logo-sira_4.png") + "?v=8"
 
-_DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
-_DEFAULT_PROV = provincia_de_municipio(_DEFAULT_MUNI) or "46"
-_locs = localidades(_DEFAULT_MUNI)
-_DEFAULT_LOC = _locs[0]["id"] if _locs else _DEFAULT_MUNI
-
 _AYUDA_OCE_PREVISION = f"Previsión horaria · {FORECAST_DAYS} días · Open-Meteo Marine"
 
-
-def _default_geo() -> dict:
-    muni = municipio_por_id(_DEFAULT_MUNI)
-    prov = next((p for p in provincias() if p["id"] == _DEFAULT_PROV), None)
-    loc = _locs[0] if _locs else None
-    lat_obs, lon_obs, _ = coords_observacion(_DEFAULT_MUNI, loc["id"] if loc else None)
-    return {
-        "provincia_id": _DEFAULT_PROV,
-        "provincia": prov["nombre"] if prov else None,
-        "municipio_id": _DEFAULT_MUNI,
-        "municipio": muni["nombre"] if muni else None,
-        "localidad_id": loc["id"] if loc else None,
-        "localidad": loc["nombre"] if loc else None,
-        "map_zoom": viewport_ccaa_centro(_DEFAULT_PROV, lat_obs, lon_obs, alejado=True),
-    }
-
-
-def _geo_resuelto(geo: dict | None) -> dict:
-    """Geo efectiva del panel: nombres siempre coherentes con los IDs."""
-    if not geo:
-        return _default_geo()
-
-    muni_id = str(geo.get("municipio_id") or _DEFAULT_MUNI).zfill(5)
-    muni = municipio_por_id(muni_id)
-    pid = str(geo.get("provincia_id") or provincia_de_municipio(muni_id) or _DEFAULT_PROV).zfill(2)
-    prov = next((p for p in provincias() if p["id"] == pid), None)
-    locs = localidades(muni_id)
-    loc_id = geo.get("localidad_id")
-    loc = next((l for l in locs if l["id"] == loc_id), locs[0] if locs else None)
-
-    out = {
-        "provincia_id": pid,
-        "provincia": prov["nombre"] if prov else geo.get("provincia"),
-        "municipio_id": muni_id,
-        "municipio": muni["nombre"] if muni else geo.get("municipio"),
-        "localidad_id": loc["id"] if loc else geo.get("localidad_id"),
-        "localidad": loc["nombre"] if loc else geo.get("localidad"),
-    }
-    zoom = geo.get("map_zoom")
-    if zoom:
-        out["map_zoom"] = zoom
-    else:
-        lat_obs, lon_obs, _ = coords_observacion(muni_id, out.get("localidad_id"))
-        out["map_zoom"] = viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
-    return out
-
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
-
-
-def _theme_val(theme: str | None) -> str:
-    return "light" if theme == "light" else "dark"
 
 
 app.layout = html.Div(className="sira-page", children=[
@@ -197,10 +120,10 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
             dcc.Store(id="theme-store", data="dark"),
-            dcc.Store(id="geo-store", data=_default_geo()),
+            dcc.Store(id="geo-store", data=default_geo()),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
-            selector_geo(_DEFAULT_PROV, _DEFAULT_MUNI, _DEFAULT_LOC),
+            selector_geo(DEFAULT_PROV, DEFAULT_MUNI, DEFAULT_LOC),
             html.Div(id="page-home", children=[
                 html.Div(className="sira-toolbar", children=[
                     html.Div(className="sira-ts-wrap", children=[
@@ -337,41 +260,6 @@ def _load() -> dict:
     return read_dashboard()
 
 
-def _meteo_para_geo(municipio_id: str, localidad: str | None = None) -> dict:
-    """GET /api/meteo/{municipio} al cambiar zona; fallback local si la API no responde."""
-    mid = str(municipio_id or _DEFAULT_MUNI).zfill(5)
-    params = {"localidad": localidad} if localidad else None
-    try:
-        r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=30)
-        if r.ok:
-            data = r.json()
-            if isinstance(data, dict):
-                return data
-    except requests.RequestException:
-        pass
-    return meteo_localidad(mid, localidad)
-
-
-
-
-def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
-    if not sismos:
-        return None
-    candidatos = [s for s in sismos if s.get("magnitud") == mag_max]
-    if not candidatos:
-        candidatos = sismos
-    return max(candidatos, key=lambda s: (s.get("score_local", s.get("score_total", 0)), s.get("magnitud", 0)))
-
-
-def _detalle_sismo(sismo: dict | None) -> html.Div | str:
-    if not sismo:
-        return "Sin eventos en el periodo"
-    return html.Div(className="sira-evento-info", children=[
-        html.Div(_fmt_sismo_fecha(sismo.get("timestamp")), className="sira-evento-fecha"),
-        html.Div(sismo.get("lugar") or "—", className="sira-evento-lugar"),
-    ])
-
-
 def _bloque_oce(oce: dict, clave: str) -> dict:
     bloque = oce.get(clave)
     if isinstance(bloque, dict) and bloque.get("serie_horaria") is not None:
@@ -381,30 +269,8 @@ def _bloque_oce(oce: dict, clave: str) -> dict:
     return {"serie_horaria": [], "resumen": {}}
 
 
-def _alertas_meteo_fuente(d: dict) -> list[dict]:
-    """Avisos de prueba + live ya resueltos por read_dashboard/API (caché AEMET 90 s)."""
-    local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
-    live = list(d.get("meteo_alertas_live", [])) if isinstance(d.get("meteo_alertas_live"), list) else []
-    return [*local, *live]
-
-
-def _alertas_meteo_locales(geo: dict, alertas: list[dict]) -> list[dict]:
-    geo = _geo_resuelto(geo)
-    filtradas = [
-        a for a in alertas
-        if alerta_coincide_zona(
-            a,
-            provincia_id=geo.get("provincia_id"),
-            municipio_id=geo.get("municipio_id"),
-            provincia=geo.get("provincia"),
-            municipio=geo.get("municipio"),
-        )
-    ]
-    return deduplicar_alertas(filtradas)
-
-
 def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
-    src = alertas if alertas is not None else _alertas_meteo_fuente(d)
+    src = alertas if alertas is not None else alertas_meteo_fuente(d)
     firmas = sorted(
         "|".join(alerta_firma(a))
         for a in src
@@ -420,71 +286,8 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
     )
 
 
-def _riesgo_meteo_card(riesgo: dict) -> html.Div:
-    elementos = riesgo.get("elementos") or []
-    nivel_peligro = "amarillo"
-    for e in elementos:
-        n = str(e.get("nivel_peligro") or "").lower()
-        if n == "rojo":
-            nivel_peligro = "rojo"
-            break
-        if n == "naranja":
-            nivel_peligro = "naranja"
-    accent = {"rojo": "#ef4444", "naranja": C_ORANGE, "amarillo": "#eab308"}.get(
-        nivel_peligro,
-        COLORES.get(riesgo.get("nivel_global", riesgo.get("nivel", "MÍNIMO")), C_ORANGE),
-    )
-    h = riesgo.get("horas", RIESGO_METEO_HORAS)
-    return card(
-        "Riesgo meteorológico adverso",
-        riesgo_meteo_panel(riesgo),
-        riesgo.get("texto") or "",
-        f"AEMET Meteoalerta + predicción horaria ({h} h).",
-        accent=accent,
-        tooltip="Síntesis de avisos AEMET y predicción horaria para priorizar fenómenos adversos.",
-    )
-
-
-def _cobertura_aforos(fuentes_estado: dict | None) -> tuple[str, str]:
-    fuentes = fuentes_estado if isinstance(fuentes_estado, dict) else {}
-    info_chj = fuentes.get("saih_chj") if isinstance(fuentes.get("saih_chj"), dict) else {}
-    info_che = fuentes.get("saih_che") if isinstance(fuentes.get("saih_che"), dict) else {}
-    info_chs = fuentes.get("saih_chs") if isinstance(fuentes.get("saih_chs"), dict) else {}
-
-    activas = []
-    if info_chj.get("ok"):
-        activas.append("CHJ")
-    if info_che.get("ok") and int(info_che.get("registros") or 0) > 0:
-        activas.append("CHE")
-    if info_chs.get("ok"):
-        activas.append("CHS")
-    if not activas:
-        activas.append("sin cobertura")
-
-    detalle_che = ""
-    msg_che = str(info_che.get("error") or "").lower()
-    if "pendiente" in msg_che or "sin api" in msg_che:
-        detalle_che = " · CHE sin API pública"
-
-    return (
-        "Cobertura aforos: " + ", ".join(activas) + detalle_che,
-        "Cobertura de cuencas SAIH activas para aforos y caudales de la zona.",
-    )
-
-
-def _map_viewport(geo: dict | None) -> dict:
-    zoom = (geo or {}).get("map_zoom")
-    if zoom and zoom.get("lat_centro") is not None:
-        return zoom
-    muni_id = (geo or {}).get("municipio_id") or _DEFAULT_MUNI
-    pid = str((geo or {}).get("provincia_id") or provincia_de_municipio(muni_id) or _DEFAULT_PROV).zfill(2)
-    loc_id = (geo or {}).get("localidad_id")
-    lat_obs, lon_obs, _ = coords_observacion(muni_id, loc_id)
-    return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
-
-
 def _fig_historial(municipio_id: str | None, uirev: str, theme: str = "dark") -> go.Figure:
-    return _fig_historial_impl(municipio_id, _DEFAULT_MUNI, uirev, theme=theme)
+    return _fig_historial_impl(municipio_id, DEFAULT_MUNI, uirev, theme=theme)
 
 
 @callback(
@@ -544,7 +347,7 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
         map_zoom = viewport_ccaa_centro(provincia_id, lat_obs, lon_obs, alejado=True)
     else:
         map_zoom = viewport_ccaa_centro(
-            provincia_id or _DEFAULT_PROV, lat_obs, lon_obs, alejado=True,
+            provincia_id or DEFAULT_PROV, lat_obs, lon_obs, alejado=True,
         )
     return {
         "provincia_id": provincia_id,
@@ -589,160 +392,7 @@ def _activar_poll_geo(_n):
 def refresh_historial(pathname, municipio_id, theme):
     if pathname != "/historial":
         raise PreventUpdate
-    return _fig_historial(municipio_id or _DEFAULT_MUNI, "sira-historial", _theme_val(theme))
-
-
-def _capas_activas(capas: list[str] | None) -> set[str]:
-    return set(capas) if capas else {"sismos", "incendios", "embalses", "aforos", "aemet", "costa"}
-
-
-def _datos_mapa(geo: dict, d: dict) -> dict:
-    """Enriquece datos del dashboard para el mapa de riesgos (sin llamadas meteo)."""
-    geo = _geo_resuelto(geo)
-    muni_id = geo.get("municipio_id") or _DEFAULT_MUNI
-    localidad = geo.get("localidad") or ZONA["ciudad_ref"]
-    lat_obs, lon_obs, _ = coords_observacion(muni_id, geo.get("localidad_id"))
-
-    sismos_mapa = [enriquecer_local(s, lat_obs, lon_obs) for s in d.get("sismos", [])]
-    sismos_mapa = [
-        anexar_boletin_tsunami(s, lat_obs, lon_obs, muni_id)
-        if s.get("alerta_tsunami")
-        else s
-        for s in sismos_mapa
-    ]
-    for s in sismos_mapa:
-        if s.get("alerta_tsunami") and s.get("tsunami_texto_ola"):
-            s["area_desc"] = str(s["tsunami_texto_ola"])
-
-    incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in d.get("incendios", [])]
-    lluvia_24 = float((d.get("meteo") or {}).get("resumen", {}).get("precip_prox_24h_mm") or 0)
-    embalses_mapa = embalses_para_mapa(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
-    aforos_mapa = aforos_para_mapa(d.get("aforos", []), lat_obs, lon_obs)
-    alertas_fuente = _alertas_meteo_fuente(d)
-    alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
-    zonas_costeras = alertas_a_capa_costera(alertas_mapa_hoy)
-
-    return {
-        "geo": geo,
-        "muni_id": muni_id,
-        "localidad": localidad,
-        "lat_obs": lat_obs,
-        "lon_obs": lon_obs,
-        "sismos_mapa": sismos_mapa,
-        "incendios_mapa": incendios_mapa,
-        "embalses_mapa": embalses_mapa,
-        "aforos_mapa": aforos_mapa,
-        "alertas_mapa_hoy": alertas_mapa_hoy,
-        "zonas_costeras": zonas_costeras,
-    }
-
-
-def _build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark") -> go.Figure:
-    ctx = _datos_mapa(geo, d)
-    geo_r = ctx["geo"]
-    act = _capas_activas(capas)
-    viewport = _map_viewport(geo_r)
-    map_rev = f"sira-mapa-{ctx['muni_id']}-{viewport.get('nivel', 'municipio')}"
-    return _fig_mapa(
-        ctx["sismos_mapa"] if "sismos" in act else [],
-        ctx["incendios_mapa"] if "incendios" in act else None,
-        ctx["lat_obs"], ctx["lon_obs"], ctx["localidad"],
-        ctx["zonas_costeras"] if "costa" in act else None,
-        ctx["alertas_mapa_hoy"] if "aemet" in act else None,
-        ctx["embalses_mapa"] if "embalses" in act else None,
-        ctx["aforos_mapa"] if "aforos" in act else None,
-        viewport=viewport, map_uirevision=map_rev,
-        provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
-        theme=theme,
-    )
-
-
-def _build_panel_geo(geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark") -> tuple[list, go.Figure, go.Figure]:
-    """Tarjetas, mapa y lluvia según la zona seleccionada."""
-    ctx = _datos_mapa(geo, d)
-    geo_r = ctx["geo"]
-    muni_id = ctx["muni_id"]
-    localidad = ctx["localidad"]
-    lat_obs, lon_obs = ctx["lat_obs"], ctx["lon_obs"]
-    sismos_mapa = ctx["sismos_mapa"]
-    incendios_mapa = ctx["incendios_mapa"]
-
-    sismos = [s for s in sismos_mapa if s.get("perceptible_local")]
-    incendios_local = [i for i in incendios_mapa if i.get("cerca_local")]
-    met = _meteo_para_geo(muni_id, localidad)
-    res_met = met.get("resumen", {})
-    lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
-    res_emb = resumen_embalses(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
-    res_afor = resumen_aforos(d.get("aforos", []), lat_obs, lon_obs)
-    alertas_meteo = _alertas_meteo_locales(geo_r, _alertas_meteo_fuente(d))
-
-    mag_max = max((s["magnitud"] for s in sismos), default=0)
-    sismo_max = _sismo_mag_max(sismos, mag_max)
-    nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
-    loc_label = f"{localidad}, {geo_r.get('municipio') or ''}".strip(", ")
-
-    riesgo_met = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
-    riesgo_local = calcular_riesgo_local(
-        alertas_meteo=alertas_meteo,
-        meteo=met,
-        sismos=sismos_mapa,
-        incendios_local=incendios_local,
-        resumen_embalses=res_emb,
-        resumen_aforos=res_afor,
-        termico_ccaa=d.get("termico_ccaa"),
-        provincia_id=geo_r.get("provincia_id"),
-        horas_meteo=RIESGO_METEO_HORAS,
-    )
-    cobertura_aforos, tooltip_aforos = _cobertura_aforos(d.get("fuentes_estado"))
-
-    cards = [
-        card_impacto_local(riesgo_local),
-        _riesgo_meteo_card(riesgo_met),
-        card_lluvia(
-            lluvia_embalses_valor(res_met.get("precip_prox_24h_mm", "—"), res_emb, res_afor),
-            f"Prob. máx. {res_met.get('prob_max_pct', '—')}% · {met.get('fuente', '—')}",
-            f"{loc_label} · {cobertura_aforos} · embalses {EMBALSE_RADIO_LOCAL_KM:.0f} km · aforos {AFORO_RADIO_LOCAL_KM:.0f} km",
-            accent=C_TEAL,
-            tooltip=tooltip_aforos,
-        ),
-        card_sismos_combinada(
-            len(d.get("sismos", [])),
-            len(sismos),
-            localidad,
-            float(mag_max),
-            nivel_max,
-            _detalle_sismo(sismo_max),
-            "",
-            accent=C_ORANGE,
-            tooltip="Eventos sísmicos recientes en España y perceptibilidad local respecto a la localidad seleccionada.",
-        ),
-        card_doble(
-            "Incendios activos",
-            len(d.get("incendios", [])),
-            "España",
-            len(incendios_local),
-            f"cerca · {localidad}",
-            f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
-            accent="#ea580c",
-            tooltip="Focos térmicos satelitales (NASA FIRMS) con recuento nacional y proximidad local.",
-        ),
-        card(
-            "Tiempo ahora",
-            meteo_ahora(
-                res_met,
-                met.get("proximas_horas", []),
-                fuente=met.get("fuente"),
-                alertas=alertas_meteo,
-            ),
-            f"Según {met.get('fuente', '—')} · {loc_label}",
-            "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
-            accent=C_CYAN,
-            tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
-        ),
-    ]
-    mapa = _build_mapa_fig(geo_r, d, capas, theme)
-    lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
-    return cards, mapa, lluvia
+    return _fig_historial(municipio_id or DEFAULT_MUNI, "sira-historial", theme_val(theme))
 
 
 @callback(
@@ -759,8 +409,8 @@ def refresh_geo(geo, theme, capas, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     d = _load()
-    t = _theme_val(theme)
-    return _build_panel_geo(geo, d, capas, t)
+    t = theme_val(theme)
+    return build_panel_geo(geo, d, capas, t)
 
 
 @callback(
@@ -774,7 +424,7 @@ def refresh_geo(geo, theme, capas, pathname):
 def refresh_map_layers(capas, theme, geo, pathname):
     if pathname == "/historial":
         raise PreventUpdate
-    return _build_mapa_fig(geo, _load(), capas, _theme_val(theme))
+    return build_mapa_fig(geo, _load(), capas, theme_val(theme))
 
 
 @callback(
@@ -803,14 +453,14 @@ def refresh(n_intervals, clicks, theme, geo, capas, last_ts, pathname):
             pass
 
     d = _load()
-    alertas_fuente = _alertas_meteo_fuente(d)
+    alertas_fuente = alertas_meteo_fuente(d)
     refresh_token = _data_refresh_token(d, alertas_fuente)
     if ctx.triggered_id == "tick" and n_intervals and last_ts == refresh_token:
         raise PreventUpdate
 
-    geo = _geo_resuelto(geo)
-    t = _theme_val(theme)
-    cards, mapa, lluvia = _build_panel_geo(geo, d, capas, t)
+    geo = geo_resuelto(geo)
+    t = theme_val(theme)
+    cards, mapa, lluvia = build_panel_geo(geo, d, capas, t)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -838,166 +488,7 @@ if __name__ == "__main__":
 
 # WSGI (gunicorn en Render)
 server = app.server
-
-
-@server.route("/sw.js")
-def _service_worker():
-    resp = send_from_directory(str(_ASSETS), "sw.js")
-    resp.headers["Service-Worker-Allowed"] = "/"
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp
-
-
-# Huella SHA-256 del keystore debug (añade la de release al publicar en Play Store).
-_ANDROID_SHA256_DEBUG = (
-    "30:20:B7:AC:BD:FB:CF:A4:90:77:A2:20:6F:F0:73:10:"
-    "B3:A0:A7:87:78:8E:E0:48:3F:B1:50:B8:D9:0E:F8:D4"
-)
-
-
-@server.route("/.well-known/assetlinks.json")
-def _assetlinks():
-    return jsonify(
-        [
-            {
-                "relation": ["delegate_permission/common.handle_all_urls"],
-                "target": {
-                    "namespace": "android_app",
-                    "package_name": "es.sira.alertas",
-                    "sha256_cert_fingerprints": [_ANDROID_SHA256_DEBUG],
-                },
-            }
-        ]
-    )
-
-
-_FUENTE_ETIQUETAS = {
-    "usgs": "USGS (sismos)",
-    "aemet_meteo": "AEMET meteo",
-    "termico_ccaa": "Térmico CCAA (ingesta)",
-    "aemet_cap": "AEMET CAP",
-    "open_meteo_marine": "Open-Meteo marine",
-    "open_meteo_weather": "Open-Meteo weather",
-    "firms": "NASA FIRMS",
-    "embals_es": "embals.es",
-    "saih_chj": "SAIH CHJ",
-    "saih_che": "SAIH Ebro",
-    "saih_chs": "SAIH Segura",
-}
-
-_FUENTE_DESCRIPCIONES = {
-    "usgs": "Sismos recientes en España y entorno (magnitud, epicentro, profundidad, alerta tsunami USGS).",
-    "aemet_meteo": "Predicción horaria municipal AEMET (lluvia, probabilidad de precipitación, tiempo actual).",
-    "termico_ccaa": "Temperatura máxima prevista 24 h por provincia/CCAA (alimenta el mapa de riesgos).",
-    "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",
-    "open_meteo_marine": "Temperatura superficial del mar y corrientes (Mediterráneo, Cantábrico, Atlántico).",
-    "open_meteo_weather": "Previsión horaria de precipitación (respaldo cuando AEMET no está disponible).",
-    "firms": "Puntos de calor e incendios activos detectados por satélite en territorio español.",
-    "embals_es": "Niveles, capacidad y riesgo hidrológico de embalses (cuencas Júcar, Segura y Ebro).",
-    "saih_chj": "Caudales y estaciones de aforo en tiempo casi real (SAIH, Confederación Hidrográfica del Júcar).",
-    "saih_che": "Aforos SAIH cuenca del Ebro (CHE). Pendiente de API pública MITECO.",
-    "saih_chs": "Caudales y niveles en tiempo casi real (SAIH, Confederación Hidrográfica del Segura).",
-}
-
-
-def _status_snapshot() -> dict:
-    """Lee estado desde API; fallback local si no responde."""
-    try:
-        r = requests.get(f"{API_BASE_URL}/api/status", timeout=15)
-        if r.ok:
-            payload = r.json()
-            if isinstance(payload, dict):
-                return payload
-    except requests.RequestException:
-        pass
-    data = read_dashboard()
-    return {
-        "generado_en": data.get("generado_en", "—"),
-        "fuentes_estado": data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
-        "suscripciones_push": count_subscriptions(),
-        "ok": bool(data.get("generado_en")),
-    }
-
-
-def _fmt_status_dt(value: str | None) -> str:
-    return fmt_ingesta_local(value)
-
-
-@server.route("/status")
-def _status_page():
-    data = _status_snapshot()
-    fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
-    generado = _fmt_status_dt(data.get("generado_en"))
-    n_push = data.get("suscripciones_push", 0)
-    filas = []
-    for clave, etiqueta in _FUENTE_ETIQUETAS.items():
-        info = fuentes.get(clave, {})
-        desc = _FUENTE_DESCRIPCIONES.get(clave, "—")
-        ok = info.get("ok")
-        if info.get("omitido"):
-            estado = '<span class="sira-status-warn">omitido</span>'
-        elif clave == "saih_che" and ok and int(info.get("registros") or 0) == 0:
-            estado = '<span class="sira-status-warn">cobertura parcial</span> <span class="sira-status-meta">(sin API pública estable)</span>'
-        elif ok:
-            n = info.get("registros", "—")
-            estado = f'<span class="sira-status-ok">OK</span> <span class="sira-status-meta">({n} registros)</span>'
-        else:
-            err = info.get("error") or "error"
-            estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'
-        filas.append(
-            f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
-        )
-    tabla = "\n".join(filas)
-    html = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SIRA — Estado del sistema</title>
-  <meta name="theme-color" content="#0a1628">
-  <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=36">
-</head>
-<body class="sira-page sira-status-page">
-  <main class="sira-main">
-    <div class="sira-container">
-      <h1 class="sira-title">Estado del sistema</h1>
-      <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong> <span class="sira-ts-badge">Hora local</span></p>
-      <p class="sira-status-ts">Suscripciones push activas: <strong>{n_push}</strong></p>
-      <table class="sira-status-table">
-        <thead><tr><th>Fuente</th><th>Descripción</th><th>Estado</th></tr></thead>
-        <tbody>{tabla}</tbody>
-      </table>
-      <p class="sira-status-back"><a href="/">← Volver al dashboard</a></p>
-    </div>
-  </main>
-</body>
-</html>"""
-    from flask import Response
-    return Response(html, mimetype="text/html")
-
-
-@server.route("/manifest.webmanifest")
-def _manifest():
-    return jsonify(
-        {
-            "name": "SIRA — Sistema Ibérico de Riesgos y Alerta",
-            "short_name": "SIRA",
-            "start_url": "/",
-            "scope": "/",
-            "display": "standalone",
-            "background_color": "#0a1628",
-            "theme_color": "#0a1628",
-            "icons": [
-                {
-                    "src": app.get_asset_url("logo-sira_4.png"),
-                    "sizes": "512x512",
-                    "type": "image/png",
-                    "purpose": "any maskable",
-                }
-            ],
-        }
-    )
+register_routes(server, app, _ASSETS)
 
 
 clientside_callback(

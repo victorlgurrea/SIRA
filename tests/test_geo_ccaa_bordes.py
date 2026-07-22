@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_ccaa_mapa import (  # noqa: E402
+from sira.infrastructure.geo.ccaa_mapa import (  # noqa: E402
     _bordes,
     _bordes_provincias,
     anadir_bordes_ccaa,

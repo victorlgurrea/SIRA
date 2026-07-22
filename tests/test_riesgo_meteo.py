@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from riesgo_meteo import _indice_alerta, calcular_riesgo_meteo
+from sira.domain.risks.meteo import _indice_alerta, calcular_riesgo_meteo
 
 
 def test_indice_alerta_pesos_nivel():

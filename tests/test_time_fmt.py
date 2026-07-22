@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from core import fmt_ingesta_local  # noqa: E402
+from sira.infrastructure.http.client import fmt_ingesta_local  # noqa: E402
 
 
 def test_fmt_ingesta_local_fecha_y_hora():

@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 sys.path.insert(0, str(ROOT / "dashboard"))
 
-from components import meteo_ahora  # noqa: E402
-from meteo_live import _proximas_horas_desde_serie  # noqa: E402
+from ui.components import meteo_ahora  # noqa: E402
+from sira.infrastructure.sources.meteo.live import _proximas_horas_desde_serie  # noqa: E402
 
 
 def test_proximas_horas_desde_serie_filtra_pasado():
@@ -25,7 +25,7 @@ def test_proximas_horas_desde_serie_filtra_pasado():
         {"timestamp": pasado, "temp_c": 20.0, "sensacion_c": 21.0},
         {"timestamp": futuro, "temp_c": 25.0, "sensacion_c": 26.0},
     ]
-    with patch("meteo_live.datetime") as mock_dt:
+    with patch("sira.infrastructure.sources.meteo.live.datetime") as mock_dt:
         mock_dt.now.return_value = ahora
         mock_dt.fromisoformat = datetime.fromisoformat
         out = _proximas_horas_desde_serie(serie, horas=6)

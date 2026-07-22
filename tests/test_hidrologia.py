@@ -1,7 +1,7 @@
 """Tests de hidrologia.py."""
 from __future__ import annotations
 
-from hidrologia import nivel_riesgo_embalse
+from sira.infrastructure.sources.hydrology.reservoirs import nivel_riesgo_embalse
 
 
 def test_nivel_riesgo_embalse_umbrales():

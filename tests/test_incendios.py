@@ -1,7 +1,7 @@
 """Tests de incendios.py — clustering por transitividad."""
 from __future__ import annotations
 
-from incendios import _agrupar_focos, en_espana, radio_desde_area_km2
+from sira.infrastructure.sources.fire.firms import _agrupar_focos, en_espana, radio_desde_area_km2
 
 
 def test_radio_desde_area():

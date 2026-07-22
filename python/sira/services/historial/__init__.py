@@ -1,0 +1,1 @@
+"""Historial municipal de riesgo."""

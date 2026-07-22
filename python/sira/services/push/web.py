@@ -1,0 +1,816 @@
+"""Web Push (VAPID) para notificaciones en navegador/PWA."""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+
+from pywebpush import WebPushException, Vapid, webpush
+
+from sira.config.settings import (
+    AEMET_API_KEY,
+    VAPID_PRIVATE_KEY,
+    VAPID_PUBLIC_KEY,
+    VAPID_SUBJECT,
+    ZONA,
+)
+from sira.infrastructure.sources.meteo.aemet_alerts import (
+    alerta_coincide_zona,
+    deduplicar_alertas,
+    fetch_active_alerts,
+    fmt_alerta_detalle,
+    meteo_push_key,
+    texto_push_meteo,
+)
+from sira.infrastructure.http.client import clear_meteo_live_cache, read_dashboard
+from sira.infrastructure.persistence.sqlite import (
+    get_push_state,
+    list_subscriptions as db_list_subscriptions,
+    remove_subscription as db_remove_subscription,
+    save_push_state,
+    save_subscriptions as db_save_subscriptions,
+)
+from sira.infrastructure.geo.es import (
+    coords_observacion,
+    municipio_por_id,
+    provincia_nombre_de_municipio,
+    provincias,
+)
+from sira.infrastructure.sources.fire.firms import alerta_incendio_local
+from sira.domain.seismic.sismos import alerta_local, alerta_tsunami_local
+from sira.services.overlays.sismo import build_test_sismo, save_test_overlay
+from sira.domain.seismic.tsunami_oficial import anexar_boletin_tsunami, texto_push_tsunami
+
+log = logging.getLogger(__name__)
+
+_vapid_signer: Vapid | None = None
+
+
+def _subscription_info(sub: dict) -> dict:
+    return {"endpoint": sub["endpoint"], "keys": sub["keys"]}
+
+
+def _get_vapid_signer() -> Vapid:
+    global _vapid_signer
+    if _vapid_signer is None:
+        _vapid_signer = Vapid.from_pem(VAPID_PRIVATE_KEY.encode("utf-8"))
+    return _vapid_signer
+
+
+def vapid_enabled() -> bool:
+    return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and VAPID_SUBJECT)
+
+
+def vapid_public_key() -> str:
+    return VAPID_PUBLIC_KEY
+
+
+def _normalize_sub(sub: dict) -> dict:
+    """Normaliza suscripciones legacy (solo sismo, sin municipio)."""
+    out = dict(sub)
+    alertas = out.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
+    else:
+        vals = {str(a).lower() for a in alertas}
+        if vals <= {"sismo"}:
+            out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
+        elif vals <= {"sismo", "meteo"}:
+            out["alertas"] = ["sismo", "meteo", "incendio", "tsunami"]
+    if out.get("municipio_id"):
+        out["municipio_id"] = str(out["municipio_id"]).zfill(5)
+    if out.get("provincia_id"):
+        out["provincia_id"] = str(out["provincia_id"]).zfill(2)
+    return out
+
+
+def list_subscriptions() -> list[dict]:
+    raw = db_list_subscriptions()
+    subs = [_normalize_sub(s) for s in raw]
+    if any(_needs_normalize(s) for s in raw):
+        db_save_subscriptions(subs)
+    return subs
+
+
+def _needs_normalize(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return vals <= {"sismo"} or vals <= {"sismo", "meteo"}
+
+
+def save_subscriptions(subs: list[dict]) -> None:
+    db_save_subscriptions([_normalize_sub(s) for s in subs])
+
+
+def add_subscription(sub: dict) -> int:
+    sub = _normalize_sub(sub)
+    endpoint = sub.get("endpoint")
+    if not endpoint:
+        return len(list_subscriptions())
+    subs = list_subscriptions()
+    for i, current in enumerate(subs):
+        if current.get("endpoint") == endpoint:
+            subs[i] = sub
+            save_subscriptions(subs)
+            return len(subs)
+    subs.append(sub)
+    save_subscriptions(subs)
+    return len(subs)
+
+
+def remove_subscription(endpoint: str) -> int:
+    return db_remove_subscription(endpoint)
+
+
+def _state() -> dict:
+    data = get_push_state()
+    return {
+        "ids_sismo": sorted(set(data.get("ids_sismo", []))),
+        "ids_meteo": sorted(set(data.get("ids_meteo", []))),
+        "ids_incendio": sorted(set(data.get("ids_incendio", []))),
+        "ids_tsunami": sorted(set(data.get("ids_tsunami", []))),
+    }
+
+
+def _save_state(state: dict) -> None:
+    save_push_state({
+        "ids_sismo": sorted({str(x) for x in state.get("ids_sismo", [])}),
+        "ids_meteo": sorted({str(x) for x in state.get("ids_meteo", [])}),
+        "ids_incendio": sorted({str(x) for x in state.get("ids_incendio", [])}),
+        "ids_tsunami": sorted({str(x) for x in state.get("ids_tsunami", [])}),
+        "updated": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def _fmt_parametro_push(parametro: str) -> str:
+    return fmt_alerta_detalle({"parametro": parametro})
+
+
+def _build_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
+    mag = s.get("magnitud", "—")
+    lugar = s.get("lugar", "—")
+    score = s.get("score_local", s.get("score_total", "—"))
+    nivel = s.get("nivel_local", s.get("nivel_alerta", "—"))
+    return {
+        "title": f"SIRA · Sismo {nivel}",
+        "body": f"M{mag} · score {score} · a {dist_km} km de {zona} · {lugar}",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-{s.get('id')}",
+        "renotify": False,
+    }
+
+
+def _build_tsunami_payload(s: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
+    lugar = s.get("lugar", "—")
+    return {
+        "title": "SIRA · Alerta tsunami",
+        "body": texto_push_tsunami(s, zona=zona, dist_km=dist_km) + f" · {lugar}",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-tsunami-{s.get('id')}",
+        "renotify": False,
+    }
+
+
+def _build_incendio_payload(inc: dict, dashboard_url: str, *, zona: str, dist_km: float) -> dict:
+    radio = inc.get("radio_km", "—")
+    frp = inc.get("frp_mw", "—")
+    return {
+        "title": "SIRA · Incendio activo cerca",
+        "body": f"Foco a {dist_km:.0f} km de {zona} · radio ~{radio} km · FRP {frp} MW",
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-incendio-{inc.get('id')}",
+        "renotify": False,
+    }
+
+
+def _sub_prefers_sismo(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return "sismo" in vals or "all" in vals or "todas" in vals
+
+
+def _sub_prefers_meteo(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("meteo", "aemet", "all", "todas"))
+
+
+def _sub_prefers_incendio(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("incendio", "fuego", "all", "todas"))
+
+
+def _sub_prefers_tsunami(sub: dict) -> bool:
+    alertas = sub.get("alertas")
+    if not isinstance(alertas, list) or not alertas:
+        return True
+    vals = {str(a).lower() for a in alertas}
+    return any(k in vals for k in ("tsunami", "mar", "all", "todas"))
+
+
+def _sismo_match_subscription(sismo: dict, sub: dict) -> dict | None:
+    """Alerta si el sismo es perceptible desde la zona de la suscripción."""
+    if not _sub_prefers_sismo(sub):
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
+    try:
+        info = alerta_local(sismo, lat, lon)
+        if not info:
+            return None
+        return {**info, "zona": zona}
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _tsunami_match_subscription(sismo: dict, sub: dict) -> dict | None:
+    """Alerta si el aviso tsunami USGS alcanza la zona de la suscripción."""
+    if not _sub_prefers_tsunami(sub):
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
+    try:
+        info = alerta_tsunami_local(sismo, lat, lon, sub.get("municipio_id"))
+        if not info:
+            return None
+        return {**info, "zona": zona}
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _incendio_match_subscription(incendio: dict, sub: dict) -> dict | None:
+    """Alerta si un foco activo afecta la zona de la suscripción."""
+    if not _sub_prefers_incendio(sub):
+        return None
+    lat, lon, zona = coords_observacion(sub.get("municipio_id"), sub.get("localidad_id"))
+    try:
+        info = alerta_incendio_local(incendio, lat, lon)
+        if not info:
+            return None
+        return {**info, "zona": zona}
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _sub_zona_geo(sub: dict) -> dict:
+    """Provincia/municipio de la suscripción (mismo criterio que el dashboard)."""
+    mid = sub.get("municipio_id") or None
+    provincia_id = sub.get("provincia_id") or None
+    municipio_nom = (municipio_por_id(mid) or {}).get("nombre") if mid else None
+    provincia_nom = provincia_nombre_de_municipio(mid)
+    if not provincia_nom and provincia_id:
+        provincia_nom = next(
+            (p.get("nombre") for p in provincias() if str(p.get("id")) == str(provincia_id).zfill(2)),
+            None,
+        )
+    return {
+        "provincia_id": provincia_id,
+        "municipio_id": mid,
+        "provincia": provincia_nom,
+        "municipio": municipio_nom,
+    }
+
+
+def _meteo_should_notify(alerta: dict, sub: dict) -> bool:
+    """¿Enviar aviso meteo a esta suscripción según zona afectada?"""
+    sub = _normalize_sub(sub)
+    if not _sub_prefers_meteo(sub):
+        return False
+    return alerta_coincide_zona(alerta, **_sub_zona_geo(sub))
+
+
+def _aemet_match_subscription(alerta: dict, sub: dict) -> bool:
+    return _meteo_should_notify(alerta, sub)
+
+
+def _split_meteo_bootstrap(avisos: list[dict], prev_meteo: set[str]) -> tuple[set[str], list[dict]]:
+    """Primer ciclo: evita spam inicial, pero deja pasar avisos naranja/rojo ya activos."""
+    if prev_meteo:
+        return prev_meteo, [a for a in avisos if meteo_push_key(a) not in prev_meteo]
+
+    nuevos = [a for a in avisos if str(a.get("level") or "").lower() in {"naranja", "rojo"}]
+    seed = {meteo_push_key(a) for a in avisos if meteo_push_key(a)}
+    return seed, nuevos
+
+
+def _build_aemet_payload(alerta: dict, dashboard_url: str, *, renotify: bool | None = None) -> dict:
+    title, body = texto_push_meteo(alerta)
+    fenomeno_code = str(alerta.get("fenomeno") or "xx").lower()
+    return {
+        "title": title,
+        "body": body,
+        "icon": "/assets/logo-sira_4.png?v=8",
+        "badge": "/assets/logo-sira_4.png?v=8",
+        "url": dashboard_url,
+        "tag": f"sira-aemet-{fenomeno_code}-{meteo_push_key(alerta)}",
+        "renotify": alerta.get("is_test", False) if renotify is None else renotify,
+    }
+
+
+def send_test_meteo_push(dashboard_url: str, alerta: dict) -> dict:
+    """Envía aviso meteo de prueba solo a suscriptores en la zona afectada."""
+    all_subs = list_subscriptions()
+    payload = _build_aemet_payload(alerta, dashboard_url, renotify=True)
+    sent = 0
+    errors = 0
+    invalid_endpoints: set[str] = set()
+    diagnostico = []
+
+    for sub in all_subs:
+        geo = _sub_zona_geo(_normalize_sub(sub))
+        eligible = _meteo_should_notify(alerta, sub)
+        diagnostico.append(
+            {
+                **geo,
+                "prefiere_meteo": _sub_prefers_meteo(_normalize_sub(sub)),
+                "coincide": eligible,
+                "alerta_zona": alerta.get("zona"),
+                "alerta_area": alerta.get("area_desc"),
+            }
+        )
+        if not eligible:
+            continue
+        result = send_push(sub, payload)
+        if result == "ok":
+            sent += 1
+        elif result == "gone":
+            invalid_endpoints.add(sub.get("endpoint", ""))
+        else:
+            errors += 1
+
+    if not all_subs:
+        return {
+            "ok": False,
+            "error": "No hay suscripciones activas",
+            "enviados": 0,
+            "suscripciones": 0,
+            "diagnostico": diagnostico,
+        }
+
+    if invalid_endpoints:
+        save_subscriptions([s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints])
+    return {
+        "ok": sent > 0,
+        "enviados": sent,
+        "suscripciones": len(all_subs),
+        "payload": payload,
+        "diagnostico": diagnostico,
+        "errores_transitorios": errors,
+        "error": None if sent > 0 else "No se pudo enviar a ninguna suscripción (revisa diagnostico)",
+    }
+
+
+def send_bootstrap_meteo_for_subscription(dashboard_url: str, sub: dict) -> dict:
+    """Al suscribirse: envía avisos meteo naranja/rojo ya activos para esa zona.
+
+    Evita el caso en que el servidor ya "sembró" el estado global y el cron no vuelve
+    a enviar avisos existentes a nuevas suscripciones.
+    """
+    sub = _normalize_sub(sub)
+    if not _sub_prefers_meteo(sub):
+        return {"ok": True, "enviados": 0, "motivo": "suscripción sin meteo"}
+    if not vapid_enabled():
+        return {"ok": False, "enviados": 0, "error": "Web Push no configurado"}
+    if not AEMET_API_KEY:
+        return {"ok": True, "enviados": 0, "motivo": "AEMET_API_KEY no configurada"}
+
+    try:
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AEMET CAP (bootstrap): %s", exc)
+        avisos = []
+
+    candidatos = [
+        a for a in avisos
+        if str(a.get("level") or "").lower() in {"naranja", "rojo"}
+        and _meteo_should_notify(a, sub)
+    ]
+    sent = 0
+    errors = 0
+    keys_enviados: set[str] = set()
+    for a in candidatos:
+        key = meteo_push_key(a)
+        result = send_push(sub, _build_aemet_payload(a, dashboard_url, renotify=True))
+        if result == "ok":
+            sent += 1
+            if key:
+                keys_enviados.add(key)
+        elif result == "gone":
+            return {"ok": False, "enviados": sent, "error": "Suscripción caducada"}
+        else:
+            errors += 1
+
+    # Marca estos avisos como ya notificados en el estado global para evitar bucles
+    # con el cron /api/cron/meteo.
+    if keys_enviados:
+        state = _state()
+        prev = set(state.get("ids_meteo", []))
+        state["ids_meteo"] = sorted(prev | keys_enviados)
+        _save_state(state)
+
+    return {
+        "ok": sent > 0,
+        "enviados": sent,
+        "candidatos": len(candidatos),
+        "errores_transitorios": errors,
+    }
+
+
+def debug_push_state() -> dict:
+    return {
+        "suscripciones": list_subscriptions(),
+        "estado_push": _state(),
+        "vapid_ok": vapid_enabled(),
+    }
+
+
+def debug_aemet_matches(*, provincia_id: str | None = None, municipio_id: str | None = None, localidad_id: str | None = None) -> dict:
+    subs = [
+        {
+            "endpoint": "debug",
+            "keys": {},
+            "provincia_id": provincia_id,
+            "municipio_id": municipio_id,
+            "localidad_id": localidad_id,
+            "alertas": ["meteo"],
+        }
+    ]
+    avisos = fetch_active_alerts(AEMET_API_KEY or None)
+    evaluados = []
+    for alerta in avisos:
+        evaluados.append(
+            {
+                **alerta,
+                "match_debug": _aemet_match_subscription(alerta, subs[0]),
+            }
+        )
+    return {
+        "aemet_api_configurada": bool(AEMET_API_KEY),
+        "filtros": {
+            "provincia_id": provincia_id,
+            "municipio_id": municipio_id,
+            "localidad_id": localidad_id,
+        },
+        "avisos_activos": evaluados,
+    }
+
+
+def _push_gone(exc: WebPushException) -> bool:
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) in (404, 410):
+        return True
+    return "410" in str(exc) or "404" in str(exc) or "gone" in str(exc).lower()
+
+
+def send_push(subscription: dict, payload: dict) -> str:
+    """ok | gone (suscripción caducada) | error (fallo transitorio)."""
+    if not vapid_enabled():
+        return "error"
+    try:
+        webpush(
+            subscription_info=_subscription_info(subscription),
+            data=json.dumps(payload, ensure_ascii=False),
+            vapid_private_key=_get_vapid_signer(),
+            vapid_claims={"sub": VAPID_SUBJECT},
+            ttl=3600,
+        )
+        return "ok"
+    except WebPushException as exc:
+        log.warning("WebPush fallo: %s", exc)
+        return "gone" if _push_gone(exc) else "error"
+    except (ValueError, TypeError, KeyError) as exc:
+        log.warning("Push inválido: %s", exc)
+        return "gone"
+
+
+def notify_new_alerts(dashboard_url: str) -> int:
+    if not vapid_enabled():
+        return 0
+    data = read_dashboard()
+    todos = [
+        s for s in data.get("sismos", [])
+        if s.get("id")
+        and not str(s["id"]).startswith("sim")
+        and not s.get("es_prueba")
+    ]
+    incendios = data.get("incendios", [])
+
+    state = _state()
+    prev_sismo = set(state["ids_sismo"])
+    prev_tsunami = set(state["ids_tsunami"])
+    prev_incendio = set(state["ids_incendio"])
+    prev_meteo = set(state["ids_meteo"])
+
+    def _es_tsunami(s: dict) -> bool:
+        if not s.get("id"):
+            return False
+        en_mar = s.get("en_mar")
+        if en_mar is None:
+            from sira.infrastructure.parsers.fuentes import epicentro_en_mar as _en_mar
+
+            en_mar = _en_mar(
+                float(s["lat"]),
+                float(s["lon"]),
+                lugar=s.get("lugar"),
+                profundidad_km=float(s.get("profundidad") or 0),
+                usgs_tsunami=s.get("usgs_tsunami"),
+            )
+        if not en_mar:
+            return False
+        if s.get("alerta_tsunami"):
+            return True
+        from sira.domain.seismic.sismos import riesgo_tsunami as _riesgo
+
+        return _riesgo(
+            float(s.get("magnitud") or 0),
+            float(s.get("profundidad") or 0),
+            True,
+            s.get("usgs_tsunami"),
+        )
+
+    sismos_tsunami = [s for s in todos if _es_tsunami(s)]
+
+    # Semilla inicial por tipo: no notificar el inventario ya presente al desplegar.
+    if todos and not state["ids_sismo"]:
+        prev_sismo = {str(s["id"]) for s in todos if s.get("id")}
+    if sismos_tsunami and not state["ids_tsunami"]:
+        prev_tsunami = {str(s["id"]) for s in sismos_tsunami if s.get("id")}
+    if incendios and not state["ids_incendio"]:
+        prev_incendio = {str(i["id"]) for i in incendios if i.get("id")}
+
+    subs = list_subscriptions()
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    procesados_sismo: set[str] = set()
+    procesados_tsunami: set[str] = set()
+    procesados_incendio: set[str] = set()
+    procesados_meteo: set[str] = set()
+
+    nuevos = [s for s in todos if s.get("id") and str(s["id"]) not in prev_sismo]
+    for s in nuevos:
+        sid = str(s["id"])
+        for sub in subs:
+            info = _sismo_match_subscription(s, sub)
+            if not info:
+                continue
+            payload = _build_payload(info, dashboard_url, zona=info["zona"], dist_km=info["dist_local_km"])
+            result = send_push(sub, payload)
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_sismo.add(sid)
+
+    nuevos_tsunami = [
+        s for s in sismos_tsunami
+        if s.get("id") and str(s["id"]) not in prev_tsunami
+    ]
+    for s in nuevos_tsunami:
+        sid = str(s["id"])
+        for sub in subs:
+            info = _tsunami_match_subscription(s, sub)
+            if not info:
+                continue
+            payload = _build_tsunami_payload(
+                info, dashboard_url, zona=info["zona"], dist_km=float(info["dist_local_km"])
+            )
+            result = send_push(sub, payload)
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_tsunami.add(sid)
+
+    nuevos_incendio = [
+        i for i in incendios
+        if i.get("id") and str(i["id"]) not in prev_incendio
+    ]
+    for inc in nuevos_incendio:
+        iid = str(inc["id"])
+        for sub in subs:
+            info = _incendio_match_subscription(inc, sub)
+            if not info:
+                continue
+            payload = _build_incendio_payload(
+                info, dashboard_url, zona=info["zona"], dist_km=float(info["dist_local_km"])
+            )
+            result = send_push(sub, payload)
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_incendio.add(iid)
+
+    if AEMET_API_KEY:
+        try:
+            avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("AEMET CAP: %s", exc)
+            avisos = []
+        prev_meteo, nuevos_meteo = _split_meteo_bootstrap(avisos, prev_meteo)
+        for a in nuevos_meteo:
+            key = meteo_push_key(a)
+            if not key:
+                continue
+            for sub in subs:
+                if not _meteo_should_notify(a, sub):
+                    continue
+                result = send_push(sub, _build_aemet_payload(a, dashboard_url))
+                if result == "ok":
+                    sent += 1
+                elif result == "gone":
+                    invalid_endpoints.add(sub.get("endpoint", ""))
+            procesados_meteo.add(key)
+        if procesados_meteo:
+            clear_meteo_live_cache()
+
+    if invalid_endpoints:
+        subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(subs)
+
+    state["ids_sismo"] = sorted(prev_sismo | procesados_sismo)
+    state["ids_tsunami"] = sorted(prev_tsunami | procesados_tsunami)
+    state["ids_incendio"] = sorted(prev_incendio | procesados_incendio)
+    state["ids_meteo"] = sorted(prev_meteo | procesados_meteo)
+    _save_state(state)
+    return sent
+
+
+def notify_new_meteo_alerts(dashboard_url: str) -> int:
+    """Notifica solo avisos AEMET (CAP) de meteo (sin sismos/incendios/tsunami)."""
+    if not vapid_enabled():
+        return 0
+    if not AEMET_API_KEY:
+        return 0
+
+    subs = list_subscriptions()
+    state = _state()
+    prev_meteo = set(state["ids_meteo"])
+
+    try:
+        avisos = deduplicar_alertas(fetch_active_alerts(AEMET_API_KEY or None))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("AEMET CAP (meteo-only): %s", exc)
+        avisos = []
+
+    prev_meteo, nuevos_meteo = _split_meteo_bootstrap(avisos, prev_meteo)
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    procesados_meteo: set[str] = set()
+
+    for a in nuevos_meteo:
+        key = meteo_push_key(a)
+        if not key:
+            continue
+        for sub in subs:
+            if not _meteo_should_notify(a, sub):
+                continue
+            result = send_push(sub, _build_aemet_payload(a, dashboard_url))
+            if result == "ok":
+                sent += 1
+            elif result == "gone":
+                invalid_endpoints.add(sub.get("endpoint", ""))
+        procesados_meteo.add(key)
+
+    if procesados_meteo:
+        clear_meteo_live_cache()
+
+    if invalid_endpoints:
+        subs = [s for s in subs if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(subs)
+
+    state["ids_meteo"] = sorted(prev_meteo | procesados_meteo)
+    _save_state(state)
+    return sent
+
+
+def send_test_push(
+    dashboard_url: str,
+    *,
+    title: str | None = None,
+    body: str | None = None,
+    url: str | None = None,
+    tag: str = "sira-test-valencia",
+    renotify: bool = True,
+    solo_municipio_id: str | None = None,
+    mostrar_en_mapa: bool = True,
+    magnitud: float | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+    profundidad: float | None = None,
+    lugar: str | None = None,
+    overlay_minutos: int = 30,
+    simular_real: bool = True,
+    tsunami: bool = False,
+) -> dict:
+    """Envía notificación de prueba y opcionalmente un sismo efímero en el mapa."""
+    if not vapid_enabled():
+        return {"ok": False, "error": "Web Push no configurado", "enviados": 0, "suscripciones": 0}
+
+    overlay_meta = None
+    sismo_prueba = None
+    if mostrar_en_mapa:
+        sismo_prueba = build_test_sismo(
+            tag=tag,
+            magnitud=magnitud if magnitud is not None else 4.2,
+            lat=lat,
+            lon=lon,
+            profundidad=profundidad if profundidad is not None else 10.0,
+            lugar=lugar,
+            simular_real=simular_real,
+            tsunami=tsunami,
+        )
+        overlay_meta = save_test_overlay(sismo_prueba, ttl_min=overlay_minutos)
+
+    subs = list_subscriptions()
+    if solo_municipio_id:
+        target = str(solo_municipio_id).zfill(5)
+        subs = [
+            s for s in subs
+            if str(s.get("municipio_id") or "").zfill(5) == target
+        ]
+
+    if simular_real and sismo_prueba:
+        dist_km = float(sismo_prueba.get("dist_valencia_km") or 0)
+        if sismo_prueba.get("en_mar") and sismo_prueba.get("alerta_tsunami"):
+            sismo_prueba = anexar_boletin_tsunami(
+                sismo_prueba,
+                ZONA["lat_ref"],
+                ZONA["lon_ref"],
+                None,
+            )
+            payload = _build_tsunami_payload(
+                sismo_prueba,
+                url or dashboard_url,
+                zona=ZONA["ciudad_ref"],
+                dist_km=dist_km,
+            )
+        else:
+            payload = _build_payload(
+                sismo_prueba,
+                url or dashboard_url,
+                zona=ZONA["ciudad_ref"],
+                dist_km=dist_km,
+            )
+        payload["url"] = url or dashboard_url
+        payload["renotify"] = renotify
+    else:
+        payload = {
+            "title": title or "SIRA · Sismo ALTO",
+            "body": body or "M4.2 · score 68 · 12 km al E de Valencia (prueba)",
+            "icon": "/assets/logo-sira_4.png?v=8",
+            "badge": "/assets/logo-sira_4.png?v=8",
+            "url": url or dashboard_url,
+            "tag": tag,
+            "renotify": renotify,
+        }
+
+    if not subs:
+        if overlay_meta:
+            return {
+                "ok": True,
+                "enviados": 0,
+                "suscripciones": 0,
+                "payload": payload,
+                "mapa_prueba": overlay_meta,
+                "aviso": "Sin suscripciones push; solo mapa de prueba",
+            }
+        return {"ok": False, "error": "No hay suscripciones activas", "enviados": 0, "suscripciones": 0}
+
+    sent = 0
+    invalid_endpoints: set[str] = set()
+    for sub in subs:
+        result = send_push(sub, payload)
+        if result == "ok":
+            sent += 1
+        elif result == "gone":
+            invalid_endpoints.add(sub.get("endpoint", ""))
+
+    if invalid_endpoints:
+        remaining = [s for s in list_subscriptions() if s.get("endpoint") not in invalid_endpoints]
+        save_subscriptions(remaining)
+
+    base = {
+        "enviados": sent,
+        "suscripciones": len(subs),
+        "payload": payload,
+        "mapa_prueba": overlay_meta,
+    }
+    if sent == 0 and not overlay_meta:
+        return {"ok": False, "error": "No se pudo enviar a ninguna suscripción (¿expiradas?)", **base}
+    if sent == 0:
+        return {"ok": True, "aviso": "Push fallido; mapa de prueba activo", **base}
+    return {"ok": True, **base}

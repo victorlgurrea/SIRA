@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import meteo_termico as mt
+import sira.infrastructure.sources.meteo.termico as mt
 
 _MADRID = ZoneInfo("Europe/Madrid")
 

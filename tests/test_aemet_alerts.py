@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from aemet_alerts import (  # noqa: E402
+from sira.infrastructure.sources.meteo.aemet_alerts import (  # noqa: E402
     _cap_vigente,
     _is_active,
     alerta_intersecta_dia,

@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_aemet_zonas import aviso_maximo_zona, fenomeno_aplica_zona, zonas_ccaa  # noqa: E402
-from geo_aemet_zonas import _aviso_coincide_zona  # noqa: E402
+from sira.infrastructure.geo.aemet_zonas import aviso_maximo_zona, fenomeno_aplica_zona, zonas_ccaa  # noqa: E402
+from sira.infrastructure.geo.aemet_zonas import _aviso_coincide_zona  # noqa: E402
 
 
 def test_zonas_ccaa_valencia_tiene_tres_provincias():
@@ -106,7 +106,7 @@ def test_aviso_costero_no_pinta_zona_tierra():
 def test_aviso_maximo_zona_respeta_dia_no_mezcla_manana():
     from datetime import date
 
-    from aemet_alerts import alertas_para_dia  # noqa: E402
+    from sira.infrastructure.sources.meteo.aemet_alerts import alertas_para_dia  # noqa: E402
 
     zonas = zonas_ccaa("46")
     zona_int = next(z for z in zonas if str(z.get("id")) == "774601")

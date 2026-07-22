@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_es import coords_municipio, coords_observacion, municipio_por_id, provincia_de_municipio  # noqa: E402
+from sira.infrastructure.geo.es import coords_municipio, coords_observacion, municipio_por_id, provincia_de_municipio  # noqa: E402
 
 
 def test_castello_de_la_plana_tiene_coords_en_provincia_12():

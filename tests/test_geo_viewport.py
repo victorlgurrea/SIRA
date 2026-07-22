@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python"))
 
-from geo_es import (  # noqa: E402
+from sira.infrastructure.geo.es import (  # noqa: E402
     ccaa_de_provincia,
     viewport_ccaa,
     viewport_municipio,
@@ -47,7 +47,7 @@ def test_viewport_provincia_alejado_es_mas_amplio():
 
 
 def test_viewport_fit_contenedor_ensancha_encuadre_vertical():
-    from geo_es import viewport_fit_contenedor
+    from sira.infrastructure.geo.es import viewport_fit_contenedor
 
     vp = {
         "lat_centro": 39.5,
@@ -78,7 +78,7 @@ def test_viewport_ccaa_alejado_cubre_comunidad_completa():
 
 
 def test_viewport_provincia_centro_pone_estrella_en_medio():
-    from geo_es import viewport_provincia_centro
+    from sira.infrastructure.geo.es import viewport_provincia_centro
 
     lat, lon = 39.47, -0.38
     vp = viewport_provincia_centro("46", lat, lon, alejado=True)
@@ -88,7 +88,7 @@ def test_viewport_provincia_centro_pone_estrella_en_medio():
 
 
 def test_viewport_ccaa_centro_pone_localidad_en_medio_y_cubre_ccaa():
-    from geo_es import viewport_ccaa_centro
+    from sira.infrastructure.geo.es import viewport_ccaa_centro
     import math
 
     lat, lon = 37.39, -5.98  # Sevilla
@@ -103,7 +103,7 @@ def test_viewport_ccaa_centro_pone_localidad_en_medio_y_cubre_ccaa():
 
 
 def test_viewport_fit_observacion_reduce_lat_si_lon_recortado():
-    from geo_es import viewport_fit_observacion
+    from sira.infrastructure.geo.es import viewport_fit_observacion
 
     vp = {
         "lat_centro": 39.47,
@@ -127,7 +127,7 @@ def test_viewport_fit_observacion_reduce_lat_si_lon_recortado():
 
 
 def test_viewport_ccaa_centro_mas_amplio_que_provincia():
-    from geo_es import viewport_ccaa_centro, viewport_provincia_centro
+    from sira.infrastructure.geo.es import viewport_ccaa_centro, viewport_provincia_centro
 
     lat, lon = 37.39, -5.98
     ccaa = viewport_ccaa_centro("41", lat, lon, alejado=True)

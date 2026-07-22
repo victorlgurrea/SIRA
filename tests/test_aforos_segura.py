@@ -1,7 +1,7 @@
 """Tests del parser SAIH Segura (sadder1.php)."""
 from __future__ import annotations
 
-from aforos_segura import parse_sadder_csv, _punto_codigo, _variable_sufijo
+from sira.infrastructure.sources.hydrology.segura import parse_sadder_csv, _punto_codigo, _variable_sufijo
 
 
 SAMPLE_HTML = '''
