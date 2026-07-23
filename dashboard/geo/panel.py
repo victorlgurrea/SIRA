@@ -25,7 +25,6 @@ from sira.config.settings import (
     RIESGO_METEO_HORAS,
     ZONA,
 )
-from sira.domain.costa.mapa import alertas_a_capa_costera
 from charts.figures import (
     fmt_sismo_fecha as _fmt_sismo_fecha,
     fig_lluvia as _fig_lluvia,
@@ -146,7 +145,6 @@ def datos_mapa(geo: dict, d: dict) -> dict:
     aforos_mapa = aforos_para_mapa(d.get("aforos", []), lat_obs, lon_obs)
     alertas_fuente = alertas_meteo_fuente(d)
     alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
-    zonas_costeras = alertas_a_capa_costera(alertas_mapa_hoy)
 
     return {
         "geo": geo,
@@ -159,7 +157,6 @@ def datos_mapa(geo: dict, d: dict) -> dict:
         "embalses_mapa": embalses_mapa,
         "aforos_mapa": aforos_mapa,
         "alertas_mapa_hoy": alertas_mapa_hoy,
-        "zonas_costeras": zonas_costeras,
     }
 
 
@@ -250,13 +247,13 @@ def build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None, theme: st
         ctx["sismos_mapa"] if "sismos" in act else [],
         ctx["incendios_mapa"] if "incendios" in act else None,
         ctx["lat_obs"], ctx["lon_obs"], ctx["localidad"],
-        ctx["zonas_costeras"] if "costa" in act else None,
         ctx["alertas_mapa_hoy"] if "aemet" in act else None,
         ctx["embalses_mapa"] if "embalses" in act else None,
         ctx["aforos_mapa"] if "aforos" in act else None,
         viewport=viewport, map_uirevision=map_rev,
         provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
         theme=theme,
+        mostrar_tsunami="costa" in act,
     )
 
 

@@ -44,7 +44,6 @@ from sira.infrastructure.geo.es import (
 )
 from geo.ui import selector_geo
 from sira.infrastructure.sources.meteo.aemet_alerts import alerta_firma
-from sira.domain.costa.mapa import alertas_a_capa_costera
 from ui.theme import C_CYAN, C_GREEN, C_ORANGE, C_TEAL
 
 from charts.figures import (
@@ -180,7 +179,7 @@ app.layout = html.Div(className="sira-page", children=[
                                 {"label": "Embalses", "value": "embalses"},
                                 {"label": "Aforos", "value": "aforos"},
                                 {"label": "Avisos AEMET", "value": "aemet"},
-                                {"label": "Costa/Tsunami", "value": "costa"},
+                                {"label": "Tsunami", "value": "costa"},
                             ],
                             value=["sismos", "incendios", "embalses", "aforos", "aemet", "costa"],
                             inline=True,
@@ -276,13 +275,14 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         for a in src
         if isinstance(a, dict)
     )
-    costa_sig = "|".join(
-        f"{r['lat']:.2f},{r['lon']:.2f},{r['radio_tsunami_km']}"
-        for r in alertas_a_capa_costera(src)
+    tsunami_sig = "|".join(
+        f"{s.get('lat')},{s.get('lon')},{s.get('radio_tsunami_km')}"
+        for s in d.get("sismos", [])
+        if isinstance(s, dict) and s.get("alerta_tsunami")
     )
     return (
         f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}|{len(d.get('aforos', []))}"
-        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|costa:{costa_sig}"
+        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|tsunami:{tsunami_sig}"
     )
 
 

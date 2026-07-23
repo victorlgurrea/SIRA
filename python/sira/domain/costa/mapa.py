@@ -188,7 +188,12 @@ def _hover_aviso_mar(alerta: dict, *, etiqueta: str, area: str, radio: float) ->
 
 
 def alertas_a_capa_costera(alertas: list[dict]) -> list[dict]:
-    """Convierte avisos CO/RI activos en filas para círculos azules del mapa."""
+    """Resuelve avisos CO/RI a zonas (utilidad interna / tests).
+
+    En el mapa ya no se dibujan como círculos azules: el aviso costero se
+    pinta en los polígonos AEMET con color amarillo/naranja/rojo. El círculo
+    azul pulsante queda reservado a alerta de tsunami por sismo en el mar.
+    """
     mejor: dict[str, dict] = {}
     for alerta in alertas:
         if not es_alerta_costera_mapa(alerta):

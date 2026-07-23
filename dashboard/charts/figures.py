@@ -394,6 +394,11 @@ def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict])
         if aviso:
             nivel_txt = nivel.upper()
             fen = str(aviso.get("fenomeno_desc") or "—")
+            fen_code = str(aviso.get("fenomeno") or "").upper()
+            if fen_code in {"CO", "RI"} or es_costa:
+                tipo = "Fenómeno costero (AEMET)" if fen_code != "RI" else "Rissaga (AEMET)"
+            else:
+                tipo = "Aviso AEMET"
             prob = str(aviso.get("probabilidad") or "—")
             detalle = fmt_alerta_detalle(aviso)
             vigencia = ""
@@ -401,6 +406,7 @@ def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict])
                 vigencia = f"<br>Vigencia: {aviso.get('onset') or '—'} → {aviso.get('expires') or '—'}"
             hover = (
                 f"{nombre}<br>"
+                f"{tipo}<br>"
                 f"Nivel: {nivel_txt} (hoy)<br>"
                 f"Fenómeno: {fen}<br>"
                 f"Detalle: {detalle}<br>"
@@ -491,7 +497,6 @@ def fig_mapa(
     lat_obs: float | None = None,
     lon_obs: float | None = None,
     obs_nombre: str = "",
-    zonas_costeras: list | None = None,
     alertas_meteo: list | None = None,
     embalses_mapa: list | None = None,
     aforos_mapa: list | None = None,
@@ -499,6 +504,7 @@ def fig_mapa(
     map_uirevision: str = "sira-mapa",
     provincia_id: str | None = None,
     theme: str = "dark",
+    mostrar_tsunami: bool = True,
 ) -> go.Figure:
     fig = go.Figure()
     estilo_aemet = bool(provincia_id)
@@ -616,28 +622,30 @@ def fig_mapa(
                 fig, hoy_perceptible,
                 legend_name="Zona perceptible (hoy)", legendgroup="hoy", period_ms=1600,
             )
-        if "alerta_tsunami" in hoy_df.columns:
+        if "alerta_tsunami" in hoy_df.columns and mostrar_tsunami:
             mask_tsunami = hoy_df["alerta_tsunami"].fillna(False)
             if "en_mar" in hoy_df.columns:
                 mask_tsunami = mask_tsunami & hoy_df["en_mar"].fillna(False)
-            df_tsunami = hoy_df[mask_tsunami]
+            df_tsunami = hoy_df[mask_tsunami].copy()
             if not df_tsunami.empty:
+                hover_rows = []
+                for row in df_tsunami.itertuples(index=False):
+                    r = float(getattr(row, "radio_tsunami_km", 0) or 0)
+                    mag = getattr(row, "magnitud", None)
+                    lugar = getattr(row, "lugar", None) or "epicentro en el mar"
+                    mag_txt = f"Mag {mag}" if mag is not None else "Magnitud —"
+                    hover_rows.append(
+                        "Alerta tsunami (sismo en el mar)<br>"
+                        f"Radio aproximado de impacto del agua ~{r:.0f} km<br>"
+                        f"{mag_txt} · {lugar}"
+                    )
+                df_tsunami["hover_html"] = hover_rows
                 add_circulos_perceptibles(
                     fig, df_tsunami,
                     legend_name="Alerta tsunami (hoy)", legendgroup="tsunami", period_ms=1800,
                     fill_rgb="96, 165, 250", border_rgb="37, 99, 235",
                     radio_col="radio_tsunami_km", hover_label="Alerta tsunami",
                 )
-
-    if zonas_costeras:
-        df_costa = pd.DataFrame(zonas_costeras)
-        if not df_costa.empty:
-            add_circulos_perceptibles(
-                fig, df_costa,
-                legend_name="Aviso mar AEMET", legendgroup="costa_aemet", period_ms=2000,
-                fill_rgb="96, 165, 250", border_rgb="37, 99, 235",
-                radio_col="radio_tsunami_km", hover_label="Aviso mar",
-            )
 
     if embalses_mapa:
         add_marcadores_embalses(fig, embalses_mapa)
