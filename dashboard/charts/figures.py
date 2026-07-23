@@ -224,7 +224,6 @@ def add_circulos_perceptibles(
                 fill="toself",
                 fillcolor=f"rgba({fill_rgb}, 0.12)",
                 line=dict(width=0, color="rgba(0, 0, 0, 0)"),
-                hoveron="fills",
                 hovertemplate=hover_body + "<extra></extra>",
                 meta={**pulse_meta, "pulse": "grow", "part": "fill", "fill_mode": "opacity"},
             )
@@ -290,7 +289,6 @@ def add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name
         legendgroup="inc", showlegend=bool(legend_name),
         fill="toself", fillcolor=f"rgba({fill_rgb}, {fill_op})",
         line=dict(width=0, color="rgba(0, 0, 0, 0)"),
-        hoveron="fills",
         hovertemplate=(
             f"Foco activo<br>"
             f"Radio ~{r:.1f} km · área ~{inc.get('area_km2', '—')} km²<br>"

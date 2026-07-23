@@ -83,7 +83,7 @@
             },
             [i]
           );
-        else:
+        } else {
           // Relleno a radio fijo: solo pulsa opacidad (hover estable en todo el círculo).
           const fillMode = meta.fill_mode || "grow";
           const fillR = fillMode === "opacity" ? maxR : r;
