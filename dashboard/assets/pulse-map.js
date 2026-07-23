@@ -83,8 +83,11 @@
             },
             [i]
           );
-        } else {
-          const ring = circleFillRing(lat, lon, r);
+        else:
+          // Relleno a radio fijo: solo pulsa opacidad (hover estable en todo el círculo).
+          const fillMode = meta.fill_mode || "grow";
+          const fillR = fillMode === "opacity" ? maxR : r;
+          const ring = circleFillRing(lat, lon, fillR);
           const fillOp = lerp(0.08, 0.38, t);
           window.Plotly.restyle(
             gd,

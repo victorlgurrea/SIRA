@@ -191,7 +191,10 @@ def add_circulos_perceptibles(
         mag = float(getattr(row, "magnitud", 0) or 0)
         row_hover = getattr(row, "hover_label", None) or hover_label
         area = getattr(row, "area_desc", "") or ""
-        if mag > 0:
+        hover_html = getattr(row, "hover_html", None)
+        if hover_html:
+            hover_body = str(hover_html)
+        elif mag > 0:
             hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>Mag {mag:.1f} · epicentro"
             if area:
                 hover_body += f"<br>{area}"
@@ -199,9 +202,9 @@ def add_circulos_perceptibles(
             hover_body = f"{row_hover} (hasta ~{r:.0f} km)<br>{area}"
         else:
             hover_body = f"{row_hover} (hasta ~{r:.0f} km)"
-        r0 = max(r * 0.06, 3.0)
-        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r0, MAP_CIRCLE_POINTS)
-        lat_ring, lon_ring = circle_perimeter(lat0, lon0, r0, MAP_CIRCLE_POINTS)
+        # Relleno a radio completo (hover estable); el pulso anima opacidad/borde.
+        lat_fill, lon_fill = circle_disk_polygon(lat0, lon0, r, MAP_CIRCLE_POINTS)
+        lat_ring, lon_ring = circle_perimeter(lat0, lon0, max(r * 0.06, 3.0), MAP_CIRCLE_POINTS)
         pulse_meta = {
             "center_lat": lat0,
             "center_lon": lon0,
@@ -219,10 +222,11 @@ def add_circulos_perceptibles(
                 legendgroup=legendgroup,
                 showlegend=show_legend and idx == 0,
                 fill="toself",
-                fillcolor=f"rgba({fill_rgb}, 0.08)",
+                fillcolor=f"rgba({fill_rgb}, 0.12)",
                 line=dict(width=0, color="rgba(0, 0, 0, 0)"),
+                hoveron="fills",
                 hovertemplate=hover_body + "<extra></extra>",
-                meta={**pulse_meta, "pulse": "grow", "part": "fill"},
+                meta={**pulse_meta, "pulse": "grow", "part": "fill", "fill_mode": "opacity"},
             )
         )
         fig.add_trace(
@@ -258,7 +262,7 @@ def add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name
     fill_rgb = "239, 68, 68" if destacado else "249, 115, 22"
     border_rgb = "220, 38, 38" if destacado else "234, 88, 12"
     if destacado:
-        r_draw = max(r * 0.06, 1.5)
+        r_draw = r
         fill_op = 0.12
         border_op = 0.75
         pulse_meta = {
@@ -269,21 +273,24 @@ def add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name
             "fill_rgb": fill_rgb,
             "border_rgb": border_rgb,
         }
-        fill_meta = {**pulse_meta, "pulse": "grow", "part": "fill"}
+        fill_meta = {**pulse_meta, "pulse": "grow", "part": "fill", "fill_mode": "opacity"}
         border_meta = {**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0}
+        r_border = max(r * 0.06, 1.5)
     else:
         r_draw = r
         fill_op = 0.16
         border_op = 1.0
         fill_meta = None
         border_meta = None
+        r_border = r
     lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw, MAP_CIRCLE_POINTS)
-    lat_ring, lon_ring = circle_perimeter(lat, lon, r_draw, MAP_CIRCLE_POINTS)
+    lat_ring, lon_ring = circle_perimeter(lat, lon, r_border, MAP_CIRCLE_POINTS)
     fig.add_trace(go.Scattergeo(
         lat=lat_fill, lon=lon_fill, mode="lines", name=legend_name or "Foco",
         legendgroup="inc", showlegend=bool(legend_name),
         fill="toself", fillcolor=f"rgba({fill_rgb}, {fill_op})",
         line=dict(width=0, color="rgba(0, 0, 0, 0)"),
+        hoveron="fills",
         hovertemplate=(
             f"Foco activo<br>"
             f"Radio ~{r:.1f} km · área ~{inc.get('area_km2', '—')} km²<br>"

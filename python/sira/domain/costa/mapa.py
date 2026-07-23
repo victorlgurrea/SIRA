@@ -148,6 +148,43 @@ def resolver_zona_costera(alerta: dict) -> dict | None:
 
 
 _LEVEL_PRIORIDAD = {"rojo": 3, "naranja": 2, "amarillo": 1}
+_LEVEL_SIGNIFICADO = {
+    "rojo": "rojo — riesgo extremo",
+    "naranja": "naranja — riesgo importante",
+    "amarillo": "amarillo — precaución",
+    "verde": "verde — sin peligro significativo",
+}
+
+
+def _detalle_parametro(parametro: str | None) -> str:
+    raw = (parametro or "").strip()
+    if not raw:
+        return ""
+    if ";" in raw:
+        parts = [p.strip() for p in raw.split(";") if p.strip()]
+        if len(parts) >= 3:
+            return f"{parts[1]}: {parts[2]}"
+        if len(parts) == 2:
+            return f"{parts[0]}: {parts[1]}"
+        if parts:
+            return parts[0]
+    return raw
+
+
+def _hover_aviso_mar(alerta: dict, *, etiqueta: str, area: str, radio: float) -> str:
+    nivel = str(alerta.get("level") or "").lower()
+    nivel_txt = _LEVEL_SIGNIFICADO.get(nivel, nivel or "—")
+    detalle = _detalle_parametro(alerta.get("parametro"))
+    desc = (alerta.get("fenomeno_desc") or etiqueta).strip()
+    lineas = [
+        f"Aviso mar AEMET — {desc}",
+        f"Nivel: {nivel_txt}",
+        f"Zona: {area}",
+    ]
+    if detalle:
+        lineas.append(detalle)
+    lineas.append(f"Radio del aviso ~{radio:.0f} km")
+    return "<br>".join(lineas)
 
 
 def alertas_a_capa_costera(alertas: list[dict]) -> list[dict]:
@@ -162,15 +199,19 @@ def alertas_a_capa_costera(alertas: list[dict]) -> list[dict]:
         radio = radio_costero_km(alerta, zona["radio_base"])
         fen = str(alerta.get("fenomeno") or "CO").upper()
         etiqueta = "Rissaga" if fen == "RI" else "Fenómeno costero"
+        area = str(alerta.get("area_desc") or zona["nombre"])
         row = {
             "lat": zona["lat"],
             "lon": zona["lon"],
             "radio_tsunami_km": radio,
             "magnitud": 0.0,
-            "area_desc": alerta.get("area_desc") or zona["nombre"],
+            "area_desc": area,
             "fenomeno": fen,
             "level": alerta.get("level"),
             "hover_label": f"Aviso mar — {etiqueta}",
+            "hover_html": _hover_aviso_mar(
+                alerta, etiqueta=etiqueta, area=area, radio=radio,
+            ),
         }
         clave = str(zona["clave"])
         prev = mejor.get(clave)
