@@ -6,12 +6,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+# settings.py → config/ → sira/ → python/ → raíz del repo
+ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(ROOT / ".env")
 
 DATA_DIR = ROOT / "data" / "processed"
 DATA_FILE = DATA_DIR / "dashboard_data.json"
-DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "sira.db")))
+_db_env = Path(os.getenv("DB_PATH", str(DATA_DIR / "sira.db")))
+DB_PATH = _db_env if _db_env.is_absolute() else (ROOT / _db_env).resolve()
 # Legacy JSON (migración → SQLite en db.py)
 ALERTAS_STATE_FILE = DATA_DIR / "alertas_estado.json"
 PUSH_SUBSCRIPTIONS_FILE = DATA_DIR / "push_subscriptions.json"
