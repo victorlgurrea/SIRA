@@ -158,10 +158,14 @@ def card_sismos_combinada(
 ) -> html.Div:
     valor = html.Div(className="sira-card-sismos-combo", children=[
         html.Div(className="sira-card-dual", children=[
-            html.Div(className="sira-card-dual-part", children=[
-                html.Span(str(n_esp), className="sira-card-value-num"),
-                html.Span("España", className="sira-card-dual-lbl"),
-            ]),
+            html.Div(
+                className="sira-card-dual-part",
+                title=tooltip,
+                children=[
+                    html.Span(str(n_esp), className="sira-card-value-num"),
+                    html.Span("España", className="sira-card-dual-lbl"),
+                ],
+            ),
             html.Span("·", className="sira-card-dual-sep"),
             html.Div(className="sira-card-dual-part", children=[
                 html.Span(str(n_loc), className="sira-card-value-num"),

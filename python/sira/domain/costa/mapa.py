@@ -5,7 +5,6 @@ import re
 import unicodedata
 
 from sira.config.settings import COSTERO_MAPA, COSTERO_MAP_MAX
-from sira.infrastructure.geo.es import coords_municipio
 
 FENOMENOS_COSTEROS_MAPA = frozenset({"CO", "RI"})
 
@@ -119,7 +118,11 @@ def resolver_zona_costera(alerta: dict) -> dict | None:
     zona = str(alerta.get("zona") or "").strip()
     if zona.lower().startswith("test-"):
         mid = zona[5:].zfill(5)
-        lat, lon = coords_municipio(mid)
+        try:
+            lat = float(alerta["lat"])
+            lon = float(alerta["lon"])
+        except (KeyError, TypeError, ValueError):
+            return None
         return {
             "lat": lat,
             "lon": lon,

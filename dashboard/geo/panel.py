@@ -1,12 +1,10 @@
-"""Construcción del panel geográfico: mapa, tarjetas KPI y datos enriquecidos."""
+"""Construcción del panel geográfico: mapa, tarjetas KPI (UI Dash)."""
 from __future__ import annotations
 
-import requests
 from dash import html
 import plotly.graph_objects as go
 
-from sira.infrastructure.sources.meteo.aemet_alerts import alerta_coincide_zona, alertas_para_dia, deduplicar_alertas
-from sira.infrastructure.sources.hydrology.chj import aforos_para_mapa, resumen_aforos
+from sira.infrastructure.sources.hydrology.chj import resumen_aforos
 from ui.components import (
     card,
     card_doble,
@@ -19,64 +17,31 @@ from ui.components import (
 )
 from sira.config.settings import (
     AFORO_RADIO_LOCAL_KM,
-    API_BASE_URL,
     EMBALSE_RADIO_LOCAL_KM,
     INCENDIO_RADIO_LOCAL_KM,
     RIESGO_METEO_HORAS,
-    ZONA,
 )
 from charts.figures import (
     fmt_sismo_fecha as _fmt_sismo_fecha,
     fig_lluvia as _fig_lluvia,
     fig_mapa as _fig_mapa,
 )
-from geo.context import DEFAULT_MUNI, DEFAULT_PROV, geo_resuelto
-from sira.infrastructure.geo.es import coords_observacion, provincia_de_municipio, viewport_ccaa_centro
-from sira.infrastructure.sources.hydrology.reservoirs import embalses_para_mapa, resumen_embalses
-from sira.infrastructure.sources.fire.firms import enriquecer_local as enriquecer_incendio_local
-from sira.infrastructure.sources.meteo.live import meteo_localidad
-from sira.domain.risks.local import calcular_riesgo_local
-from sira.domain.risks.meteo import calcular_riesgo_meteo
-from sira.domain.seismic.sismos import enriquecer_local
-from sira.domain.seismic.tsunami_oficial import anexar_boletin_tsunami
-from ui.theme import C_CYAN, C_GREEN, C_ORANGE, C_TEAL, COLORES
+from geo.context import geo_resuelto
+from sira.infrastructure.sources.hydrology.reservoirs import resumen_embalses
+from sira.services.mapa.panel_data import (
+    alertas_meteo_fuente,
+    alertas_meteo_locales,
+    calcular_riesgos_panel,
+    datos_mapa as _datos_mapa_svc,
+    map_viewport,
+    meteo_para_geo,
+)
+from ui.theme import C_CYAN, C_ORANGE, C_TEAL, COLORES
 
 
-def meteo_para_geo(municipio_id: str, localidad: str | None = None) -> dict:
-    """GET /api/meteo/{municipio} al cambiar zona; fallback local si la API no responde."""
-    mid = str(municipio_id or DEFAULT_MUNI).zfill(5)
-    params = {"localidad": localidad} if localidad else None
-    try:
-        r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=30)
-        if r.ok:
-            data = r.json()
-            if isinstance(data, dict):
-                return data
-    except requests.RequestException:
-        pass
-    return meteo_localidad(mid, localidad)
-
-
-def alertas_meteo_fuente(d: dict) -> list[dict]:
-    """Avisos de prueba + live ya resueltos por read_dashboard/API (caché AEMET 90 s)."""
-    local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []
-    live = list(d.get("meteo_alertas_live", [])) if isinstance(d.get("meteo_alertas_live"), list) else []
-    return [*local, *live]
-
-
-def alertas_meteo_locales(geo: dict, alertas: list[dict]) -> list[dict]:
-    geo = geo_resuelto(geo)
-    filtradas = [
-        a for a in alertas
-        if alerta_coincide_zona(
-            a,
-            provincia_id=geo.get("provincia_id"),
-            municipio_id=geo.get("municipio_id"),
-            provincia=geo.get("provincia"),
-            municipio=geo.get("municipio"),
-        )
-    ]
-    return deduplicar_alertas(filtradas)
+def datos_mapa(geo: dict, d: dict) -> dict:
+    """Enriquece datos del dashboard para el mapa (usa servicio de aplicación)."""
+    return _datos_mapa_svc(geo, d, geo_resolver=geo_resuelto)
 
 
 def cobertura_aforos(fuentes_estado: dict | None) -> tuple[str, str]:
@@ -106,58 +71,8 @@ def cobertura_aforos(fuentes_estado: dict | None) -> tuple[str, str]:
     )
 
 
-def map_viewport(geo: dict | None) -> dict:
-    zoom = (geo or {}).get("map_zoom")
-    if zoom and zoom.get("lat_centro") is not None:
-        return zoom
-    muni_id = (geo or {}).get("municipio_id") or DEFAULT_MUNI
-    pid = str((geo or {}).get("provincia_id") or provincia_de_municipio(muni_id) or DEFAULT_PROV).zfill(2)
-    loc_id = (geo or {}).get("localidad_id")
-    lat_obs, lon_obs, _ = coords_observacion(muni_id, loc_id)
-    return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
-
-
 def capas_activas(capas: list[str] | None) -> set[str]:
     return set(capas) if capas else {"sismos", "incendios", "embalses", "aforos", "aemet", "costa"}
-
-
-def datos_mapa(geo: dict, d: dict) -> dict:
-    """Enriquece datos del dashboard para el mapa de riesgos (sin llamadas meteo)."""
-    geo = geo_resuelto(geo)
-    muni_id = geo.get("municipio_id") or DEFAULT_MUNI
-    localidad = geo.get("localidad") or ZONA["ciudad_ref"]
-    lat_obs, lon_obs, _ = coords_observacion(muni_id, geo.get("localidad_id"))
-
-    sismos_mapa = [enriquecer_local(s, lat_obs, lon_obs) for s in d.get("sismos", [])]
-    sismos_mapa = [
-        anexar_boletin_tsunami(s, lat_obs, lon_obs, muni_id)
-        if s.get("alerta_tsunami")
-        else s
-        for s in sismos_mapa
-    ]
-    for s in sismos_mapa:
-        if s.get("alerta_tsunami") and s.get("tsunami_texto_ola"):
-            s["area_desc"] = str(s["tsunami_texto_ola"])
-
-    incendios_mapa = [enriquecer_incendio_local(i, lat_obs, lon_obs) for i in d.get("incendios", [])]
-    lluvia_24 = float((d.get("meteo") or {}).get("resumen", {}).get("precip_prox_24h_mm") or 0)
-    embalses_mapa = embalses_para_mapa(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
-    aforos_mapa = aforos_para_mapa(d.get("aforos", []), lat_obs, lon_obs)
-    alertas_fuente = alertas_meteo_fuente(d)
-    alertas_mapa_hoy = alertas_para_dia(alertas_fuente)
-
-    return {
-        "geo": geo,
-        "muni_id": muni_id,
-        "localidad": localidad,
-        "lat_obs": lat_obs,
-        "lon_obs": lon_obs,
-        "sismos_mapa": sismos_mapa,
-        "incendios_mapa": incendios_mapa,
-        "embalses_mapa": embalses_mapa,
-        "aforos_mapa": aforos_mapa,
-        "alertas_mapa_hoy": alertas_mapa_hoy,
-    }
 
 
 def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
@@ -170,35 +85,35 @@ def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
 
 
 def _tooltip_sismos(
+    sismos_espana: list[dict],
     sismos_local: list[dict],
-    n_esp: int,
     localidad: str,
 ) -> str:
-    """Explica el recuento: dónde y con qué magnitud los perceptibles locales."""
-    partes = [f"{n_esp} sismo(s) recientes en España."]
-    if not sismos_local:
-        partes.append(f"Ninguno perceptible cerca de {localidad}.")
-        return " ".join(partes)
+    """Lista lugar y magnitud de los sismos de España (y perceptibles locales)."""
+    n_esp = len(sismos_espana)
+    if n_esp <= 0:
+        return f"Sin sismos recientes en España. Ninguno perceptible cerca de {localidad}."
 
-    n = len(sismos_local)
-    partes.append(f"{n} perceptible(s) cerca de {localidad}:")
+    partes = [f"{n_esp} sismo(s) recientes en España:"]
     ordenados = sorted(
-        sismos_local,
+        sismos_espana,
         key=lambda s: float(s.get("magnitud") or 0),
         reverse=True,
     )
-    for s in ordenados[:5]:
+    for s in ordenados[:8]:
         lugar = str(s.get("lugar") or "epicentro desconocido").strip()
         mag = s.get("magnitud")
-        dist = s.get("dist_local_km")
         linea = f"· {lugar}"
         if mag is not None:
             linea += f" · M{mag}"
-        if dist is not None:
-            linea += f" · a {dist} km"
         partes.append(linea)
-    if n > 5:
-        partes.append(f"· … y {n - 5} más.")
+    if n_esp > 8:
+        partes.append(f"· … y {n_esp - 8} más.")
+
+    if sismos_local:
+        partes.append(f"{len(sismos_local)} perceptible(s) cerca de {localidad}.")
+    else:
+        partes.append(f"Ninguno perceptible cerca de {localidad}.")
     return " ".join(partes)
 
 
@@ -283,11 +198,10 @@ def build_panel_geo(
     nivel_max = sismo_max.get("nivel_local", sismo_max.get("nivel_alerta")) if sismo_max else None
     loc_label = f"{localidad}, {geo_r.get('municipio') or ''}".strip(", ")
 
-    riesgo_met = calcular_riesgo_meteo(alertas_meteo, met, horas=RIESGO_METEO_HORAS)
-    riesgo_local = calcular_riesgo_local(
+    riesgo_met, riesgo_local = calcular_riesgos_panel(
         alertas_meteo=alertas_meteo,
         meteo=met,
-        sismos=sismos_mapa,
+        sismos_mapa=sismos_mapa,
         incendios_local=incendios_local,
         resumen_embalses=res_emb,
         resumen_aforos=res_afor,
@@ -316,7 +230,7 @@ def build_panel_geo(
             _detalle_sismo(sismo_max),
             "",
             accent=C_ORANGE,
-            tooltip=_tooltip_sismos(sismos, len(d.get("sismos", [])), localidad),
+            tooltip=_tooltip_sismos(d.get("sismos") or [], sismos, localidad),
         ),
         card_doble(
             "Incendios activos",

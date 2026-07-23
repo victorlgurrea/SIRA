@@ -7,14 +7,13 @@ import math
 from datetime import datetime, timedelta, timezone
 
 from sira.config.settings import TEST_SISMO_OVERLAY_FILE, ZONA
+from sira.domain.geo import distancia_km, epicentro_en_mar
 from sira.domain.seismic.sismos import (
-    distancia_km,
     distancia_perceptible_km,
     radio_tsunami_km,
     riesgo_tsunami,
     score_sismo,
 )
-from sira.infrastructure.parsers.fuentes import epicentro_en_mar
 
 log = logging.getLogger(__name__)
 

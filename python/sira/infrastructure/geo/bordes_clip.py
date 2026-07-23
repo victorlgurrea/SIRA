@@ -120,7 +120,7 @@ def solo_bordes_interiores(
 
 
 def _dist_costa_km(lon: float, lat: float, borde_pts: list[tuple[float, float]]) -> float:
-    from sira.domain.seismic.sismos import distancia_km
+    from sira.domain.geo import distancia_km
 
     mejor = float("inf")
     for blon, blat in borde_pts:

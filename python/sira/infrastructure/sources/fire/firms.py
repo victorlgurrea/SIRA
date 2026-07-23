@@ -20,7 +20,7 @@ from sira.config.settings import (
 )
 from sira.infrastructure.http.client import fetch_text
 from sira.infrastructure.parsers.fuentes import parse_firms_row
-from sira.domain.seismic.sismos import circle_perimeter, distancia_km
+from sira.domain.geo import circle_perimeter, distancia_km
 
 log = logging.getLogger(__name__)
 

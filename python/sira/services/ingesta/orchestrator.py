@@ -7,9 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 
 from sira.infrastructure.sources.meteo.aemet_alerts import deduplicar_alertas
-from sira.infrastructure.sources.hydrology.chj import descargar_aforos as descargar_aforos_chj
 from sira.infrastructure.sources.hydrology.reservoirs import descargar_embalses
-from sira.infrastructure.sources.hydrology.segura import descargar_aforos as descargar_aforos_segura
+from sira.infrastructure.sources.hydrology.multi import descargar_aforos_con_estado
 from sira.infrastructure.sources.fire.firms import descargar_incendios
 from sira.config.settings import (
     AEMET_API_KEY,
@@ -28,9 +27,9 @@ from sira.services.historial.snapshots import guardar_snapshots_diarios
 from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly, pack_meteo as _pack_meteo, parse_aemet as _parse_aemet
 from sira.infrastructure.sources.meteo.live import meteo_localidad
 from sira.infrastructure.sources.meteo.termico import construir_termico_ccaa
-from sira.infrastructure.sources.hydrology.ebro import descargar_aforos as descargar_aforos_ebro
 from sira.services.ingesta.source_status import estado_fuente, fmt_error_fuente
-from sira.domain.seismic.sismos import distancia_km, radio_tsunami_km, riesgo_tsunami, score_sismo
+from sira.domain.geo import distancia_km
+from sira.domain.seismic.sismos import radio_tsunami_km, riesgo_tsunami, score_sismo
 from sira.services.overlays.sismo import clear_test_overlay
 
 log = logging.getLogger(__name__)
@@ -182,22 +181,8 @@ def ejecutar_ingesta():
     except Exception as exc:  # noqa: BLE001
         fuentes_estado["aemet_cap"] = {"ok": False, "registros": 0, "error": fmt_error_fuente(exc)}
 
-    aforos_chj, fuentes_estado["saih_chj"] = estado_fuente(
-        "SAIH CHJ", descargar_aforos_chj, alertas_cap, default=[],
-    )
-    aforos_che, fuentes_estado["saih_che"] = estado_fuente(
-        "SAIH Ebro", descargar_aforos_ebro, alertas_cap, default=[],
-    )
-    aforos_chs, fuentes_estado["saih_chs"] = estado_fuente(
-        "SAIH Segura", descargar_aforos_segura, alertas_cap, default=[],
-    )
-    for af in aforos_chj:
-        af.setdefault("cuenca", "CHJ")
-    for af in aforos_che:
-        af.setdefault("cuenca", "CHE")
-    for af in aforos_chs:
-        af.setdefault("cuenca", "CHS")
-    aforos = aforos_chj + aforos_che + aforos_chs
+    aforos, estados_aforos = descargar_aforos_con_estado(alertas_cap, estado_fuente)
+    fuentes_estado.update(estados_aforos)
     termico_ccaa, fuentes_estado["termico_ccaa"] = estado_fuente(
         "Térmico CCAA",
         construir_termico_ccaa,

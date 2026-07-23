@@ -16,7 +16,7 @@ from sira.config.settings import (
     MAPA,
 )
 from sira.infrastructure.http.client import fetch_text
-from sira.domain.seismic.sismos import distancia_km
+from sira.domain.geo import distancia_km
 
 log = logging.getLogger(__name__)
 

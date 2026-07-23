@@ -491,7 +491,7 @@ def viewport_fit_contenedor(vp: dict, *, aspect: float = 1.65) -> dict:
 
 def municipio_mas_cercano(lat: float, lon: float) -> dict | None:
     """Municipio INE más cercano a unas coordenadas WGS84."""
-    from sira.domain.seismic.sismos import distancia_km
+    from sira.domain.geo import distancia_km
 
     mejor: dict | None = None
     mejor_d = float("inf")

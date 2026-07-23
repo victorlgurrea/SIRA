@@ -9,6 +9,7 @@ from sira.config.settings import (
     RIESGO_METEO_HORAS,
 )
 from sira.domain.risks.meteo import _nivel_indice, calcular_riesgo_meteo
+from sira.domain.types import RiesgoLocal
 
 _NIVEL_HIDRO = {
     "normal": 0,
@@ -252,7 +253,7 @@ def calcular_riesgo_local(
     termico_ccaa: dict | None = None,
     provincia_id: str | None = None,
     horas_meteo: int | None = None,
-) -> dict:
+) -> RiesgoLocal:
     """Combina señales activas locales en un índice 0–100 con desglose por eje."""
     h = max(1, int(horas_meteo or RIESGO_METEO_HORAS))
     alertas = alertas_meteo or []

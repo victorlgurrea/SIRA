@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sira.infrastructure.sources.meteo.aemet_alerts import fmt_alerta_detalle, icono_alerta
+from sira.domain.risks.presentacion import fmt_alerta_detalle, icono_alerta
 from sira.config.settings import RIESGO_METEO_HORAS
 
 _MADRID = ZoneInfo("Europe/Madrid")

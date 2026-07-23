@@ -264,6 +264,10 @@ body {
   gap: 0.35rem;
 }
 
+.sira-card-dual-part[title] {
+  cursor: help;
+}
+
 .sira-card-dual-lbl {
   color: var(--sira-muted);
   font-size: 0.78rem;

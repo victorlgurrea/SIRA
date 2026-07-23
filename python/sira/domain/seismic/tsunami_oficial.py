@@ -10,9 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sira.config.settings import TSUNAMI_GOV_CACHE_SEC, TSUNAMI_GOV_FEED_URL
-from sira.infrastructure.http.client import fetch_text
-from sira.infrastructure.geo.es import provincia_nombre_de_municipio
-from sira.domain.seismic.sismos import distancia_km
+from sira.domain.geo import distancia_km
 
 log = logging.getLogger(__name__)
 
@@ -46,9 +44,15 @@ def zona_costera_usuario(
     lat: float,
     lon: float,
     municipio_id: str | None = None,
+    *,
+    provincia_nombre: str | None = None,
 ) -> dict[str, str]:
     """Zona litoral orientativa para el usuario (AEMET / IGN)."""
-    candidatos = [_norm(provincia_nombre_de_municipio(municipio_id))]
+    if provincia_nombre is None and municipio_id:
+        # Lazy: evita dependencia fija domain→infra en import time.
+        from sira.infrastructure.geo.es import provincia_nombre_de_municipio
+        provincia_nombre = provincia_nombre_de_municipio(municipio_id)
+    candidatos = [_norm(provincia_nombre)]
     for zona in _ZONAS_COSTA:
         if any(k in c for c in candidatos for k in zona["keywords"] if c):
             return {"nombre": zona["nombre"], "aemet": zona["aemet"]}
@@ -87,6 +91,7 @@ def _cargar_eventos_gov() -> list[dict]:
     if now - float(_feed_cache.get("ts") or 0) < TSUNAMI_GOV_CACHE_SEC:
         return list(_feed_cache.get("items") or [])
     try:
+        from sira.infrastructure.http.client import fetch_text
         raw = fetch_text(TSUNAMI_GOV_FEED_URL)
         items = _parse_feed(raw)
         _feed_cache["ts"] = now
