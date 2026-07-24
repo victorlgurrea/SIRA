@@ -1343,8 +1343,18 @@ body {
   }
 
   .sira-graph-wrap--map {
-    height: min(50vh, 420px);
-    min-height: 320px;
+    height: min(72vh, 620px);
+    min-height: 460px;
+  }
+
+  .sira-graph-wrap--map .dash-graph,
+  .sira-graph-wrap--map .js-plotly-plot,
+  .sira-graph-wrap--map .plot-container,
+  .sira-graph-wrap--map .svg-container,
+  .sira-graph-wrap--map .main-svg {
+    height: 100% !important;
+    width: 100% !important;
+    min-height: 100% !important;
   }
 
   .sira-card-lluvia-chart {
@@ -1391,7 +1401,8 @@ body {
   }
 
   .sira-graph-wrap--map {
-    height: 260px;
+    height: min(70vh, 560px);
+    min-height: 400px;
   }
 
   .sira-graph-wrap {

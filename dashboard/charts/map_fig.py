@@ -60,9 +60,9 @@ def geo_layout(
         "lon_max": MAPA["lon_max"],
     }
     if vp.get("centrar_obs"):
-        vp = viewport_fit_observacion(vp, aspect=2.85)
+        vp = viewport_fit_observacion(vp, aspect=1.2)
     else:
-        vp = viewport_fit_contenedor(vp, aspect=2.85)
+        vp = viewport_fit_contenedor(vp, aspect=1.2)
     zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
     proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
     use_light = estilo_aemet or theme == "light"
@@ -81,12 +81,14 @@ def geo_layout(
         showcountries=False,
         showcoastlines=False,
         resolution=110,
+        fitbounds=False,
     )
     layout = dict(
-        margin=dict(t=10, b=0, l=0, r=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(t=28, b=0, l=0, r=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0, font=dict(size=10)),
         autosize=True,
         uirevision=uirevision,
+        height=None,
     )
     if estilo_aemet:
         layout.update(paper_bgcolor="#eef1f5", plot_bgcolor="#eef1f5", font=dict(color="#1f2937"))
