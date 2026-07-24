@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from sira.config.settings import MAP_CIRCLE_POINTS
 from sira.domain.geo import circle_disk_polygon, circle_perimeter
 from sira.infrastructure.geo.aemet_zonas import aviso_maximo_zona, color_nivel, es_zona_costera, zonas_ccaa_pintado
+from sira.infrastructure.http.client import fmt_hora_espana
 
 
 def add_circulos_perceptibles(
@@ -250,7 +251,9 @@ def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict])
             detalle = fmt_alerta_detalle(aviso)
             vigencia = ""
             if aviso.get("onset") or aviso.get("expires"):
-                vigencia = f"<br>Vigencia: {aviso.get('onset') or '—'} → {aviso.get('expires') or '—'}"
+                ini = fmt_hora_espana(aviso.get("onset"))
+                fin = fmt_hora_espana(aviso.get("expires"))
+                vigencia = f"<br>Vigencia: {ini} → {fin}"
             hover = (
                 f"{nombre}<br>"
                 f"{tipo}<br>"
