@@ -43,7 +43,7 @@ from sira.infrastructure.geo.es import (
     viewport_ccaa_centro,
 )
 from geo.ui import selector_geo
-from sira.services.historial.snapshots import snapshot_municipio_desde_dashboard
+from sira.infrastructure.sources.meteo.aemet_alerts import alerta_firma
 from ui.theme import C_CYAN, C_GREEN, C_ORANGE, C_TEAL
 
 from charts.figures import (
