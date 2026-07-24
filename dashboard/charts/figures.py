@@ -13,7 +13,6 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from charts.map_fig import es_sismo_hoy, fig_mapa, fmt_sismo_fecha, geo_layout
-from sira.infrastructure.persistence.sqlite import get_historial_municipio
 from sira.infrastructure.geo.ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
 from sira.infrastructure.geo.es import (
     CCAA_PROVINCIAS,
@@ -216,30 +215,81 @@ def fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, c
     return fig
 
 
-def fig_historial(municipio_id: str, default_muni: str, uirev: str, *, theme: str = "dark") -> go.Figure:
+def fig_historial(
+    municipio_id: str,
+    default_muni: str,
+    uirev: str,
+    *,
+    theme: str = "dark",
+    dashboard: dict | None = None,
+) -> go.Figure:
+    from sira.services.historial.serie import serie_evolucion_municipio, serie_tiene_datos
+
     fig = go.Figure()
     mid = str(municipio_id or default_muni).zfill(5)
-    serie = get_historial_municipio(mid, 30)
-    if serie:
+    serie = serie_evolucion_municipio(mid, dashboard or {}, dias=30)
+    layout_kw = dict(
+        margin=dict(t=10, b=0, l=0, r=0),
+        autosize=True,
+        uirevision=uirev,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        **plotly_bg(theme),
+    )
+    if serie_tiene_datos(serie):
         fechas = [r["fecha"] for r in serie]
+        scores = [int(r["score_sismo_max"] or 0) for r in serie]
         fig.add_trace(go.Scatter(
-            x=fechas, y=[r["score_sismo_max"] for r in serie],
+            x=fechas, y=scores,
             mode="lines+markers", name="Score sísmico máx.", line=dict(color=C_ORANGE),
         ))
-        fig.add_trace(go.Scatter(
-            x=fechas, y=[r["indice_impacto_local"] for r in serie],
-            mode="lines+markers", name="Impacto local %", line=dict(color=C_CYAN), yaxis="y2",
-        ))
-        fig.add_trace(go.Scatter(
-            x=fechas, y=[r["indice_riesgo_meteo"] for r in serie],
-            mode="lines+markers", name="Índice riesgo meteo", line=dict(color=C_TEAL, dash="dot"), yaxis="y2",
-        ))
-    fig.update_layout(
-        margin=dict(t=10, b=0, l=0, r=0), autosize=True, uirevision=uirev,
-        yaxis=dict(title="Score", rangemode="tozero"),
-        yaxis2=dict(title="Índice / %", overlaying="y", side="right", range=[0, 100]),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02), **plotly_bg(theme),
-    )
+        impacto = [r.get("indice_impacto_local") for r in serie]
+        if any(v is not None for v in impacto):
+            fig.add_trace(go.Scatter(
+                x=fechas,
+                y=[int(v) if v is not None else None for v in impacto],
+                mode="lines+markers", name="Impacto local %", line=dict(color=C_CYAN), yaxis="y2",
+            ))
+        meteo = [r.get("indice_riesgo_meteo") for r in serie]
+        if any(v is not None for v in meteo):
+            fig.add_trace(go.Scatter(
+                x=fechas,
+                y=[int(v) if v is not None else None for v in meteo],
+                mode="lines+markers", name="Índice riesgo meteo", line=dict(color=C_TEAL, dash="dot"), yaxis="y2",
+            ))
+        score_max = max(scores, default=0)
+        layout_kw.update(
+            xaxis=dict(type="date", tickformat="%d/%m"),
+            yaxis=dict(
+                title="Score sísmico",
+                rangemode="tozero",
+                range=[0, max(10, score_max * 1.12 + 1)],
+            ),
+        )
+        if any(v is not None for v in impacto) or any(v is not None for v in meteo):
+            layout_kw["yaxis2"] = dict(
+                title="Índice / %", overlaying="y", side="right", range=[0, 100],
+            )
+    else:
+        layout_kw.update(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            annotations=[dict(
+                text=(
+                    "No hay actividad sísmica relevante en 30 días para este municipio "
+                    "y aún no hay registro diario de meteo/impacto.<br>"
+                    "El índice meteorológico se acumula con cada ingesta (SQLite persistente)."
+                ),
+                showarrow=False,
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                xanchor="center",
+                yanchor="middle",
+                font=dict(size=13, color=chart_muted(theme)),
+            )],
+        )
+    fig.update_layout(**layout_kw)
     return fig
 
 

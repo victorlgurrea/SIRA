@@ -245,6 +245,17 @@ def insert_historial_municipio(
             )
 
 
+def municipios_con_historial() -> list[str]:
+    """Municipios que ya tienen al menos un snapshot (para seguir registrando en ingesta)."""
+    init_db()
+    with _lock:
+        with _conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT municipio_id FROM historial_municipio ORDER BY municipio_id",
+            ).fetchall()
+    return [str(r["municipio_id"]).zfill(5) for r in rows]
+
+
 def get_historial_municipio(municipio_id: str, dias: int = 30) -> list[dict]:
     init_db()
     mid = str(municipio_id).zfill(5)

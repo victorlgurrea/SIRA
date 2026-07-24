@@ -43,7 +43,7 @@ from sira.infrastructure.geo.es import (
     viewport_ccaa_centro,
 )
 from geo.ui import selector_geo
-from sira.infrastructure.sources.meteo.aemet_alerts import alerta_firma
+from sira.services.historial.snapshots import snapshot_municipio_desde_dashboard
 from ui.theme import C_CYAN, C_GREEN, C_ORANGE, C_TEAL
 
 from charts.figures import (
@@ -147,7 +147,8 @@ app.layout = html.Div(className="sira-page", children=[
                             title="Cambiar entre modo claro y oscuro",
                             type="button",
                         ),
-                        html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
+                        # Historial 30 días: oculto hasta tener SQLite persistente / serie útil
+                        # html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
                         html.A("Estado", href="/status", className="sira-link-nav"),
                         html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
                         html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
@@ -237,7 +238,8 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts-row sira-charts-row--historial", children=[
                     bloque(
                         "historial", "Evolución 30 días — municipio seleccionado",
-                        "Score sísmico máximo diario e índice de riesgo meteorológico.",
+                        "Score sísmico máximo diario (USGS, últimos 30 días). "
+                        "Meteo e impacto local: un punto al día guardado en ingesta (requiere SQLite persistente).",
                         accent=C_CYAN,
                     ),
                 ]),
@@ -287,8 +289,19 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
     )
 
 
-def _fig_historial(municipio_id: str | None, uirev: str, theme: str = "dark") -> go.Figure:
-    return _fig_historial_impl(municipio_id, DEFAULT_MUNI, uirev, theme=theme)
+def _fig_historial(
+    municipio_id: str | None,
+    uirev: str,
+    theme: str = "dark",
+    dashboard: dict | None = None,
+) -> go.Figure:
+    return _fig_historial_impl(
+        municipio_id or DEFAULT_MUNI,
+        DEFAULT_MUNI,
+        uirev,
+        theme=theme,
+        dashboard=dashboard,
+    )
 
 
 @callback(
@@ -369,7 +382,8 @@ def on_geo_change(provincia_id, municipio_id, localidad_id):
     Input("url", "pathname"),
 )
 def route_pages(pathname):
-    on_historial = pathname == "/historial"
+    # /historial deshabilitado en UI; la ruta sigue en código por si se reactiva.
+    on_historial = False
     if on_historial:
         return {"display": "none"}, {"display": "block"}, True, True
     return {"display": "block"}, {"display": "none"}, False, True
@@ -391,9 +405,8 @@ def _activar_poll_geo(_n):
     Input("theme-store", "data"),
 )
 def refresh_historial(pathname, municipio_id, theme):
-    if pathname != "/historial":
-        raise PreventUpdate
-    return _fig_historial(municipio_id or DEFAULT_MUNI, "sira-historial", theme_val(theme))
+    # Página deshabilitada (enlace oculto).
+    raise PreventUpdate
 
 
 @callback(

@@ -1,25 +1,7 @@
 """Tests de persistencia SQLite."""
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
-
-
-@pytest.fixture()
-def db_tmp(tmp_path, monkeypatch):
-    import importlib
-
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("DB_PATH", str(db_file))
-    import sira.config.settings as config
-    import sira.infrastructure.persistence.sqlite as db_mod
-
-    monkeypatch.setattr(config, "DB_PATH", db_file)
-    importlib.reload(db_mod)
-    db_mod.init_db()
-    return db_mod
 
 
 def test_push_subscriptions_roundtrip(db_tmp):
