@@ -50,6 +50,7 @@ def geo_layout(
     uirevision: str = "sira-mapa",
     estilo_aemet: bool = False,
     theme: str = "dark",
+    aspect: float = 1.65,
 ) -> None:
     vp = viewport or {
         "lat_centro": MAPA["lat_centro"],
@@ -59,10 +60,11 @@ def geo_layout(
         "lon_min": MAPA["lon_min"],
         "lon_max": MAPA["lon_max"],
     }
+    aspect = max(0.55, min(3.2, float(aspect or 1.65)))
     if vp.get("centrar_obs"):
-        vp = viewport_fit_observacion(vp, aspect=1.2)
+        vp = viewport_fit_observacion(vp, aspect=aspect)
     else:
-        vp = viewport_fit_contenedor(vp, aspect=1.2)
+        vp = viewport_fit_contenedor(vp, aspect=aspect)
     zoom_margin = 1.38 if vp.get("nivel") == "ccaa" else 1.0
     proj_scale = projection_scale_for_viewport(vp, margin=zoom_margin)
     use_light = estilo_aemet or theme == "light"
@@ -84,7 +86,7 @@ def geo_layout(
         fitbounds=False,
     )
     layout = dict(
-        margin=dict(t=28, b=0, l=0, r=0),
+        margin=dict(t=36, b=0, l=0, r=0) if aspect < 1.2 else dict(t=28, b=0, l=0, r=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0, font=dict(size=10)),
         autosize=True,
         uirevision=uirevision,
@@ -111,6 +113,7 @@ def fig_mapa(
     provincia_id: str | None = None,
     theme: str = "dark",
     mostrar_tsunami: bool = True,
+    map_aspect: float | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     estilo_aemet = bool(provincia_id)
@@ -304,6 +307,12 @@ def fig_mapa(
             lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
             marker=dict(size=10, color=color, symbol="star"),
         ))
-    geo_layout(fig, viewport, uirevision=map_uirevision, estilo_aemet=bool(provincia_id), theme=theme)
+    geo_layout(
+        fig, viewport,
+        uirevision=map_uirevision,
+        estilo_aemet=bool(provincia_id),
+        theme=theme,
+        aspect=float(map_aspect or 1.65),
+    )
     fig.update_layout(legend=dict(title="Alerta", orientation="h", yanchor="bottom", y=1.02, x=0))
     return fig

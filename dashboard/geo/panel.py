@@ -152,7 +152,13 @@ def _riesgo_meteo_card(riesgo: dict) -> html.Div:
     )
 
 
-def build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark") -> go.Figure:
+def build_mapa_fig(
+    geo: dict,
+    d: dict,
+    capas: list[str] | None = None,
+    theme: str = "dark",
+    map_aspect: float | None = None,
+) -> go.Figure:
     ctx = datos_mapa(geo, d)
     geo_r = ctx["geo"]
     act = capas_activas(capas)
@@ -169,11 +175,16 @@ def build_mapa_fig(geo: dict, d: dict, capas: list[str] | None = None, theme: st
         provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
         theme=theme,
         mostrar_tsunami="costa" in act,
+        map_aspect=map_aspect,
     )
 
 
 def build_panel_geo(
-    geo: dict, d: dict, capas: list[str] | None = None, theme: str = "dark",
+    geo: dict,
+    d: dict,
+    capas: list[str] | None = None,
+    theme: str = "dark",
+    map_aspect: float | None = None,
 ) -> tuple[list, go.Figure, go.Figure]:
     """Tarjetas, mapa y lluvia según la zona seleccionada."""
     ctx = datos_mapa(geo, d)
@@ -256,6 +267,6 @@ def build_panel_geo(
             tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
         ),
     ]
-    mapa = build_mapa_fig(geo_r, d, capas, theme)
+    mapa = build_mapa_fig(geo_r, d, capas, theme, map_aspect=map_aspect)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia

@@ -1343,8 +1343,8 @@ body {
   }
 
   .sira-graph-wrap--map {
-    height: min(72vh, 620px);
-    min-height: 460px;
+    height: min(78vh, 680px);
+    min-height: 480px;
   }
 
   .sira-graph-wrap--map .dash-graph,
@@ -1355,6 +1355,11 @@ body {
     height: 100% !important;
     width: 100% !important;
     min-height: 100% !important;
+  }
+
+  /* Evita bandas blancas del geolayer cuando el aspect ya es portrait */
+  .sira-graph-wrap--map .geo {
+    height: 100% !important;
   }
 
   .sira-card-lluvia-chart {
@@ -1401,8 +1406,8 @@ body {
   }
 
   .sira-graph-wrap--map {
-    height: min(70vh, 560px);
-    min-height: 400px;
+    height: min(76vh, 600px);
+    min-height: 420px;
   }
 
   .sira-graph-wrap {

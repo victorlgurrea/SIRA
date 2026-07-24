@@ -119,6 +119,7 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Interval(id="tick", interval=DASHBOARD_REFRESH_MS, n_intervals=0),
             dcc.Store(id="data-ts-store"),
             dcc.Store(id="theme-store", data="dark"),
+            dcc.Store(id="map-aspect", data=1.65),
             dcc.Store(id="geo-store", data=default_geo()),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
@@ -402,29 +403,31 @@ def refresh_historial(pathname, municipio_id, theme):
     Input("geo-store", "data"),
     Input("theme-store", "data"),
     State("map-layers", "value"),
+    State("map-aspect", "data"),
     State("url", "pathname"),
     prevent_initial_call=True,
 )
-def refresh_geo(geo, theme, capas, pathname):
+def refresh_geo(geo, theme, capas, map_aspect, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     d = _load()
     t = theme_val(theme)
-    return build_panel_geo(geo, d, capas, t)
+    return build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
 
 
 @callback(
     Output("mapa", "figure", allow_duplicate=True),
     Input("map-layers", "value"),
     Input("theme-store", "data"),
+    Input("map-aspect", "data"),
     State("geo-store", "data"),
     State("url", "pathname"),
     prevent_initial_call=True,
 )
-def refresh_map_layers(capas, theme, geo, pathname):
+def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
     if pathname == "/historial":
         raise PreventUpdate
-    return build_mapa_fig(geo, _load(), capas, theme_val(theme))
+    return build_mapa_fig(geo, _load(), capas, theme_val(theme), map_aspect=map_aspect)
 
 
 @callback(
@@ -436,10 +439,11 @@ def refresh_map_layers(capas, theme, geo, pathname):
     Input("theme-store", "data"),
     State("geo-store", "data"),
     State("map-layers", "value"),
+    State("map-aspect", "data"),
     State("data-ts-store", "data"),
     State("url", "pathname"),
 )
-def refresh(n_intervals, clicks, theme, geo, capas, last_ts, pathname):
+def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathname):
     if pathname == "/historial":
         raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
@@ -460,7 +464,7 @@ def refresh(n_intervals, clicks, theme, geo, capas, last_ts, pathname):
 
     geo = geo_resuelto(geo)
     t = theme_val(theme)
-    cards, mapa, lluvia = build_panel_geo(geo, d, capas, t)
+    cards, mapa, lluvia = build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if d.get("sismo_prueba_activo"):
@@ -502,6 +506,42 @@ clientside_callback(
     """,
     Output("theme-store", "data"),
     Input("url", "pathname"),
+)
+
+
+clientside_callback(
+    """
+    function(_pathname, _n) {
+        const el = document.querySelector('.sira-graph-wrap--map');
+        let w = el && el.clientWidth > 40 ? el.clientWidth : window.innerWidth;
+        let h = el && el.clientHeight > 40
+            ? el.clientHeight
+            : Math.min(window.innerHeight * (window.innerWidth <= 640 ? 0.72 : 0.56), 620);
+        if (!h || h < 1) {
+            return window.dash_clientside.no_update;
+        }
+        // Relación ancho/alto del contenedor: en móvil portrait baja (~0.6–0.9)
+        // para que Plotly ensanche el encuadre en latitud y llene el alto.
+        let aspect = w / h;
+        if (window.innerWidth <= 640) {
+            aspect = Math.min(aspect, 0.85);
+        } else if (window.innerWidth <= 900) {
+            aspect = Math.min(Math.max(aspect, 1.05), 1.45);
+        } else {
+            aspect = Math.min(Math.max(aspect, 1.45), 2.2);
+        }
+        aspect = Math.round(Math.max(0.55, Math.min(3.2, aspect)) * 100) / 100;
+        const prev = window.__siraMapAspect;
+        if (prev != null && Math.abs(prev - aspect) < 0.04) {
+            return window.dash_clientside.no_update;
+        }
+        window.__siraMapAspect = aspect;
+        return aspect;
+    }
+    """,
+    Output("map-aspect", "data"),
+    Input("url", "pathname"),
+    Input("tick", "n_intervals"),
 )
 
 
