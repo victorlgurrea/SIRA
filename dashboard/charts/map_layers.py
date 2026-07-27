@@ -108,28 +108,12 @@ def add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name
     r = float(inc.get("radio_km") or 2)
     fill_rgb = "239, 68, 68" if destacado else "249, 115, 22"
     border_rgb = "220, 38, 38" if destacado else "234, 88, 12"
-    if destacado:
-        r_draw = r
-        fill_op = 0.12
-        border_op = 0.75
-        pulse_meta = {
-            "center_lat": lat,
-            "center_lon": lon,
-            "radius_km": r,
-            "period_ms": 2000,
-            "fill_rgb": fill_rgb,
-            "border_rgb": border_rgb,
-        }
-        fill_meta = {**pulse_meta, "pulse": "grow", "part": "fill", "fill_mode": "opacity"}
-        border_meta = {**pulse_meta, "pulse": "grow", "part": "border", "radius_fraction": 1.0}
-        r_border = max(r * 0.06, 1.5)
-    else:
-        r_draw = r
-        fill_op = 0.16
-        border_op = 1.0
-        fill_meta = None
-        border_meta = None
-        r_border = r
+    r_draw = r
+    fill_op = 0.12 if destacado else 0.16
+    border_op = 0.75 if destacado else 1.0
+    fill_meta = None
+    border_meta = None
+    r_border = r
     lat_fill, lon_fill = circle_disk_polygon(lat, lon, r_draw, MAP_CIRCLE_POINTS)
     lat_ring, lon_ring = circle_perimeter(lat, lon, r_border, MAP_CIRCLE_POINTS)
     fig.add_trace(go.Scattergeo(
