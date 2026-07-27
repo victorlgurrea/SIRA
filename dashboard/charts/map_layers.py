@@ -106,11 +106,12 @@ def add_zona_incendio(fig: go.Figure, inc: dict, *, destacado: bool, legend_name
     lat = float(inc["lat"])
     lon = float(inc["lon"])
     r = float(inc.get("radio_km") or 2)
-    fill_rgb = "239, 68, 68" if destacado else "249, 115, 22"
-    border_rgb = "220, 38, 38" if destacado else "234, 88, 12"
+    # Naranja para todos los incendios (rojo queda reservado a sismos).
+    fill_rgb = "249, 115, 22"
+    border_rgb = "234, 88, 12"
     r_draw = r
-    fill_op = 0.12 if destacado else 0.16
-    border_op = 0.75 if destacado else 1.0
+    fill_op = 0.18 if destacado else 0.16
+    border_op = 1.0
     fill_meta = None
     border_meta = None
     r_border = r
