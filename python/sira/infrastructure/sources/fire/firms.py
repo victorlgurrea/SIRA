@@ -61,6 +61,21 @@ def radio_desde_area_km2(area_km2: float) -> float:
     return _clamp(math.sqrt(area / math.pi), INCENDIO_RADIO_MIN_KM, INCENDIO_RADIO_MAX_KM)
 
 
+def _margen_pixel_km(grupo: list[dict]) -> float:
+    """Media del semi-eje del píxel VIIRS (scan/track) para no dejar detecciones fuera del círculo."""
+    ejes: list[float] = []
+    for p in grupo:
+        scan = float(p.get("scan_km") or 0)
+        track = float(p.get("track_km") or 0)
+        if scan > 0 or track > 0:
+            ejes.append(max(scan, track) / 2.0)
+            continue
+        area = float(p.get("area_km2") or 0)
+        if area > 0:
+            ejes.append(math.sqrt(area / math.pi))
+    return mean(ejes) if ejes else 0.75
+
+
 def _agrupar_focos(puntos: list[dict], sep_km: float) -> list[list[dict]]:
     if not puntos:
         return []
@@ -88,20 +103,24 @@ def _agrupar_focos(puntos: list[dict], sep_km: float) -> list[list[dict]]:
 
 
 def _foco_desde_grupo(grupo: list[dict], idx: int) -> dict:
+    """Construye un foco: radio = extensión espacial de detecciones (no FRP→área)."""
+    del idx  # compat firma histórica
     lats = [p["lat"] for p in grupo]
     lons = [p["lon"] for p in grupo]
     lat = mean(lats)
     lon = mean(lons)
-    area_pix = sum(p["area_km2"] for p in grupo)
-    frp_total = sum(p["frp_mw"] for p in grupo)
+
+    # Extensión real del cluster (centroide → detección más lejana).
     spread_km = 0.0
     if len(grupo) > 1:
         spread_km = max(distancia_km(lat, lon, p["lat"], p["lon"]) for p in grupo)
-    area_est = max(area_pix, math.pi * spread_km**2)
-    if frp_total > 0:
-        area_frp = frp_total * 0.15
-        area_est = max(area_est, area_frp)
-    radio = radio_desde_area_km2(area_est)
+
+    margen = _margen_pixel_km(grupo)
+    # Radio geográfico: abarca el cluster + huella del píxel. FRP es intensidad, no área.
+    radio = _clamp(spread_km + margen, INCENDIO_RADIO_MIN_KM, INCENDIO_RADIO_MAX_KM)
+    area_est = math.pi * radio * radio
+
+    frp_total = sum(float(p.get("frp_mw") or 0) for p in grupo)
     ts_vals = [p["timestamp"] for p in grupo if p.get("timestamp")]
     ultima = max(ts_vals) if ts_vals else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     sat = max({p["satelite"] for p in grupo}, key=lambda s: sum(1 for p in grupo if p["satelite"] == s))
