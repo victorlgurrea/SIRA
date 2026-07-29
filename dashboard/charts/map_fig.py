@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
+
+_HORA_ES = ZoneInfo("Europe/Madrid")
 
 from charts.map_layers import (
     add_capa_aemet_zonas,
@@ -38,7 +41,8 @@ def es_sismo_hoy(ts) -> bool:
 
 def fmt_sismo_fecha(ts) -> str:
     try:
-        return pd.to_datetime(ts, utc=True).strftime("%d/%m/%Y %H:%M UTC")
+        dt = pd.to_datetime(ts, utc=True).to_pydatetime().astimezone(_HORA_ES)
+        return dt.strftime("%d/%m/%Y %H:%M")
     except (ValueError, TypeError):
         return "—"
 

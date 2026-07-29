@@ -103,9 +103,12 @@ def _tooltip_sismos(
     for s in ordenados[:8]:
         lugar = str(s.get("lugar") or "epicentro desconocido").strip()
         mag = s.get("magnitud")
+        fecha = _fmt_sismo_fecha(s.get("timestamp"))
         linea = f"· {lugar}"
         if mag is not None:
             linea += f" · M{mag}"
+        if fecha and fecha != "—":
+            linea += f" · {fecha}"
         partes.append(linea)
     if n_esp > 8:
         partes.append(f"· … y {n_esp - 8} más.")
