@@ -25,3 +25,11 @@ def test_estrecho_gibraltar_es_mar():
 def test_tanger_no_es_mar():
     # Punto en tierra marroquí (no debe pintarse).
     assert not punto_en_mar_mediterraneo(35.76, -5.83)
+
+
+def test_cantabrico_no_entra_como_mediterraneo():
+    assert not punto_en_mar_mediterraneo(43.43, -3.80)
+
+
+def test_golfo_leon_si_entra():
+    assert punto_en_mar_mediterraneo(42.15, 3.60)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 import time
 from collections import defaultdict
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 from starlette.responses import Response
 
 from sira.config.settings import (
@@ -61,6 +63,22 @@ app.add_middleware(
     allow_credentials=False,
 )
 _last_post: dict[str, float] = defaultdict(float)
+_ingesta_lock = threading.Lock()
+
+
+def _run_ingesta_job() -> None:
+    if not _ingesta_lock.acquire(blocking=False):
+        log.info("Ingesta cron omitida: ya hay una ejecución en curso")
+        return
+    try:
+        ejecutar_ingesta()
+        dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
+        n = notify_new_alerts(dashboard_url)
+        log.info("Ingesta cron completada; push_enviados=%s", n)
+    except Exception:  # noqa: BLE001
+        log.exception("Fallo en ingesta cron en segundo plano")
+    finally:
+        _ingesta_lock.release()
 
 
 class SubscriptionIn(BaseModel):
@@ -243,9 +261,16 @@ def cron_ingesta(x_cron_secret: str | None = Header(default=None, alias="X-Cron-
         raise HTTPException(503, "CRON_SECRET no configurado")
     if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
         raise HTTPException(401, "No autorizado")
-    ejecutar_ingesta()
-    n = notify_new_alerts(CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com")
-    return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
+    if _ingesta_lock.locked():
+        return JSONResponse(
+            status_code=202,
+            content={"ok": True, "accepted": True, "running": True, "detail": "Ingesta ya en curso"},
+        )
+    threading.Thread(target=_run_ingesta_job, name="sira-cron-ingesta", daemon=True).start()
+    return JSONResponse(
+        status_code=202,
+        content={"ok": True, "accepted": True, "running": True, "detail": "Ingesta lanzada en segundo plano"},
+    )
 
 
 @app.post("/api/cron/meteo")

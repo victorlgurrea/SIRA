@@ -10,8 +10,11 @@ _LAND_BOXES: tuple[tuple[float, float, float, float], ...] = (
     (35.50, 36.35, -6.05, -1.85),
     (36.35, 37.25, -6.05, -0.15),
     (37.25, 37.85, -6.05, 0.35),
-    (42.35, 43.55, -0.35, 7.95),
-    (41.15, 42.45, 2.85, 7.95),
+    (42.55, 43.55, -0.35, 2.00),
+    (42.60, 43.55, 2.00, 4.20),
+    (42.70, 43.55, 4.20, 6.20),
+    (42.85, 43.55, 6.20, 7.95),
+    (41.65, 42.45, 7.20, 7.95),
     (40.05, 41.20, 5.35, 7.95),
     (38.55, 40.15, 7.85, 8.05),
 )
@@ -25,6 +28,27 @@ def _en_corredor_mar_andalucia(lat: float, lon: float) -> bool:
     la salida mediterránea del Estrecho de Gibraltar.
     """
     return 36.00 <= lat <= 36.32 and -6.05 <= lon <= -1.70
+
+
+def _en_mar_mediterraneo_west(lat: float, lon: float) -> bool:
+    """
+    Envolvente aproximada del Mediterráneo occidental / mar de Alborán.
+
+    Evita colar Cantábrico y Atlántico solo por estar dentro del bbox general.
+    """
+    if _en_corredor_mar_andalucia(lat, lon):
+        return True
+    if lat < 35.45 or lat > 43.55 or lon < -6.05 or lon > 8.05:
+        return False
+    if lat <= 36.90:
+        return lon >= -4.80
+    if lat <= 38.60:
+        return lon >= -3.10
+    if lat <= 40.20:
+        return lon >= -1.10
+    if lat <= 42.35:
+        return lon >= 0.10
+    return lon >= 1.80
 
 
 def _en_caja_land(lat: float, lon: float) -> bool:
@@ -43,7 +67,7 @@ def _anillos_ign() -> list[list[list[float]]]:
 
 def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
     """True si el punto cae en mar (no tierra) dentro del bbox SST habitual."""
-    if lat < 35.45 or lat > 43.55 or lon < -6.05 or lon > 8.05:
+    if not _en_mar_mediterraneo_west(lat, lon):
         return False
     if punto_en_tierra(lon, lat, _anillos_ign()):
         return False
