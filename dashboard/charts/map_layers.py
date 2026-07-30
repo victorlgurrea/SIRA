@@ -215,52 +215,187 @@ def add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
         leyenda = True
 
 
+def add_leyenda_sst_med(
+    fig: go.Figure,
+    *,
+    fecha: str | None = None,
+    fuente: str | None = None,
+    theme: str = "dark",
+    tmin: float | None = None,
+    tmax: float | None = None,
+) -> None:
+    """Barra de color tipo Copernicus MyOcean (5–25 °C)."""
+    from charts.figures import (
+        SST_MED_LEYENDA_MAX,
+        SST_MED_LEYENDA_MIN,
+        color_sst_med,
+    )
+    from ui.theme import chart_text
+
+    lo = float(tmin if tmin is not None else SST_MED_LEYENDA_MIN)
+    hi = float(tmax if tmax is not None else SST_MED_LEYENDA_MAX)
+    txt = chart_text(theme)
+    bg = "rgba(15, 23, 42, 0.92)" if theme == "dark" else "rgba(255, 255, 255, 0.95)"
+    border = "rgba(148, 163, 184, 0.55)"
+
+    x0, y0, w, h = 0.014, 0.10, 0.20, 0.028
+    fig.add_shape(
+        type="rect",
+        xref="paper",
+        yref="paper",
+        x0=x0 - 0.006,
+        x1=x0 + w + 0.006,
+        y0=y0 - 0.042,
+        y1=y0 + h + 0.022,
+        fillcolor=bg,
+        line=dict(color=border, width=1),
+        layer="above",
+    )
+    steps = 64
+    for i in range(steps):
+        t = lo + (hi - lo) * i / max(steps - 1, 1)
+        fig.add_shape(
+            type="rect",
+            xref="paper",
+            yref="paper",
+            x0=x0 + w * i / steps,
+            x1=x0 + w * (i + 1) / steps,
+            y0=y0,
+            y1=y0 + h,
+            fillcolor=color_sst_med(t),
+            line_width=0,
+            layer="above",
+        )
+    titulo = "Sea water potential temperature"
+    subt = fecha or "—"
+    if fuente:
+        subt = f"{subt}<br><span style='font-size:10px'>{fuente}</span>"
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=x0,
+        y=y0 + h + 0.018,
+        xanchor="left",
+        yanchor="bottom",
+        text=f"<b>{titulo}</b><br>{subt}",
+        showarrow=False,
+        align="left",
+        font=dict(size=11, color=txt),
+    )
+    for tick in (5, 10, 15, 20, 25):
+        if tick < lo or tick > hi:
+            continue
+        frac = (tick - lo) / (hi - lo) if hi > lo else 0
+        fig.add_annotation(
+            xref="paper",
+            yref="paper",
+            x=x0 + w * frac,
+            y=y0 - 0.008,
+            xanchor="center",
+            yanchor="top",
+            text=f"{tick}",
+            showarrow=False,
+            font=dict(size=9, color=txt),
+        )
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=x0 + w + 0.014,
+        y=y0 + h / 2,
+        xanchor="left",
+        yanchor="middle",
+        text="°C",
+        showarrow=False,
+        font=dict(size=10, color=txt),
+    )
+
+
 def add_capa_sst_med(
     fig: go.Figure,
     celdas: list[dict] | None,
     *,
     fecha: str | None = None,
     paso_deg: float | None = None,
+    fuente: str | None = None,
+    theme: str = "dark",
 ) -> None:
-    """Cuadrícula SST Mediterráneo (CMEMS) como celdas coloreadas."""
+    """Malla SST homogénea solo sobre mar (sin tapar tierra) y sin huecos obvios."""
     if not celdas:
         return
-    from charts.figures import color_sst
+    from charts.figures import (
+        SST_MED_COLORSCALE,
+        SST_MED_LEYENDA_MAX,
+        SST_MED_LEYENDA_MIN,
+    )
+    from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
 
-    lats = [float(c["lat"]) for c in celdas if c.get("sst_c") is not None]
-    lons = [float(c["lon"]) for c in celdas if c.get("sst_c") is not None]
-    temps = [float(c["sst_c"]) for c in celdas if c.get("sst_c") is not None]
-    if not temps:
-        return
-    colors = [color_sst(t) for t in temps]
-    # Tamaño visual ~ proporcional al paso de malla (0.25° ≈ 11 px).
-    paso = float(paso_deg or 0.25)
-    size = max(7, min(16, round(paso * 44)))
+    paso = float(paso_deg or 0.12)
+    half = paso * 0.5
+    # Si la fuente es Copernicus, los puntos ya vienen en mar (más cobertura, p.ej. Italia).
+    # En fallback Open-Meteo mantenemos máscara local para no invadir costa.
+    fuente_txt = str(fuente or "").lower()
+    usar_mascara_local = "copernicus" not in fuente_txt
+    half_mask = max(0.02, half * 0.35)
+    umbral_mar = 0.8
     fecha_txt = f" · {fecha}" if fecha else ""
-    hover = [
-        f"SST Mediterráneo{fecha_txt}<br>{t:.1f} °C<br>{lat:.2f}°, {lon:.2f}°"
-        for t, lat, lon in zip(temps, lats, lons)
-    ]
+
+    lats: list[float] = []
+    lons: list[float] = []
+    temps: list[float] = []
+    hovers: list[str] = []
+
+    for c in celdas:
+        if c.get("sst_c") is None:
+            continue
+        lat = float(c["lat"])
+        lon = float(c["lon"])
+        if usar_mascara_local and fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
+            continue
+        temp = float(c["sst_c"])
+        lats.append(lat)
+        lons.append(lon)
+        temps.append(temp)
+        hovers.append(
+            f"SST Mediterráneo{fecha_txt}<br>"
+            f"<b>{temp:.1f} °C</b><br>"
+            f"Zona {lat:.2f}°N, {lon:.2f}°E"
+        )
+
+    if not lats:
+        return
+
+    # “Cuadrados” en píxeles: para minimizar invadir costa, mantenemos tamaño moderado.
+    size_px = max(10, min(18, round(24 * 0.12 / max(paso, 0.08))))
     fig.add_trace(go.Scattergeo(
         lat=lats,
         lon=lons,
         mode="markers",
-        name="SST Mediterráneo",
+        showlegend=False,
         legendgroup="sst_med",
-        showlegend=True,
         marker=dict(
-            size=size,
-            color=colors,
             symbol="square",
-            opacity=0.72,
+            size=size_px,
+            color=temps,
+            colorscale=SST_MED_COLORSCALE,
+            cmin=SST_MED_LEYENDA_MIN,
+            cmax=SST_MED_LEYENDA_MAX,
             line=dict(width=0),
+            opacity=0.95,
         ),
-        text=hover,
+        text=hovers,
         hovertemplate="%{text}<extra></extra>",
     ))
 
+    add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
 
-def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
+
+def add_capa_aemet_zonas(
+    fig: go.Figure,
+    provincia_id: str,
+    alertas: list[dict],
+    *,
+    sst_mar_activo: bool = False,
+) -> None:
     from sira.infrastructure.sources.meteo.aemet_alerts import fmt_alerta_detalle
 
     for zona in zonas_ccaa_pintado(provincia_id):
@@ -268,6 +403,8 @@ def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict])
         nivel = str((aviso or {}).get("level") or "").lower()
         es_costa = es_zona_costera(zona)
         fill, line_color = color_nivel(nivel if aviso else None, costera=es_costa)
+        if sst_mar_activo and es_costa and not aviso:
+            fill = "rgba(0,0,0,0)"
         nombre = str(zona.get("nombre") or zona.get("id") or "Zona AEMET")
         if aviso:
             nivel_txt = nivel.upper()

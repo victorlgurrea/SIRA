@@ -1,8 +1,9 @@
-"""Cuadrícula SST Mediterráneo (Copernicus Marine CMEMS L4)."""
+"""Cuadrícula SST Mediterráneo (Copernicus Marine CMEMS L4 + fallback Open-Meteo)."""
 from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -15,13 +16,18 @@ from sira.config.settings import (
     CMEMS_SST_LON_MAX,
     CMEMS_SST_LON_MIN,
     CMEMS_SST_PASO_DEG,
+    CMEMS_SST_VARIABLE,
     CMEMS_USERNAME,
+    OPEN_METEO_MARINE_URL,
 )
+from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
+from sira.infrastructure.http.client import fetch_json
 
 log = logging.getLogger(__name__)
 
 _NATIVE_DEG = 0.0625
 _KELVIN_FLOOR = 200.0
+_OM_BATCH = 60
 
 
 def _creds_ok() -> bool:
@@ -41,109 +47,15 @@ def _coord_name(da, candidates: tuple[str, ...]) -> str:
     raise ValueError(f"Coordenada no encontrada ({', '.join(candidates)})")
 
 
-def descargar_sst_med_cuadricula() -> dict:
-    """
-    Descarga SST foundation L4 del Mediterráneo y remuestrea a una malla gruesa.
-
-    Requiere cuenta gratuita CMEMS y variables:
-    COPERNICUSMARINE_SERVICE_USERNAME / COPERNICUSMARINE_SERVICE_PASSWORD.
-    """
-    if not _creds_ok():
-        raise RuntimeError(
-            "Sin credenciales CMEMS "
-            "(COPERNICUSMARINE_SERVICE_USERNAME / COPERNICUSMARINE_SERVICE_PASSWORD). "
-            "Registro: https://data.marine.copernicus.eu/register"
-        )
-
-    try:
-        import copernicusmarine
-    except ImportError as exc:
-        raise RuntimeError(
-            "Falta el paquete copernicusmarine. Instala: pip install 'copernicusmarine'"
-        ) from exc
-
-    ahora = datetime.now(timezone.utc)
-    inicio = ahora - timedelta(days=4)
-    paso = max(_NATIVE_DEG, float(CMEMS_SST_PASO_DEG))
-    stride = max(1, int(round(paso / _NATIVE_DEG)))
-
-    log.info(
-        "CMEMS SST: dataset=%s bbox=[%.2f,%.2f]×[%.2f,%.2f] paso≈%.3f°",
-        CMEMS_SST_DATASET_ID,
-        CMEMS_SST_LAT_MIN,
-        CMEMS_SST_LAT_MAX,
-        CMEMS_SST_LON_MIN,
-        CMEMS_SST_LON_MAX,
-        paso,
-    )
-
-    ds = copernicusmarine.open_dataset(
-        dataset_id=CMEMS_SST_DATASET_ID,
-        variables=["analysed_sst"],
-        minimum_longitude=CMEMS_SST_LON_MIN,
-        maximum_longitude=CMEMS_SST_LON_MAX,
-        minimum_latitude=CMEMS_SST_LAT_MIN,
-        maximum_latitude=CMEMS_SST_LAT_MAX,
-        start_datetime=inicio.strftime("%Y-%m-%dT00:00:00"),
-        end_datetime=ahora.strftime("%Y-%m-%dT23:59:59"),
-        username=CMEMS_USERNAME,
-        password=CMEMS_PASSWORD,
-        disable_progress_bar=True,
-    )
-
-    if "analysed_sst" not in ds:
-        raise RuntimeError("Dataset CMEMS sin variable analysed_sst")
-
-    da = ds["analysed_sst"]
-    if "time" in da.dims:
-        da = da.isel(time=-1)
-        fecha_raw = da.coords["time"].values
-        try:
-            fecha = np.datetime_as_string(fecha_raw, unit="D")
-        except Exception:  # noqa: BLE001
-            fecha = str(fecha_raw)[:10]
-    else:
-        fecha = ahora.date().isoformat()
-
-    lat_name = _coord_name(da, ("latitude", "lat"))
-    lon_name = _coord_name(da, ("longitude", "lon"))
-    lats = np.asarray(da[lat_name].values, dtype=float)[::stride]
-    lons = np.asarray(da[lon_name].values, dtype=float)[::stride]
-    grid = np.asarray(da.values, dtype=float)[::stride, ::stride]
-
-    celdas: list[dict] = []
-    for i, lat in enumerate(lats):
-        row = grid[i] if i < grid.shape[0] else None
-        if row is None:
-            continue
-        for j, lon in enumerate(lons):
-            if j >= len(row):
-                break
-            raw = float(row[j])
-            if not math.isfinite(raw):
-                continue
-            sst_c = round(_to_celsius(raw), 2)
-            celdas.append({
-                "lat": round(float(lat), 4),
-                "lon": round(float(lon), 4),
-                "sst_c": sst_c,
-            })
-
-    try:
-        ds.close()
-    except Exception:  # noqa: BLE001
-        pass
-
+def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
     if not celdas:
-        raise RuntimeError("CMEMS SST: sin celdas válidas en el bbox solicitado")
-
+        raise RuntimeError(f"{fuente}: sin celdas válidas en el bbox solicitado")
     sst_vals = [c["sst_c"] for c in celdas]
-    log.info("CMEMS SST: %d celdas · fecha=%s · rango %.1f–%.1f °C", len(celdas), fecha, min(sst_vals), max(sst_vals))
     return {
-        "fuente": "Copernicus Marine SST MED L4",
-        "dataset_id": CMEMS_SST_DATASET_ID,
+        "fuente": fuente,
+        "dataset_id": dataset_id,
         "fecha": fecha,
-        "paso_deg": round(stride * _NATIVE_DEG, 4),
+        "paso_deg": round(paso, 4),
         "bbox": {
             "lat_min": CMEMS_SST_LAT_MIN,
             "lat_max": CMEMS_SST_LAT_MAX,
@@ -158,3 +70,249 @@ def descargar_sst_med_cuadricula() -> dict:
         },
         "celdas": celdas,
     }
+
+
+def _desde_cmems() -> dict:
+    import copernicusmarine
+
+    ahora = datetime.now(timezone.utc)
+    # Ventana corta: análisis/previsión horaria actual (Med-Physics).
+    inicio = ahora - timedelta(days=2)
+    paso = max(0.042, float(CMEMS_SST_PASO_DEG))
+
+    log.info(
+        "CMEMS SST actual: dataset=%s var=%s bbox=[%.2f,%.2f]×[%.2f,%.2f] paso≈%.3f°",
+        CMEMS_SST_DATASET_ID,
+        CMEMS_SST_VARIABLE,
+        CMEMS_SST_LAT_MIN,
+        CMEMS_SST_LAT_MAX,
+        CMEMS_SST_LON_MIN,
+        CMEMS_SST_LON_MAX,
+        paso,
+    )
+
+    open_kwargs = dict(
+        dataset_id=CMEMS_SST_DATASET_ID,
+        variables=[CMEMS_SST_VARIABLE],
+        minimum_longitude=CMEMS_SST_LON_MIN,
+        maximum_longitude=CMEMS_SST_LON_MAX,
+        minimum_latitude=CMEMS_SST_LAT_MIN,
+        maximum_latitude=CMEMS_SST_LAT_MAX,
+        start_datetime=inicio.strftime("%Y-%m-%dT00:00:00"),
+        end_datetime=ahora.strftime("%Y-%m-%dT23:59:59"),
+        username=CMEMS_USERNAME.strip(),
+        password=CMEMS_PASSWORD.strip(),
+    )
+    # Compatibilidad entre versiones de copernicusmarine.
+    try:
+        ds = copernicusmarine.open_dataset(**open_kwargs, disable_progress_bar=True)
+    except TypeError:
+        ds = copernicusmarine.open_dataset(**open_kwargs)
+
+    if CMEMS_SST_VARIABLE not in ds:
+        raise RuntimeError(f"Dataset CMEMS sin variable {CMEMS_SST_VARIABLE}")
+
+    da = ds[CMEMS_SST_VARIABLE]
+    # Productos 3D: quedarnos en superficie (primer nivel de profundidad).
+    for depth_name in ("depth", "elevation"):
+        if depth_name in da.dims:
+            da = da.isel({depth_name: 0})
+            break
+
+    if "time" in da.dims:
+        times = da["time"].values
+        try:
+            now_ns = np.datetime64(ahora.replace(tzinfo=None), "ns")
+            idx = int(np.argmin(np.abs(times.astype("datetime64[ns]") - now_ns)))
+        except Exception:  # noqa: BLE001
+            idx = -1
+        da = da.isel(time=idx)
+        fecha_raw = da.coords["time"].values
+        try:
+            fecha = np.datetime_as_string(fecha_raw, unit="m").replace("T", " ")
+        except Exception:  # noqa: BLE001
+            fecha = str(fecha_raw)[:16]
+    else:
+        fecha = ahora.strftime("%Y-%m-%d %H:%M")
+
+    lat_name = _coord_name(da, ("latitude", "lat"))
+    lon_name = _coord_name(da, ("longitude", "lon"))
+    lats_all = np.asarray(da[lat_name].values, dtype=float)
+    lons_all = np.asarray(da[lon_name].values, dtype=float)
+    # Estimar resolución nativa y remuestrear al paso configurado.
+    dlat = float(np.nanmedian(np.abs(np.diff(lats_all)))) if len(lats_all) > 1 else 0.042
+    dlon = float(np.nanmedian(np.abs(np.diff(lons_all)))) if len(lons_all) > 1 else 0.042
+    native = max(dlat, dlon, 0.01)
+    stride = max(1, int(round(paso / native)))
+    lats = lats_all[::stride]
+    lons = lons_all[::stride]
+    grid = np.asarray(da.values, dtype=float)[::stride, ::stride]
+
+    celdas: list[dict] = []
+    for i, lat in enumerate(lats):
+        row = grid[i] if i < grid.shape[0] else None
+        if row is None:
+            continue
+        for j, lon in enumerate(lons):
+            if j >= len(row):
+                break
+            raw = float(row[j])
+            if not math.isfinite(raw):
+                continue
+            lat_c = round(float(lat), 4)
+            lon_c = round(float(lon), 4)
+            # Filtro “solo mar” con máscara más pequeña para no comerse costa.
+            half = max(paso * 0.48, 0.06)
+            half_mask = max(0.02, half * 0.35)
+            if fraccion_mar_celda(lat_c, lon_c, half_mask) < 0.8:
+                continue
+            celdas.append({
+                "lat": lat_c,
+                "lon": lon_c,
+                "sst_c": round(_to_celsius(raw), 2),
+            })
+
+    try:
+        ds.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+    out = _pack(
+        celdas,
+        fuente="Copernicus Med-Physics SST (actual)",
+        dataset_id=CMEMS_SST_DATASET_ID,
+        fecha=fecha,
+        paso=stride * native,
+    )
+    log.info(
+        "CMEMS SST: %d celdas · fecha=%s · %.1f–%.1f °C",
+        out["resumen"]["n_celdas"], fecha, out["resumen"]["sst_min_c"], out["resumen"]["sst_max_c"],
+    )
+    return out
+
+
+def _malla_puntos(paso: float) -> list[tuple[float, float]]:
+    pts: list[tuple[float, float]] = []
+    lat = float(CMEMS_SST_LAT_MIN)
+    while lat <= float(CMEMS_SST_LAT_MAX) + 1e-9:
+        lon = float(CMEMS_SST_LON_MIN)
+        while lon <= float(CMEMS_SST_LON_MAX) + 1e-9:
+            pts.append((round(lat, 4), round(lon, 4)))
+            lon += paso
+        lat += paso
+    return pts
+
+
+def _sst_actual_serie(temps: list, times: list) -> tuple[float | None, str | None]:
+    """Última temperatura no nula (hora actual / más reciente)."""
+    ahora = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    mejor: tuple[float | None, str | None] = (None, None)
+    for ts, val in zip(times, temps):
+        if val is None:
+            continue
+        t_txt = str(ts)
+        if t_txt <= ahora:
+            mejor = (float(val), t_txt[:16])
+        elif mejor[0] is None:
+            mejor = (float(val), t_txt[:16])
+            break
+    if mejor[0] is not None:
+        return mejor
+    for ts, val in zip(reversed(times), reversed(temps)):
+        if val is not None:
+            return float(val), str(ts)[:16]
+    return None, None
+
+
+def _desde_open_meteo() -> dict:
+    """SST horaria actual por malla (Open-Meteo marine). Sin cuenta CMEMS."""
+    paso = max(0.08, float(CMEMS_SST_PASO_DEG))
+    puntos = _malla_puntos(paso)
+    celdas: list[dict] = []
+    fecha_ref: str | None = None
+    half = paso * 0.5
+    half_mask = max(0.02, half * 0.35)
+    umbral_mar = 0.8
+
+    data = None
+    for i in range(0, len(puntos), _OM_BATCH):
+        if i > 0:
+            time.sleep(0.9)
+        batch = puntos[i : i + _OM_BATCH]
+        data = None
+        for attempt in range(3):
+            try:
+                data = fetch_json(OPEN_METEO_MARINE_URL, {
+                    "latitude": ",".join(str(p[0]) for p in batch),
+                    "longitude": ",".join(str(p[1]) for p in batch),
+                    "hourly": "sea_surface_temperature",
+                    "forecast_days": 1,
+                    "timezone": "UTC",
+                    "cell_selection": "sea",
+                })
+                break
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc).lower()
+                # Backoff específico para rate-limit.
+                if "429" in msg or "too many requests" in msg:
+                    sleep_s = 3.0 * (attempt + 1)
+                    log.warning("Open-Meteo 429 lote %s (reintento %s/3): esperando %.1fs", i // _OM_BATCH, attempt + 1, sleep_s)
+                    time.sleep(sleep_s)
+                    continue
+                log.warning("Open-Meteo SST lote %s: %s", i // _OM_BATCH, exc)
+                break
+        if data is None:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            hourly = item.get("hourly") or {}
+            temps = hourly.get("sea_surface_temperature") or []
+            times = hourly.get("time") or []
+            sst, ts = _sst_actual_serie(temps, times)
+            if sst is None:
+                continue
+            if ts and (fecha_ref is None or ts > fecha_ref):
+                fecha_ref = ts
+            lat = round(float(item.get("latitude", batch[idx][0])), 4)
+            lon = round(float(item.get("longitude", batch[idx][1])), 4)
+            if fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
+                continue
+            celdas.append({
+                "lat": lat,
+                "lon": lon,
+                "sst_c": round(sst, 2),
+            })
+
+    fecha = (fecha_ref or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))[:16]
+    out = _pack(
+        celdas,
+        fuente="Open-Meteo marine SST (actual)",
+        dataset_id="open-meteo-marine",
+        fecha=fecha,
+        paso=paso,
+    )
+    log.info(
+        "Open-Meteo SST: %d celdas · %s · %.1f–%.1f °C",
+        out["resumen"]["n_celdas"], fecha, out["resumen"]["sst_min_c"], out["resumen"]["sst_max_c"],
+    )
+    return out
+
+
+def descargar_sst_med_cuadricula() -> dict:
+    """
+    Cuadrícula SST actual del Mediterráneo occidental.
+
+    Prioridad: CMEMS L4 (si hay credenciales y paquete). Fallback: Open-Meteo marine.
+    """
+    if _creds_ok():
+        try:
+            return _desde_cmems()
+        except ImportError as exc:
+            log.warning("CMEMS no disponible (%s); fallback Open-Meteo", exc)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CMEMS falló (%s); fallback Open-Meteo", exc)
+    else:
+        log.info("Sin credenciales CMEMS; SST Med vía Open-Meteo (temperatura actual)")
+    return _desde_open_meteo()

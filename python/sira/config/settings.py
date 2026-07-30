@@ -131,13 +131,15 @@ CMEMS_USERNAME = os.getenv("COPERNICUSMARINE_SERVICE_USERNAME", "")
 CMEMS_PASSWORD = os.getenv("COPERNICUSMARINE_SERVICE_PASSWORD", "")
 CMEMS_SST_DATASET_ID = os.getenv(
     "CMEMS_SST_DATASET_ID",
-    "SST_MED_SST_L4_NRT_OBSERVATIONS_010_004_a_V2",
+    "cmems_mod_med_phy-tem_anfc_4.2km-2D_PT1H-m",
 )
-CMEMS_SST_LAT_MIN = _f("CMEMS_SST_LAT_MIN", "35.50")
-CMEMS_SST_LAT_MAX = _f("CMEMS_SST_LAT_MAX", "43.50")
-CMEMS_SST_LON_MIN = _f("CMEMS_SST_LON_MIN", "-6.00")
-CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "8.00")
-CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.25")
+CMEMS_SST_VARIABLE = os.getenv("CMEMS_SST_VARIABLE", "thetao")
+CMEMS_SST_LAT_MIN = _f("CMEMS_SST_LAT_MIN", "30.00")
+CMEMS_SST_LAT_MAX = _f("CMEMS_SST_LAT_MAX", "46.50")
+CMEMS_SST_LON_MIN = _f("CMEMS_SST_LON_MIN", "-6.50")
+CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "20.00")
+CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.12")
+CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "900")
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
 # NASA FIRMS — focos activos (clave gratuita: https://firms.modaps.eosdis.nasa.gov/api/map_key)

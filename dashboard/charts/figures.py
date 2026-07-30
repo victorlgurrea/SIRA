@@ -65,6 +65,73 @@ _TEMP_COLORSCALE = [
     (50.0, "#b91c1c"),
 ]
 
+# Escala SST Mediterráneo (estilo Copernicus MyOcean: 5–25 °C)
+_SST_MED_STOPS: tuple[tuple[float, str], ...] = (
+    (5.0, "#1e0a3c"),
+    (8.0, "#5b21b6"),
+    (12.0, "#a21caf"),
+    (16.0, "#dc2626"),
+    (20.0, "#f97316"),
+    (25.0, "#fef08a"),
+)
+SST_MED_LEYENDA_MIN = 5.0
+SST_MED_LEYENDA_MAX = 25.0
+
+# Misma escala para Plotly (colorscale 0–1)
+SST_MED_COLORSCALE: list[list] = [
+    [0.0, "#1e0a3c"],
+    [0.12, "#5b21b6"],
+    [0.35, "#a21caf"],
+    [0.55, "#dc2626"],
+    [0.75, "#f97316"],
+    [1.0, "#fef08a"],
+]
+
+
+def _interp_color_stops(temp_c: float, stops: tuple[tuple[float, str], ...]) -> str:
+    t = float(temp_c)
+    if t <= stops[0][0]:
+        return stops[0][1]
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        if t <= t1:
+            if t1 <= t0:
+                return c1
+            f = (t - t0) / (t1 - t0)
+            r0, g0, b0 = int(c0[1:3], 16), int(c0[3:5], 16), int(c0[5:7], 16)
+            r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+            r = int(r0 + (r1 - r0) * f)
+            g = int(g0 + (g1 - g0) * f)
+            b = int(b0 + (b1 - b0) * f)
+            return f"#{r:02x}{g:02x}{b:02x}"
+    return stops[-1][1]
+
+
+def color_sst_med(temp_c: float | None) -> str:
+    if temp_c is None:
+        return C_MUTED
+    return _interp_color_stops(temp_c, _SST_MED_STOPS)
+
+
+def sst_med_fill_rgba(temp_c: float, alpha: float = 0.92) -> str:
+    hex_c = color_sst_med(temp_c).lstrip("#")
+    r, g, b = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def color_sst(temp_c: float | None) -> str:
+    """Semáforo SST (tarjetas). Mapa mar usa color_sst_med."""
+    if temp_c is None:
+        return C_MUTED
+    if temp_c >= 28:
+        return SEMAFORO_COLORES["ROJO"]
+    if temp_c >= 26:
+        return SEMAFORO_COLORES["NARANJA"]
+    if temp_c >= 24:
+        return SEMAFORO_COLORES["AMARILLO"]
+    if temp_c >= 20:
+        return SEMAFORO_COLORES["VERDE"]
+    return "#38bdf8"
+
 
 # ---------------------------------------------------------------------------
 # Helpers (series / térmico)
@@ -104,18 +171,6 @@ def _prov_rings() -> dict[str, dict]:
         if pid:
             out[pid] = feat
     return out
-
-
-def color_sst(temp_c: float | None) -> str:
-    if temp_c is None:
-        return C_MUTED
-    if temp_c >= 26:
-        return SEMAFORO_COLORES["ROJO"]
-    if temp_c >= 23:
-        return SEMAFORO_COLORES["NARANJA"]
-    if temp_c >= 20:
-        return SEMAFORO_COLORES["AMARILLO"]
-    return SEMAFORO_COLORES["VERDE"]
 
 
 def color_corriente(vel_ms: float | None) -> str:

@@ -500,10 +500,6 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
     )
 
 
-if __name__ == "__main__":
-    app.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, debug=False)
-
-
 # WSGI (gunicorn en Render)
 server = app.server
 register_routes(server, app, _ASSETS)
@@ -635,3 +631,7 @@ clientside_callback(
     Output("push-geo", "children"),
     Input("geo-store", "data"),
 )
+
+
+if __name__ == "__main__":
+    app.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, debug=False)

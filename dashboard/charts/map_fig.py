@@ -129,15 +129,21 @@ def fig_mapa(
         width=0.9 if estilo_aemet else 0.8,
     )
     grid = sst_med_grid if isinstance(sst_med_grid, dict) else {}
-    if grid.get("celdas"):
+    sst_activo = bool(grid.get("celdas"))
+    if sst_activo:
         add_capa_sst_med(
             fig,
             grid.get("celdas") or [],
             fecha=str(grid.get("fecha") or "") or None,
             paso_deg=grid.get("paso_deg"),
+            fuente=str(grid.get("fuente") or "") or None,
+            theme=theme,
         )
     if provincia_id:
-        add_capa_aemet_zonas(fig, str(provincia_id).zfill(2), alertas_meteo or [])
+        add_capa_aemet_zonas(
+            fig, str(provincia_id).zfill(2), alertas_meteo or [],
+            sst_mar_activo=sst_activo,
+        )
     if estilo_aemet:
         anadir_bordes_ccaa(
             fig, provincia_id,
