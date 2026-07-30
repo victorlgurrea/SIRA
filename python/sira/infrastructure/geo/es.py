@@ -400,6 +400,45 @@ def viewport_fit_observacion(vp: dict, *, aspect: float = 2.85) -> dict[str, flo
     return out
 
 
+_CCAA_VALENCIA = "VC"
+
+
+def es_ccaa_valenciana(provincia_id: str | None) -> bool:
+    return ccaa_de_provincia(provincia_id) == _CCAA_VALENCIA
+
+
+def viewport_mediterraneo_valencia(*, aspect: float = 1.65) -> dict[str, float]:
+    """
+    Encuadre por defecto Comunidad Valenciana + Mediterráneo occidental (capa SST).
+
+    Misma idea que la vista de producción: península a la izquierda y mar amplio a la derecha.
+    """
+    vp = {
+        "lat_centro": 39.35,
+        "lon_centro": 0.35,
+        "lat_min": 35.80,
+        "lat_max": 43.90,
+        "lon_min": -8.40,
+        "lon_max": 7.95,
+        "nivel": "ccaa",
+    }
+    return viewport_fit_contenedor(_clip_viewport(vp), aspect=aspect)
+
+
+def viewport_mapa_geo(
+    provincia_id: str | None,
+    lat_obs: float,
+    lon_obs: float,
+    *,
+    alejado: bool = True,
+    aspect: float = 1.65,
+) -> dict[str, float]:
+    """Viewport del mapa según provincia/CCAA (Valencia → mar Mediterráneo occidental)."""
+    if es_ccaa_valenciana(provincia_id):
+        return viewport_mediterraneo_valencia(aspect=aspect)
+    return viewport_ccaa_centro(provincia_id, lat_obs, lon_obs, alejado=alejado, aspect=aspect)
+
+
 def viewport_ccaa_centro(
     provincia_id: str | None,
     lat_obs: float,

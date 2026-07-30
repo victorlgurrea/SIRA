@@ -160,6 +160,9 @@ def _startup_migrar_json() -> None:
         migrar_desde_json()
     except Exception as exc:  # noqa: BLE001
         log.warning("Migraci├│n JSONÔåÆSQLite: %s", exc)
+    if not read_dashboard().get("generado_en"):
+        log.info("Sin dashboard_data.json: ingesta inicial en segundo plano")
+        threading.Thread(target=_run_ingesta_job, name="sira-boot-ingesta", daemon=True).start()
 
 
 def _valid_api_key(provided: str | None) -> bool:

@@ -6,7 +6,7 @@ import requests
 from sira.config.settings import API_BASE_URL, ZONA
 from sira.domain.seismic.sismos import enriquecer_local
 from sira.domain.seismic.tsunami_oficial import anexar_boletin_tsunami
-from sira.infrastructure.geo.es import coords_observacion, provincia_de_municipio, viewport_ccaa_centro
+from sira.infrastructure.geo.es import coords_observacion, provincia_de_municipio, viewport_mapa_geo
 from sira.infrastructure.sources.fire.firms import enriquecer_local as enriquecer_incendio_local
 from sira.infrastructure.sources.hydrology.chj import aforos_para_mapa
 from sira.infrastructure.sources.hydrology.reservoirs import embalses_para_mapa
@@ -76,7 +76,7 @@ def map_viewport(geo: dict | None) -> dict:
     pid = str((geo or {}).get("provincia_id") or provincia_de_municipio(muni_id) or DEFAULT_PROV).zfill(2)
     loc_id = (geo or {}).get("localidad_id")
     lat_obs, lon_obs, _ = coords_observacion(muni_id, loc_id)
-    return viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
+    return viewport_mapa_geo(pid, lat_obs, lon_obs, alejado=True)
 
 
 def datos_mapa(geo: dict, d: dict, *, geo_resolver=None) -> dict:

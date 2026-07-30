@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import _bootstrap  # noqa: F401
 
+import logging
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -30,6 +31,8 @@ from sira.config.settings import (
 )
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard  # noqa: E402
 from routes.flask_routes import register_routes
+
+log = logging.getLogger(__name__)
 from geo.context import DEFAULT_LOC, DEFAULT_MUNI, DEFAULT_PROV, default_geo, geo_resuelto, theme_val
 from geo.panel import alertas_meteo_fuente, build_mapa_fig, build_panel_geo
 from sira.infrastructure.geo.es import (
@@ -40,7 +43,7 @@ from sira.infrastructure.geo.es import (
     opciones,
     provincia_de_municipio,
     provincias,
-    viewport_ccaa_centro,
+    viewport_mapa_geo,
 )
 from geo.ui import selector_geo
 from sira.infrastructure.sources.meteo.aemet_alerts import alerta_firma
@@ -257,10 +260,16 @@ def _load() -> dict:
     try:
         r = requests.get(f"{API_BASE_URL}/api/dashboard", timeout=30)
         if r.ok:
-            return r.json()
-    except requests.RequestException:
-        pass
-    return read_dashboard()
+            data = r.json()
+            if isinstance(data, dict) and data.get("generado_en"):
+                return data
+        log.warning("API sin dashboard utilizable (%s %s)", r.status_code, API_BASE_URL)
+    except requests.RequestException as exc:
+        log.warning("No se pudo leer API dashboard (%s): %s", API_BASE_URL, exc)
+    local = read_dashboard()
+    if not local.get("generado_en"):
+        log.warning("Sin datos locales en %s", DATA_FILE)
+    return local
 
 
 def _bloque_oce(oce: dict, clave: str) -> dict:
@@ -284,9 +293,10 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         for s in d.get("sismos", [])
         if isinstance(s, dict) and s.get("alerta_tsunami")
     )
+    sst_n = len((d.get("sst_med_grid") or {}).get("celdas") or []) if isinstance(d.get("sst_med_grid"), dict) else 0
     return (
         f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}|{len(d.get('aforos', []))}"
-        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|tsunami:{tsunami_sig}"
+        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|tsunami:{tsunami_sig}|sst:{sst_n}"
     )
 
 
@@ -350,19 +360,21 @@ def on_municipio(municipio_id, current_loc):
     Input("geo-provincia", "value"),
     Input("geo-municipio", "value"),
     Input("geo-localidad", "value"),
+    State("map-aspect", "data"),
 )
-def on_geo_change(provincia_id, municipio_id, localidad_id):
+def on_geo_change(provincia_id, municipio_id, localidad_id, map_aspect):
     prov = next((p for p in provincias() if p["id"] == str(provincia_id or "").zfill(2)), None)
     muni = municipio_por_id(municipio_id)
     locs = localidades(municipio_id)
     loc = next((l for l in locs if l["id"] == localidad_id), locs[0] if locs else None)
     lat_obs, lon_obs, _ = coords_observacion(municipio_id, localidad_id)
+    aspect = float(map_aspect or 1.65)
     trigger = ctx.triggered_id
     if trigger in ("geo-provincia", "geo-municipio", "geo-localidad"):
-        map_zoom = viewport_ccaa_centro(provincia_id, lat_obs, lon_obs, alejado=True)
+        map_zoom = viewport_mapa_geo(provincia_id, lat_obs, lon_obs, alejado=True, aspect=aspect)
     else:
-        map_zoom = viewport_ccaa_centro(
-            provincia_id or DEFAULT_PROV, lat_obs, lon_obs, alejado=True,
+        map_zoom = viewport_mapa_geo(
+            provincia_id or DEFAULT_PROV, lat_obs, lon_obs, alejado=True, aspect=aspect,
         )
     return {
         "provincia_id": provincia_id,

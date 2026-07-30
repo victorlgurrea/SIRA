@@ -8,7 +8,7 @@ from sira.infrastructure.geo.es import (
     municipio_por_id,
     provincia_de_municipio,
     provincias,
-    viewport_ccaa_centro,
+    viewport_mapa_geo,
 )
 
 DEFAULT_MUNI = str(AEMET_MUNICIPIO).zfill(5)
@@ -29,7 +29,7 @@ def default_geo() -> dict:
         "municipio": muni["nombre"] if muni else None,
         "localidad_id": loc["id"] if loc else None,
         "localidad": loc["nombre"] if loc else None,
-        "map_zoom": viewport_ccaa_centro(DEFAULT_PROV, lat_obs, lon_obs, alejado=True),
+        "map_zoom": viewport_mapa_geo(DEFAULT_PROV, lat_obs, lon_obs, alejado=True),
     }
 
 
@@ -59,7 +59,7 @@ def geo_resuelto(geo: dict | None) -> dict:
         out["map_zoom"] = zoom
     else:
         lat_obs, lon_obs, _ = coords_observacion(muni_id, out.get("localidad_id"))
-        out["map_zoom"] = viewport_ccaa_centro(pid, lat_obs, lon_obs, alejado=True)
+        out["map_zoom"] = viewport_mapa_geo(pid, lat_obs, lon_obs, alejado=True)
     return out
 
 
