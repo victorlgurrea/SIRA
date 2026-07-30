@@ -319,7 +319,7 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST homogénea solo sobre mar (sin tapar tierra) y sin huecos obvios."""
+    """Malla SST continua tipo raster sobre el geo de Plotly."""
     if not celdas:
         return
     from charts.figures import (
@@ -343,8 +343,10 @@ def add_capa_sst_med(
     lons: list[float] = []
     temps: list[float] = []
     hovers: list[str] = []
+    features: list[dict] = []
+    locations: list[str] = []
 
-    for c in celdas:
+    for idx, c in enumerate(celdas):
         if c.get("sst_c") is None:
             continue
         lat = float(c["lat"])
@@ -360,30 +362,43 @@ def add_capa_sst_med(
             f"<b>{temp:.1f} °C</b><br>"
             f"Zona {lat:.2f}°N, {lon:.2f}°E"
         )
+        cell_id = f"sst-{idx}"
+        locations.append(cell_id)
+        features.append({
+            "type": "Feature",
+            "id": cell_id,
+            "properties": {"id": cell_id},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [lon - half, lat - half],
+                    [lon + half, lat - half],
+                    [lon + half, lat + half],
+                    [lon - half, lat + half],
+                    [lon - half, lat - half],
+                ]],
+            },
+        })
 
-    if not lats:
+    if not lats or not features:
         return
 
-    # “Cuadrados” en píxeles: para minimizar invadir costa, mantenemos tamaño moderado.
-    size_px = max(10, min(18, round(24 * 0.12 / max(paso, 0.08))))
-    fig.add_trace(go.Scattergeo(
-        lat=lats,
-        lon=lons,
-        mode="markers",
+    fig.add_trace(go.Choropleth(
+        geo="geo",
+        geojson={"type": "FeatureCollection", "features": features},
+        locations=locations,
+        featureidkey="properties.id",
+        z=temps,
         showlegend=False,
         legendgroup="sst_med",
-        marker=dict(
-            symbol="square",
-            size=size_px,
-            color=temps,
-            colorscale=SST_MED_COLORSCALE,
-            cmin=SST_MED_LEYENDA_MIN,
-            cmax=SST_MED_LEYENDA_MAX,
-            line=dict(width=0),
-            opacity=0.95,
-        ),
-        text=hovers,
-        hovertemplate="%{text}<extra></extra>",
+        colorscale=SST_MED_COLORSCALE,
+        zmin=SST_MED_LEYENDA_MIN,
+        zmax=SST_MED_LEYENDA_MAX,
+        marker=dict(line=dict(width=0)),
+        customdata=hovers,
+        hovertemplate="%{customdata}<extra></extra>",
+        showscale=False,
+        autocolorscale=False,
     ))
 
     add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)

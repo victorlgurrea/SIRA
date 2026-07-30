@@ -47,6 +47,21 @@ def _coord_name(da, candidates: tuple[str, ...]) -> str:
     raise ValueError(f"Coordenada no encontrada ({', '.join(candidates)})")
 
 
+def _idx_ultimo_disponible(times, ahora: datetime) -> int:
+    """Último timestep disponible <= ahora; si no, el último del dataset."""
+    if len(times) == 0:
+        return -1
+    try:
+        ts = times.astype("datetime64[ns]")
+        now_ns = np.datetime64(ahora.replace(tzinfo=None), "ns")
+        valid = np.where(ts <= now_ns)[0]
+        if len(valid):
+            return int(valid[-1])
+    except Exception:  # noqa: BLE001
+        pass
+    return len(times) - 1
+
+
 def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
     if not celdas:
         raise RuntimeError(f"{fuente}: sin celdas válidas en el bbox solicitado")
@@ -122,8 +137,7 @@ def _desde_cmems() -> dict:
     if "time" in da.dims:
         times = da["time"].values
         try:
-            now_ns = np.datetime64(ahora.replace(tzinfo=None), "ns")
-            idx = int(np.argmin(np.abs(times.astype("datetime64[ns]") - now_ns)))
+            idx = _idx_ultimo_disponible(times, ahora)
         except Exception:  # noqa: BLE001
             idx = -1
         da = da.isel(time=idx)
@@ -179,7 +193,7 @@ def _desde_cmems() -> dict:
 
     out = _pack(
         celdas,
-        fuente="Copernicus Med-Physics SST (actual)",
+        fuente="Copernicus Med-Physics SST (ultimo disponible)",
         dataset_id=CMEMS_SST_DATASET_ID,
         fecha=fecha,
         paso=stride * native,
@@ -288,7 +302,7 @@ def _desde_open_meteo() -> dict:
     fecha = (fecha_ref or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))[:16]
     out = _pack(
         celdas,
-        fuente="Open-Meteo marine SST (actual)",
+        fuente="Open-Meteo marine SST (ultimo disponible)",
         dataset_id="open-meteo-marine",
         fecha=fecha,
         paso=paso,
@@ -302,9 +316,10 @@ def _desde_open_meteo() -> dict:
 
 def descargar_sst_med_cuadricula() -> dict:
     """
-    Cuadrícula SST actual del Mediterráneo occidental.
+    Cuadrícula SST del Mediterráneo para monitorización.
 
     Prioridad: CMEMS L4 (si hay credenciales y paquete). Fallback: Open-Meteo marine.
+    Se usa el último dato disponible dentro de la ventana reciente.
     """
     if _creds_ok():
         try:
@@ -314,5 +329,5 @@ def descargar_sst_med_cuadricula() -> dict:
         except Exception as exc:  # noqa: BLE001
             log.warning("CMEMS falló (%s); fallback Open-Meteo", exc)
     else:
-        log.info("Sin credenciales CMEMS; SST Med vía Open-Meteo (temperatura actual)")
+        log.info("Sin credenciales CMEMS; SST Med vía Open-Meteo (ultimo disponible)")
     return _desde_open_meteo()
