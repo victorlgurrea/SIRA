@@ -94,42 +94,156 @@ def descargar_sismos() -> list[dict]:
     return sismos
 
 
+def _bloque_oce_vacio(punto: str | None = None) -> dict:
+    out = dict(VACIO_OCE)
+    if punto:
+        out["punto"] = punto
+    return out
+
+
+def _resumen_oce(serie: list[dict]) -> dict:
+    sst_vals = [x["sst_c"] for x in serie if x.get("sst_c") is not None]
+    media = sum(sst_vals) / len(sst_vals) if sst_vals else 0.0
+    ult = serie[-1] if serie else {}
+    anom = (ult.get("sst_c") or media) - media
+    return {
+        "sst_media_c": round(media, 2),
+        "sst_actual_c": ult.get("sst_c"),
+        "anomalia_c": round(anom, 2),
+        "alerta_termica": abs(anom) > ZONA["anomalia_sst_umbral"],
+        "corriente_vel_ms": ult.get("corriente_vel_ms"),
+        "corriente_dir_grados": ult.get("corriente_dir_grados"),
+    }
+
+
+def _serie_plana_sst(sst_c: float, horas: int = 24) -> list[dict]:
+    """Serie degradada (SST constante) cuando Open-Meteo no responde."""
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return [
+        {
+            "timestamp": (base + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00"),
+            "sst_c": round(float(sst_c), 2),
+            "corriente_vel_ms": None,
+            "corriente_dir_grados": None,
+        }
+        for i in range(max(1, horas))
+    ]
+
+
+def _sst_cerca_grid(grid: dict | None, lat: float, lon: float) -> float | None:
+    celdas = (grid or {}).get("celdas") if isinstance(grid, dict) else None
+    if not isinstance(celdas, list) or not celdas:
+        return None
+    mejor = None
+    mejor_d = 1e9
+    for c in celdas:
+        if not isinstance(c, dict) or c.get("sst_c") is None:
+            continue
+        d = (float(c["lat"]) - lat) ** 2 + (float(c["lon"]) - lon) ** 2
+        if d < mejor_d:
+            mejor_d = d
+            mejor = float(c["sst_c"])
+    return mejor
+
+
+def completar_oceanografia_desde_sst_grid(oceanografia: dict, sst_med_grid: dict | None) -> dict:
+    """Si Mediterráneo viene vacío, rellena SST desde la malla CMEMS."""
+    if not isinstance(oceanografia, dict):
+        oceanografia = {}
+    mar = MARES.get("MEDITERRÁNEO") or {}
+    bloque = oceanografia.get("MEDITERRÁNEO")
+    if isinstance(bloque, dict) and bloque.get("serie_horaria"):
+        return oceanografia
+    sst = _sst_cerca_grid(sst_med_grid, float(mar.get("lat", 39.2)), float(mar.get("lon", 0.2)))
+    if sst is None:
+        return oceanografia
+    serie = _serie_plana_sst(sst, horas=FORECAST_DAYS * 24)
+    oceanografia["MEDITERRÁNEO"] = {
+        "punto": mar.get("punto", "Valencia"),
+        "serie_horaria": serie,
+        "resumen": _resumen_oce(serie),
+        "fuente_fallback": "CMEMS SST malla",
+    }
+    log.info("Oceanografía MEDITERRÁNEO: fallback CMEMS SST=%.2f °C", sst)
+    return oceanografia
+
+
 def descargar_oceanografia() -> dict:
-    resultado: dict = {}
-    for clave, mar in MARES.items():
+    """SST y corrientes por mar (1 petición Open-Meteo batch + reintentos 429)."""
+    import time
+
+    claves = list(MARES.keys())
+    lats = ",".join(str(MARES[k]["lat"]) for k in claves)
+    lons = ",".join(str(MARES[k]["lon"]) for k in claves)
+    params = {
+        "latitude": lats,
+        "longitude": lons,
+        "hourly": "sea_surface_temperature,ocean_current_velocity,ocean_current_direction",
+        "timezone": "UTC",
+        "forecast_days": FORECAST_DAYS,
+    }
+
+    data = None
+    last_exc: Exception | None = None
+    for attempt in range(4):
         try:
-            data = fetch_json(OPEN_METEO_MARINE_URL, {
-                "latitude": mar["lat"], "longitude": mar["lon"],
-                "hourly": "sea_surface_temperature,ocean_current_velocity,ocean_current_direction",
-                "timezone": "UTC", "forecast_days": FORECAST_DAYS,
-            })
-            serie = _hourly(data, {
+            data = fetch_json(OPEN_METEO_MARINE_URL, params)
+            break
+        except (requests.RequestException, ValueError, OSError) as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            # Cupo diario: no tiene sentido reintentar hoy.
+            if "daily" in msg and ("limit" in msg or "exceeded" in msg):
+                raise RuntimeError(f"Open-Meteo marine: cupo diario agotado ({exc})") from exc
+            if "429" in msg or "too many requests" in msg:
+                # A veces el cuerpo trae el motivo real.
+                body = ""
+                resp = getattr(exc, "response", None)
+                if resp is not None:
+                    try:
+                        body = (resp.text or "").lower()
+                    except Exception:  # noqa: BLE001
+                        body = ""
+                if "daily" in body and ("limit" in body or "exceeded" in body):
+                    raise RuntimeError("Open-Meteo marine: cupo diario agotado") from exc
+                sleep_s = 8.0 * (attempt + 1)
+                log.warning("Open-Meteo marine 429 (reintento %s/4): esperando %.0fs", attempt + 1, sleep_s)
+                time.sleep(sleep_s)
+                continue
+            log.warning("Open-Meteo marine: %s", exc)
+            break
+
+    if data is None:
+        raise RuntimeError(f"Open-Meteo marine no disponible: {last_exc or 'sin respuesta'}")
+
+    items = data if isinstance(data, list) else [data]
+    resultado: dict = {}
+    for i, clave in enumerate(claves):
+        mar = MARES[clave]
+        item = items[i] if i < len(items) and isinstance(items[i], dict) else {}
+        try:
+            serie = _hourly(item, {
                 "sst_c": "sea_surface_temperature",
                 "corriente_vel_ms": "ocean_current_velocity",
                 "corriente_dir_grados": "ocean_current_direction",
             })
-        except (requests.RequestException, ValueError, OSError) as exc:
-            log.warning("Open-Meteo marine %s: %s", clave, exc)
-            resultado[clave] = dict(VACIO_OCE)
+        except (TypeError, ValueError, KeyError) as exc:
+            log.warning("Open-Meteo marine parse %s: %s", clave, exc)
+            resultado[clave] = _bloque_oce_vacio(mar.get("punto"))
             continue
 
-        sst_vals = [x["sst_c"] for x in serie if x["sst_c"] is not None]
-        media = sum(sst_vals) / len(sst_vals) if sst_vals else 0.0
-        ult = serie[-1] if serie else {}
-        anom = (ult.get("sst_c") or media) - media
         resultado[clave] = {
             "punto": mar["punto"],
             "serie_horaria": serie,
-            "resumen": {
-                "sst_media_c": round(media, 2),
-                "sst_actual_c": ult.get("sst_c"),
-                "anomalia_c": round(anom, 2),
-                "alerta_termica": abs(anom) > ZONA["anomalia_sst_umbral"],
-                "corriente_vel_ms": ult.get("corriente_vel_ms"),
-                "corriente_dir_grados": ult.get("corriente_dir_grados"),
-            },
+            "resumen": _resumen_oce(serie),
         }
-    log.info("Oceanografía: %d zonas", len(resultado))
+
+    con_datos = sum(1 for v in resultado.values() if v.get("serie_horaria"))
+    log.info("Oceanografía: %d/%d zonas con serie", con_datos, len(resultado))
+    if con_datos == 0:
+        raise RuntimeError("Open-Meteo marine: sin series (posible 429 o respuesta vacía)")
     return resultado
 
 
@@ -198,7 +312,15 @@ def ejecutar_ingesta():
     )
     if isinstance(sst_med_grid, dict):
         fuentes_estado["cmems_sst_med"]["registros"] = len(sst_med_grid.get("celdas") or [])
-
+    if not isinstance(oceanografia, dict):
+        oceanografia = {}
+    oceanografia = completar_oceanografia_desde_sst_grid(oceanografia, sst_med_grid)
+    fuentes_estado["open_meteo_marine"]["registros"] = sum(
+        1 for v in oceanografia.values() if isinstance(v, dict) and v.get("serie_horaria")
+    )
+    if fuentes_estado["open_meteo_marine"]["registros"] and not fuentes_estado["open_meteo_marine"].get("ok"):
+        fuentes_estado["open_meteo_marine"]["ok"] = True
+        fuentes_estado["open_meteo_marine"]["error"] = "Parcial: Mediterráneo desde CMEMS"
     meteo_ok = False
     meteo_error = None
     meteo: dict = VACIO_METEO

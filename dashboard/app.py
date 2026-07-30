@@ -294,9 +294,11 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         if isinstance(s, dict) and s.get("alerta_tsunami")
     )
     sst_n = len((d.get("sst_med_grid") or {}).get("celdas") or []) if isinstance(d.get("sst_med_grid"), dict) else 0
+    oce = d.get("oceanografia") if isinstance(d.get("oceanografia"), dict) else {}
+    oce_n = sum(1 for v in oce.values() if isinstance(v, dict) and v.get("serie_horaria"))
     return (
         f"{d.get('generado_en', '—')}|{len(d.get('sismos', []))}|{len(d.get('incendios', []))}|{len(d.get('embalses', []))}|{len(d.get('aforos', []))}"
-        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|tsunami:{tsunami_sig}|sst:{sst_n}"
+        f"|{'|'.join(firmas)}|{bool(d.get('sismo_prueba_activo'))}|prueba:{d.get('sismos_prueba_activos', 0)}|tsunami:{tsunami_sig}|sst:{sst_n}|oce:{oce_n}"
     )
 
 

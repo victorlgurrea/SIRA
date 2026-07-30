@@ -11,68 +11,83 @@ def _en_corredor_mar_andalucia(lat: float, lon: float) -> bool:
     return 36.00 <= lat <= 36.55 and -5.90 <= lon <= -1.60
 
 
+def _en_tierra_francia_catalunya(lat: float, lon: float) -> bool:
+    """
+    Tierra aproximada: interior Cataluña / Rosellón + sur de Francia.
+
+    Corta celdas en la frontera ES-FR (Cerbère / Pirineo) que IGN no siempre detecta.
+    """
+    if lon < 1.50 or lon > 8.20:
+        return False
+    if lat < 42.20:
+        return False
+    # Oeste del Cabo de Creus → tierra (Pirineo / interior).
+    if lon < 3.05:
+        return lat >= 42.28
+    # Portbou / Cerbère: celdas que salían norte de la costa.
+    if lon < 3.22:
+        return lat >= 42.40
+    # Banyuls / Cap Béar (tierra al norte; mar al sur = Cap Creus).
+    if lon < 3.45:
+        return lat >= 42.48
+    if lon < 3.85:
+        return lat >= 42.62
+    if lon < 4.40:
+        return lat >= 42.95
+    if lon < 5.30:
+        return lat >= 43.05
+    if lon < 6.50:
+        return lat >= 43.12
+    return lat >= 43.18
+
+
 def _en_tierra_magreb(lat: float, lon: float) -> bool:
     """
     Tierra aproximada de Marruecos/Argelia/Túnez mediterráneos.
 
     IGN solo cubre España; sin esto CMEMS pinta costa magrebí como mar.
     """
-    if lat >= 37.35 or lon < -6.2 or lon > 9.5:
+    if lat >= 37.35 or lon < -6.2 or lon > 10.0:
         return False
     if _en_corredor_mar_andalucia(lat, lon):
         return False
     # Costa mediterránea magrebí (aprox. sur del litoral).
     if lon < -4.80:
-        return lat < 35.95
-    if lon < -2.50:
-        return lat < 35.55
-    if lon < -1.20:
-        return lat < 35.35
-    if lon < 0.50:
-        return lat < 35.90
-    if lon < 2.50:
-        return lat < 36.55
-    if lon < 4.50:
-        return lat < 36.85
-    if lon < 6.50:
-        return lat < 36.95
-    return lat < 37.15
-
-
-def _en_tierra_francia_med(lat: float, lon: float) -> bool:
-    """Tierra aproximada del sur de Francia (Golfo de León / Provenza)."""
-    if lon < 1.80 or lon > 8.20:
-        return False
-    if lat < 42.35:
-        return False
-    # Costa francesa Med: por encima de esta línea ≈ tierra.
+        return lat < 36.05
+    if lon < -2.80:
+        return lat < 35.82
+    if lon < -1.40:
+        return lat < 35.62
+    if lon < 0.30:
+        return lat < 36.12
+    if lon < 1.60:
+        return lat < 36.68
     if lon < 3.20:
-        return lat > 42.55
-    if lon < 4.80:
-        return lat > 43.05
-    if lon < 6.20:
-        return lat > 43.15
-    return lat > 43.20
+        return lat < 36.82
+    if lon < 5.00:
+        return lat < 36.92
+    if lon < 7.00:
+        return lat < 37.02
+    return lat < 37.15
 
 
 def _en_tierra_corcega_cerdena(lat: float, lon: float) -> bool:
     """
     Tierra aproximada de Córcega y Cerdeña.
 
-    CMEMS da valor sobre isla; sin máscara la SST tapa el contorno.
     Franjas estrechas para no comerse el mar alrededor.
     """
     # Córcega.
-    if 41.36 <= lat <= 43.02 and 8.54 <= lon <= 9.57:
+    if 41.34 <= lat <= 43.02 and 8.52 <= lon <= 9.58:
         return True
     # Cerdeña (franjas N→S).
-    if 40.90 <= lat <= 41.25 and 8.50 <= lon <= 9.70:
+    if 40.88 <= lat <= 41.26 and 8.48 <= lon <= 9.72:
         return True
-    if 40.20 <= lat <= 40.90 and 8.25 <= lon <= 9.65:
+    if 40.15 <= lat <= 40.88 and 8.22 <= lon <= 9.68:
         return True
-    if 39.40 <= lat <= 40.20 and 8.30 <= lon <= 9.70:
+    if 39.35 <= lat <= 40.15 and 8.28 <= lon <= 9.72:
         return True
-    if 38.86 <= lat <= 39.40 and 8.40 <= lon <= 9.60:
+    if 38.84 <= lat <= 39.35 and 8.38 <= lon <= 9.62:
         return True
     return False
 
@@ -107,7 +122,7 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
         return False
     if _en_tierra_magreb(lat, lon):
         return False
-    if _en_tierra_francia_med(lat, lon):
+    if _en_tierra_francia_catalunya(lat, lon):
         return False
     if _en_tierra_corcega_cerdena(lat, lon):
         return False
@@ -115,14 +130,72 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
 
 
 def fraccion_mar_celda(lat: float, lon: float, half: float) -> float:
-    """Proporción de muestras en mar dentro de la celda (centro + esquinas)."""
-    muestras = [(lat, lon)]
-    for dlat, dlon in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
-        muestras.append((lat + dlat * half, lon + dlon * half))
+    """Proporción de muestras en mar (centro + esquinas + midpoints de aristas)."""
+    h = float(half)
+    muestras = [
+        (lat, lon),
+        (lat - h, lon - h),
+        (lat - h, lon + h),
+        (lat + h, lon - h),
+        (lat + h, lon + h),
+        (lat - h, lon),
+        (lat + h, lon),
+        (lat, lon - h),
+        (lat, lon + h),
+    ]
     mar = sum(1 for la, lo in muestras if punto_en_mar_mediterraneo(la, lo))
     return mar / len(muestras)
 
 
 def celda_solo_mar(lat: float, lon: float, half: float) -> bool:
-    """True si centro y esquinas de la celda están en mar (no invade tierra)."""
-    return fraccion_mar_celda(lat, lon, half) >= 1.0
+    """True si la celda no invade tierra (umbral estricto)."""
+    return fraccion_mar_celda(lat, lon, half) >= 0.8
+
+
+def densificar_celdas_mar(
+    celdas: list[dict],
+    *,
+    paso: float,
+    umbral_mar: float = 0.8,
+) -> list[dict]:
+    """Rellena huecos de mar expandiendo vecinos (solo puntos en mar estricto)."""
+    step = round(float(paso), 4)
+    half = max(step * 0.48, 0.05)
+    idx: dict[tuple[float, float], float] = {}
+    for c in celdas:
+        if c.get("sst_c") is None:
+            continue
+        key = (round(float(c["lat"]), 4), round(float(c["lon"]), 4))
+        if not punto_en_mar_mediterraneo(key[0], key[1]):
+            continue
+        if fraccion_mar_celda(key[0], key[1], half) < umbral_mar:
+            continue
+        idx[key] = float(c["sst_c"])
+    if not idx:
+        return []
+
+    # Varias pasadas: rellena huecos adyacentes a celdas conocidas.
+    for _ in range(6):
+        candidatos: dict[tuple[float, float], list[tuple[float, float]]] = {}
+        for la, lo in list(idx.keys()):
+            for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+                nk = (round(la + di * step, 4), round(lo + dj * step, 4))
+                if nk in idx:
+                    continue
+                candidatos.setdefault(nk, []).append((idx[(la, lo)], 1.0))
+        added = 0
+        for key, vecinos in candidatos.items():
+            if len(vecinos) < 2:
+                continue
+            if not punto_en_mar_mediterraneo(key[0], key[1]):
+                continue
+            if fraccion_mar_celda(key[0], key[1], half) < umbral_mar:
+                continue
+            num = sum(val * w for val, w in vecinos)
+            den = sum(w for _, w in vecinos)
+            idx[key] = round(num / den, 2)
+            added += 1
+        if added == 0:
+            break
+
+    return [{"lat": la, "lon": lo, "sst_c": round(t, 2)} for (la, lo), t in idx.items()]

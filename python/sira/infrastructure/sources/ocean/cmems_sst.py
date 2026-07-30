@@ -10,6 +10,7 @@ import numpy as np
 
 from sira.config.settings import (
     CMEMS_PASSWORD,
+    CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK,
     CMEMS_SST_DATASET_ID,
     CMEMS_SST_LAT_MAX,
     CMEMS_SST_LAT_MIN,
@@ -20,7 +21,7 @@ from sira.config.settings import (
     CMEMS_USERNAME,
     OPEN_METEO_MARINE_URL,
 )
-from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
+from sira.infrastructure.geo.mar_mediterraneo import densificar_celdas_mar, fraccion_mar_celda
 from sira.infrastructure.http.client import fetch_json
 
 log = logging.getLogger(__name__)
@@ -60,57 +61,6 @@ def _idx_ultimo_disponible(times, ahora: datetime) -> int:
     except Exception:  # noqa: BLE001
         pass
     return len(times) - 1
-
-
-def _rellenar_huecos_mar(
-    celdas: list[dict],
-    *,
-    paso: float,
-    lat_min: float,
-    lat_max: float,
-    lon_min: float,
-    lon_max: float,
-) -> list[dict]:
-    """Rellena huecos de mar con interpolación local simple."""
-    if not celdas:
-        return celdas
-    idx = {
-        (round(float(c["lat"]), 4), round(float(c["lon"]), 4)): float(c["sst_c"])
-        for c in celdas
-        if c.get("sst_c") is not None
-    }
-    out = list(celdas)
-    step = round(float(paso), 4)
-    half = max(step * 0.5, 0.06)
-
-    lat = round(float(lat_min), 4)
-    while lat <= round(float(lat_max), 4) + 1e-9:
-        lon = round(float(lon_min), 4)
-        while lon <= round(float(lon_max), 4) + 1e-9:
-            key = (round(lat, 4), round(lon, 4))
-            if key not in idx and punto_en_mar_mediterraneo(key[0], key[1]):
-                if fraccion_mar_celda(key[0], key[1], half) >= 0.20:
-                    vecinos: list[tuple[float, float]] = []
-                    for radius in range(1, 9):
-                        for di in range(-radius, radius + 1):
-                            for dj in range(-radius, radius + 1):
-                                if di == 0 and dj == 0:
-                                    continue
-                                nk = (round(lat + di * step, 4), round(lon + dj * step, 4))
-                                if nk in idx:
-                                    dist = max(abs(di), abs(dj))
-                                    vecinos.append((idx[nk], 1.0 / dist))
-                        if len(vecinos) >= 2:
-                            break
-                    if vecinos:
-                        num = sum(val * w for val, w in vecinos)
-                        den = sum(w for _, w in vecinos)
-                        temp = round(num / den, 2)
-                        idx[key] = temp
-                        out.append({"lat": key[0], "lon": key[1], "sst_c": temp})
-            lon = round(lon + step, 4)
-        lat = round(lat + step, 4)
-    return out
 
 
 def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
@@ -226,10 +176,8 @@ def _desde_cmems() -> dict:
                 continue
             lat_c = round(float(lat), 4)
             lon_c = round(float(lon), 4)
-            # Filtro “solo mar” con máscara más pequeña para no comerse costa.
             half = max(paso * 0.48, 0.06)
-            half_mask = max(0.02, half * 0.35)
-            if fraccion_mar_celda(lat_c, lon_c, half_mask) < 0.8:
+            if fraccion_mar_celda(lat_c, lon_c, half) < 0.8:
                 continue
             celdas.append({
                 "lat": lat_c,
@@ -242,19 +190,13 @@ def _desde_cmems() -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    paso_out = stride * native
     out = _pack(
-        _rellenar_huecos_mar(
-            celdas,
-            paso=stride * native,
-            lat_min=float(np.min(lats)),
-            lat_max=float(np.max(lats)),
-            lon_min=float(np.min(lons)),
-            lon_max=float(np.max(lons)),
-        ),
+        densificar_celdas_mar(celdas, paso=paso_out, umbral_mar=0.8),
         fuente="Copernicus Med-Physics SST (ultimo disponible)",
         dataset_id=CMEMS_SST_DATASET_ID,
         fecha=fecha,
-        paso=stride * native,
+        paso=paso_out,
     )
     log.info(
         "CMEMS SST: %d celdas · fecha=%s · %.1f–%.1f °C",
@@ -302,8 +244,7 @@ def _desde_open_meteo() -> dict:
     puntos = _malla_puntos(paso)
     celdas: list[dict] = []
     fecha_ref: str | None = None
-    half = paso * 0.5
-    half_mask = max(0.02, half * 0.35)
+    half = max(paso * 0.48, 0.06)
     umbral_mar = 0.8
 
     data = None
@@ -349,7 +290,7 @@ def _desde_open_meteo() -> dict:
                 fecha_ref = ts
             lat = round(float(item.get("latitude", batch[idx][0])), 4)
             lon = round(float(item.get("longitude", batch[idx][1])), 4)
-            if fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
+            if fraccion_mar_celda(lat, lon, half) < umbral_mar:
                 continue
             celdas.append({
                 "lat": lat,
@@ -359,7 +300,7 @@ def _desde_open_meteo() -> dict:
 
     fecha = (fecha_ref or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))[:16]
     out = _pack(
-        celdas,
+        densificar_celdas_mar(celdas, paso=paso, umbral_mar=umbral_mar),
         fuente="Open-Meteo marine SST (ultimo disponible)",
         dataset_id="open-meteo-marine",
         fecha=fecha,
@@ -376,16 +317,32 @@ def descargar_sst_med_cuadricula() -> dict:
     """
     Cuadrícula SST del Mediterráneo para monitorización.
 
-    Prioridad: CMEMS L4 (si hay credenciales y paquete). Fallback: Open-Meteo marine.
-    Se usa el último dato disponible dentro de la ventana reciente.
+    Prioridad: CMEMS. El fallback Open-Meteo (malla densa) está desactivado por defecto
+    porque agota el cupo diario y deja vacíos los KPIs de SST/corrientes.
     """
     if _creds_ok():
         try:
             return _desde_cmems()
         except ImportError as exc:
-            log.warning("CMEMS no disponible (%s); fallback Open-Meteo", exc)
+            log.warning("CMEMS no disponible (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    "CMEMS no disponible; activa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 "
+                    "solo si aceptas gastar el cupo Open-Meteo de los KPIs"
+                ) from exc
         except Exception as exc:  # noqa: BLE001
-            log.warning("CMEMS falló (%s); fallback Open-Meteo", exc)
+            log.warning("CMEMS falló (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    f"CMEMS falló ({exc}); fallback Open-Meteo malla desactivado "
+                    "(protege cupo KPIs). Usa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 para forzar."
+                ) from exc
+    elif not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+        raise RuntimeError(
+            "Sin credenciales CMEMS; fallback Open-Meteo malla desactivado "
+            "(protege cupo KPIs). Configura COPERNICUSMARINE_SERVICE_* "
+            "o CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1"
+        )
     else:
         log.info("Sin credenciales CMEMS; SST Med vía Open-Meteo (ultimo disponible)")
     return _desde_open_meteo()

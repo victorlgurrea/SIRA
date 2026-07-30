@@ -319,7 +319,7 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST densa solo sobre mar (sin capa de tierra encima)."""
+    """Malla SST solo-mar con markers cuadrados (Scattergeo fill=toself fusiona todo en un bloque)."""
     if not celdas:
         return
     from charts.figures import (
@@ -330,17 +330,15 @@ def add_capa_sst_med(
     from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
-    half = paso * 0.5
-    # Máscara siempre: CMEMS también trae celdas cerca/sobre costa magrebí.
-    half_mask = max(0.03, half * 0.55)
-    umbral_mar = 0.8
+    half_mask = max(paso * 0.48, 0.05)
+    # Tamaño en px aprox. para paso ~0.12° en vista Valencia (sin huecos graves ni invasión).
+    size = max(8, min(13, round(paso * 90)))
     fecha_txt = f" · {fecha}" if fecha else ""
 
     lats: list[float] = []
     lons: list[float] = []
     temps: list[float] = []
     hovers: list[str] = []
-    sizes: list[float] = []
 
     for c in celdas:
         if c.get("sst_c") is None:
@@ -349,20 +347,12 @@ def add_capa_sst_med(
         lon = float(c["lon"])
         if not punto_en_mar_mediterraneo(lat, lon):
             continue
-        frac_mar = fraccion_mar_celda(lat, lon, half_mask)
-        if frac_mar < umbral_mar:
+        if fraccion_mar_celda(lat, lon, half_mask) < 0.8:
             continue
         temp = float(c["sst_c"])
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)
-        # Mar abierto: celdas más grandes para tapar huecos visuales.
-        if frac_mar >= 0.95:
-            sizes.append(13)
-        elif frac_mar >= 0.80:
-            sizes.append(11)
-        else:
-            sizes.append(7)
         hovers.append(
             f"SST Mediterráneo{fecha_txt}<br>"
             f"<b>{temp:.1f} °C</b><br>"
@@ -380,13 +370,13 @@ def add_capa_sst_med(
         legendgroup="sst_med",
         marker=dict(
             symbol="square",
-            size=sizes,
+            size=size,
             color=temps,
             colorscale=SST_MED_COLORSCALE,
             cmin=SST_MED_LEYENDA_MIN,
             cmax=SST_MED_LEYENDA_MAX,
             line=dict(width=0),
-            opacity=0.95,
+            opacity=0.92,
         ),
         text=hovers,
         hovertemplate="%{text}<extra></extra>",

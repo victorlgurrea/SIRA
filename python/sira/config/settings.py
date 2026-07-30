@@ -140,6 +140,10 @@ CMEMS_SST_LON_MIN = _f("CMEMS_SST_LON_MIN", "-6.50")
 CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "20.00")
 CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.12")
 CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "2600")
+# La malla Open-Meteo gasta el cupo diario y deja vacíos los KPIs SST/corrientes.
+CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
+    "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", "0"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
 # NASA FIRMS — focos activos (clave gratuita: https://firms.modaps.eosdis.nasa.gov/api/map_key)
