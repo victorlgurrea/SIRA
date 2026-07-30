@@ -310,6 +310,51 @@ def add_leyenda_sst_med(
     )
 
 
+def add_tierra_sobre_sst(fig: go.Figure, *, theme: str = "dark") -> None:
+    """
+    Pinta tierra encima de la SST (Francia / Magreb + IGN España).
+
+    Plotly dibuja las trazas encima del basemap; sin esto la malla “invade” países.
+    """
+    from sira.infrastructure.geo.bordes_clip import anillos_tierra
+    from sira.infrastructure.geo.mar_mediterraneo import land_overlay_boxes
+
+    land = "#d8dde3" if theme == "light" else "#0f2744"
+    # Rectángulos Magreb / sur de Francia.
+    for lat_min, lat_max, lon_min, lon_max in land_overlay_boxes():
+        fig.add_trace(go.Scattergeo(
+            lat=[lat_min, lat_min, lat_max, lat_max, lat_min],
+            lon=[lon_min, lon_max, lon_max, lon_min, lon_min],
+            mode="lines",
+            fill="toself",
+            fillcolor=land,
+            line=dict(width=0, color="rgba(0,0,0,0)"),
+            showlegend=False,
+            hoverinfo="skip",
+            legendgroup="tierra_sst",
+        ))
+    # Polígonos IGN (España / Portugal / Andorra) encima de la malla.
+    for ring in anillos_tierra():
+        if len(ring) < 4:
+            continue
+        lons = [p[0] for p in ring]
+        lats = [p[1] for p in ring]
+        if lons[0] != lons[-1] or lats[0] != lats[-1]:
+            lons = lons + [lons[0]]
+            lats = lats + [lats[0]]
+        fig.add_trace(go.Scattergeo(
+            lat=lats,
+            lon=lons,
+            mode="lines",
+            fill="toself",
+            fillcolor=land,
+            line=dict(width=0, color="rgba(0,0,0,0)"),
+            showlegend=False,
+            hoverinfo="skip",
+            legendgroup="tierra_sst",
+        ))
+
+
 def add_capa_sst_med(
     fig: go.Figure,
     celdas: list[dict] | None,
@@ -319,7 +364,7 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST densa mediante cuadrados sobre mar."""
+    """Malla SST densa: primero mar, luego tierra encima."""
     if not celdas:
         return
     from charts.figures import (
@@ -327,15 +372,12 @@ def add_capa_sst_med(
         SST_MED_LEYENDA_MAX,
         SST_MED_LEYENDA_MIN,
     )
-    from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
+    from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
-    # Si la fuente es Copernicus, los puntos ya vienen en mar (más cobertura, p.ej. Italia).
-    # En fallback Open-Meteo mantenemos máscara local para no invadir costa.
-    fuente_txt = str(fuente or "").lower()
-    usar_mascara_local = "copernicus" not in fuente_txt
     half = paso * 0.5
-    half_mask = max(0.02, half * 0.35)
+    # Máscara siempre: CMEMS también trae celdas cerca/sobre costa magrebí.
+    half_mask = max(0.03, half * 0.55)
     umbral_mar = 0.8
     fecha_txt = f" · {fecha}" if fecha else ""
 
@@ -350,21 +392,22 @@ def add_capa_sst_med(
             continue
         lat = float(c["lat"])
         lon = float(c["lon"])
-        if usar_mascara_local and fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
+        if not punto_en_mar_mediterraneo(lat, lon):
             continue
-        frac_mar = fraccion_mar_celda(lat, lon, half)
+        frac_mar = fraccion_mar_celda(lat, lon, half_mask)
+        if frac_mar < umbral_mar:
+            continue
         temp = float(c["sst_c"])
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)
+        # Mar abierto: celdas más grandes para tapar huecos visuales.
         if frac_mar >= 0.95:
-            sizes.append(11)
-        elif frac_mar >= 0.75:
-            sizes.append(10)
-        elif frac_mar >= 0.55:
-            sizes.append(8)
+            sizes.append(14)
+        elif frac_mar >= 0.80:
+            sizes.append(12)
         else:
-            sizes.append(6)
+            sizes.append(8)
         hovers.append(
             f"SST Mediterráneo{fecha_txt}<br>"
             f"<b>{temp:.1f} °C</b><br>"
@@ -388,12 +431,13 @@ def add_capa_sst_med(
             cmin=SST_MED_LEYENDA_MIN,
             cmax=SST_MED_LEYENDA_MAX,
             line=dict(width=0),
-            opacity=0.92,
+            opacity=0.95,
         ),
         text=hovers,
         hovertemplate="%{text}<extra></extra>",
     ))
-
+    # Tierra encima: tapa invasiones residuales (Francia / Magreb / España).
+    add_tierra_sobre_sst(fig, theme=theme)
     add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
 
 

@@ -27,9 +27,21 @@ def test_tanger_no_es_mar():
     assert not punto_en_mar_mediterraneo(35.76, -5.83)
 
 
+def test_argel_tierra_no_es_mar():
+    assert not punto_en_mar_mediterraneo(36.70, 3.05)
+
+
+def test_marsella_tierra_no_es_mar():
+    assert not punto_en_mar_mediterraneo(43.30, 5.40)
+
+
 def test_cantabrico_no_entra_como_mediterraneo():
     assert not punto_en_mar_mediterraneo(43.43, -3.80)
 
 
 def test_golfo_leon_si_entra():
     assert punto_en_mar_mediterraneo(42.15, 3.60)
+
+
+def test_alboran_si_entra():
+    assert punto_en_mar_mediterraneo(36.20, -3.50)
