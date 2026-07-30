@@ -20,7 +20,7 @@ from sira.config.settings import (
     CMEMS_USERNAME,
     OPEN_METEO_MARINE_URL,
 )
-from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
+from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
 from sira.infrastructure.http.client import fetch_json
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,57 @@ def _idx_ultimo_disponible(times, ahora: datetime) -> int:
     except Exception:  # noqa: BLE001
         pass
     return len(times) - 1
+
+
+def _rellenar_huecos_mar(
+    celdas: list[dict],
+    *,
+    paso: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+) -> list[dict]:
+    """Rellena huecos de mar con interpolación local simple."""
+    if not celdas:
+        return celdas
+    idx = {
+        (round(float(c["lat"]), 4), round(float(c["lon"]), 4)): float(c["sst_c"])
+        for c in celdas
+        if c.get("sst_c") is not None
+    }
+    out = list(celdas)
+    step = round(float(paso), 4)
+    half = max(step * 0.5, 0.06)
+
+    lat = round(float(lat_min), 4)
+    while lat <= round(float(lat_max), 4) + 1e-9:
+        lon = round(float(lon_min), 4)
+        while lon <= round(float(lon_max), 4) + 1e-9:
+            key = (round(lat, 4), round(lon, 4))
+            if key not in idx and punto_en_mar_mediterraneo(key[0], key[1]):
+                if fraccion_mar_celda(key[0], key[1], half) >= 0.55:
+                    vecinos: list[tuple[float, float]] = []
+                    for radius in (1, 2, 3):
+                        for di in range(-radius, radius + 1):
+                            for dj in range(-radius, radius + 1):
+                                if di == 0 and dj == 0:
+                                    continue
+                                nk = (round(lat + di * step, 4), round(lon + dj * step, 4))
+                                if nk in idx:
+                                    dist = max(abs(di), abs(dj))
+                                    vecinos.append((idx[nk], 1.0 / dist))
+                        if len(vecinos) >= 2:
+                            break
+                    if vecinos:
+                        num = sum(val * w for val, w in vecinos)
+                        den = sum(w for _, w in vecinos)
+                        temp = round(num / den, 2)
+                        idx[key] = temp
+                        out.append({"lat": key[0], "lon": key[1], "sst_c": temp})
+            lon = round(lon + step, 4)
+        lat = round(lat + step, 4)
+    return out
 
 
 def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
@@ -192,7 +243,14 @@ def _desde_cmems() -> dict:
         pass
 
     out = _pack(
-        celdas,
+        _rellenar_huecos_mar(
+            celdas,
+            paso=stride * native,
+            lat_min=float(np.min(lats)),
+            lat_max=float(np.max(lats)),
+            lon_min=float(np.min(lons)),
+            lon_max=float(np.max(lons)),
+        ),
         fuente="Copernicus Med-Physics SST (ultimo disponible)",
         dataset_id=CMEMS_SST_DATASET_ID,
         fecha=fecha,

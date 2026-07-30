@@ -364,7 +364,7 @@ def add_capa_sst_med(
     if not lats:
         return
 
-    size_px = max(7, min(12, round(18 * 0.125 / max(paso, 0.08))))
+    size_px = max(8, min(14, round(22 * 0.125 / max(paso, 0.08))))
     fig.add_trace(go.Scattergeo(
         lat=lats,
         lon=lons,
