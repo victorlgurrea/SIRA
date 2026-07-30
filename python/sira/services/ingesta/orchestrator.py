@@ -10,6 +10,7 @@ from sira.infrastructure.sources.meteo.aemet_alerts import deduplicar_alertas
 from sira.infrastructure.sources.hydrology.reservoirs import descargar_embalses
 from sira.infrastructure.sources.hydrology.multi import descargar_aforos_con_estado
 from sira.infrastructure.sources.fire.firms import descargar_incendios
+from sira.infrastructure.sources.ocean.cmems_sst import descargar_sst_med_cuadricula
 from sira.config.settings import (
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
@@ -192,6 +193,11 @@ def ejecutar_ingesta():
     oceanografia, fuentes_estado["open_meteo_marine"] = estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
+    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
+        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
+    )
+    if isinstance(sst_med_grid, dict):
+        fuentes_estado["cmems_sst_med"]["registros"] = len(sst_med_grid.get("celdas") or [])
 
     meteo_ok = False
     meteo_error = None
@@ -232,6 +238,7 @@ def ejecutar_ingesta():
         "aforos": aforos,
         "termico_ccaa": termico_ccaa,
         "oceanografia": oceanografia,
+        "sst_med_grid": sst_med_grid if isinstance(sst_med_grid, dict) else {},
         "meteorologia": meteo,
         "meteo_alertas_cap": deduplicar_alertas(alertas_cap),
         "fuentes_estado": fuentes_estado,

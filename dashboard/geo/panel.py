@@ -72,7 +72,7 @@ def cobertura_aforos(fuentes_estado: dict | None) -> tuple[str, str]:
 
 
 def capas_activas(capas: list[str] | None) -> set[str]:
-    return set(capas) if capas else {"sismos", "incendios", "embalses", "aforos", "aemet", "costa"}
+    return set(capas) if capas else {"sismos", "incendios", "embalses", "aforos", "aemet", "costa", "sst"}
 
 
 def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
@@ -179,6 +179,7 @@ def build_mapa_fig(
         theme=theme,
         mostrar_tsunami="costa" in act,
         map_aspect=map_aspect,
+        sst_med_grid=ctx.get("sst_med_grid") if "sst" in act else None,
     )
 
 

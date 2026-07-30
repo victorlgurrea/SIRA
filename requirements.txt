@@ -6,5 +6,7 @@ gunicorn>=22.0.0
 dash>=2.16.0
 plotly>=5.18.0
 pandas>=2.1.0
+numpy>=1.26.0
+copernicusmarine>=2.0.0
 pywebpush>=2.0.3
 pytest>=8.0.0

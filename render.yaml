@@ -19,6 +19,10 @@ envVarGroups:
         sync: false
       - key: FIRMS_MAP_KEY
         sync: false
+      - key: COPERNICUSMARINE_SERVICE_USERNAME
+        sync: false
+      - key: COPERNICUSMARINE_SERVICE_PASSWORD
+        sync: false
 
 services:
   - type: web

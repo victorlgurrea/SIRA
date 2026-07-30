@@ -215,6 +215,51 @@ def add_marcadores_aforos(fig: go.Figure, aforos: list[dict]) -> None:
         leyenda = True
 
 
+def add_capa_sst_med(
+    fig: go.Figure,
+    celdas: list[dict] | None,
+    *,
+    fecha: str | None = None,
+    paso_deg: float | None = None,
+) -> None:
+    """Cuadrícula SST Mediterráneo (CMEMS) como celdas coloreadas."""
+    if not celdas:
+        return
+    from charts.figures import color_sst
+
+    lats = [float(c["lat"]) for c in celdas if c.get("sst_c") is not None]
+    lons = [float(c["lon"]) for c in celdas if c.get("sst_c") is not None]
+    temps = [float(c["sst_c"]) for c in celdas if c.get("sst_c") is not None]
+    if not temps:
+        return
+    colors = [color_sst(t) for t in temps]
+    # Tamaño visual ~ proporcional al paso de malla (0.25° ≈ 11 px).
+    paso = float(paso_deg or 0.25)
+    size = max(7, min(16, round(paso * 44)))
+    fecha_txt = f" · {fecha}" if fecha else ""
+    hover = [
+        f"SST Mediterráneo{fecha_txt}<br>{t:.1f} °C<br>{lat:.2f}°, {lon:.2f}°"
+        for t, lat, lon in zip(temps, lats, lons)
+    ]
+    fig.add_trace(go.Scattergeo(
+        lat=lats,
+        lon=lons,
+        mode="markers",
+        name="SST Mediterráneo",
+        legendgroup="sst_med",
+        showlegend=True,
+        marker=dict(
+            size=size,
+            color=colors,
+            symbol="square",
+            opacity=0.72,
+            line=dict(width=0),
+        ),
+        text=hover,
+        hovertemplate="%{text}<extra></extra>",
+    ))
+
+
 def add_capa_aemet_zonas(fig: go.Figure, provincia_id: str, alertas: list[dict]) -> None:
     from sira.infrastructure.sources.meteo.aemet_alerts import fmt_alerta_detalle
 

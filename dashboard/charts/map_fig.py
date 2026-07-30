@@ -11,6 +11,7 @@ _HORA_ES = ZoneInfo("Europe/Madrid")
 
 from charts.map_layers import (
     add_capa_aemet_zonas,
+    add_capa_sst_med,
     add_circulos_perceptibles,
     add_marcador_observacion,
     add_marcadores_aforos,
@@ -118,6 +119,7 @@ def fig_mapa(
     theme: str = "dark",
     mostrar_tsunami: bool = True,
     map_aspect: float | None = None,
+    sst_med_grid: dict | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     estilo_aemet = bool(provincia_id)
@@ -126,6 +128,14 @@ def fig_mapa(
         color="#6b7280" if estilo_aemet else "#94a3b8",
         width=0.9 if estilo_aemet else 0.8,
     )
+    grid = sst_med_grid if isinstance(sst_med_grid, dict) else {}
+    if grid.get("celdas"):
+        add_capa_sst_med(
+            fig,
+            grid.get("celdas") or [],
+            fecha=str(grid.get("fecha") or "") or None,
+            paso_deg=grid.get("paso_deg"),
+        )
     if provincia_id:
         add_capa_aemet_zonas(fig, str(provincia_id).zfill(2), alertas_meteo or [])
     if estilo_aemet:

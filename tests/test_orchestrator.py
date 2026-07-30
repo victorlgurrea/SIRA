@@ -99,6 +99,11 @@ def test_ejecutar_ingesta_mock(monkeypatch):
         lambda *a, **k: {"generado_en": None, "provincias": [], "ccaa": []},
     )
     monkeypatch.setattr(orch, "descargar_oceanografia", lambda: {})
+    monkeypatch.setattr(orch, "descargar_sst_med_cuadricula", lambda: {
+        "fuente": "CMEMS", "fecha": "2026-01-01", "paso_deg": 0.25,
+        "celdas": [{"lat": 39.2, "lon": 0.2, "sst_c": 18.5}],
+        "resumen": {"n_celdas": 1, "sst_min_c": 18.5, "sst_max_c": 18.5, "sst_media_c": 18.5},
+    })
     monkeypatch.setattr(orch, "descargar_meteo", lambda: {
         "fuente": "Open-Meteo", "serie_horaria": [{"temp_c": 20}], "resumen": {},
     })
@@ -114,3 +119,6 @@ def test_ejecutar_ingesta_mock(monkeypatch):
     assert "usgs" in out["fuentes_estado"]
     assert "saih_chj" in out["fuentes_estado"]
     assert out["fuentes_estado"]["usgs"]["ok"] is True
+    assert out["fuentes_estado"]["cmems_sst_med"]["ok"] is True
+    assert out["fuentes_estado"]["cmems_sst_med"]["registros"] == 1
+    assert len(out["sst_med_grid"]["celdas"]) == 1
