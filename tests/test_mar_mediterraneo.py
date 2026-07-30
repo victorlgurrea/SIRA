@@ -45,3 +45,15 @@ def test_golfo_leon_si_entra():
 
 def test_alboran_si_entra():
     assert punto_en_mar_mediterraneo(36.20, -3.50)
+
+
+def test_corcega_tierra_no_es_mar():
+    assert not punto_en_mar_mediterraneo(42.15, 9.10)
+
+
+def test_cerdena_tierra_no_es_mar():
+    assert not punto_en_mar_mediterraneo(40.10, 9.10)
+
+
+def test_mar_entre_corcega_cerdena_si_entra():
+    assert punto_en_mar_mediterraneo(41.55, 8.20)

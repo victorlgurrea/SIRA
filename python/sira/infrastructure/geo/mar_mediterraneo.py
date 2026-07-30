@@ -55,11 +55,33 @@ def _en_tierra_francia_med(lat: float, lon: float) -> bool:
     return lat > 43.20
 
 
+def _en_tierra_corcega_cerdena(lat: float, lon: float) -> bool:
+    """
+    Tierra aproximada de Córcega y Cerdeña.
+
+    CMEMS da valor sobre isla; sin máscara la SST tapa el contorno.
+    Franjas estrechas para no comerse el mar alrededor.
+    """
+    # Córcega.
+    if 41.36 <= lat <= 43.02 and 8.54 <= lon <= 9.57:
+        return True
+    # Cerdeña (franjas N→S).
+    if 40.90 <= lat <= 41.25 and 8.50 <= lon <= 9.70:
+        return True
+    if 40.20 <= lat <= 40.90 and 8.25 <= lon <= 9.65:
+        return True
+    if 39.40 <= lat <= 40.20 and 8.30 <= lon <= 9.70:
+        return True
+    if 38.86 <= lat <= 39.40 and 8.40 <= lon <= 9.60:
+        return True
+    return False
+
+
 def _en_mar_mediterraneo_west(lat: float, lon: float) -> bool:
     """Envolvente aproximada del Mediterráneo occidental / Alborán."""
     if _en_corredor_mar_andalucia(lat, lon):
         return True
-    if lat < 35.45 or lat > 43.55 or lon < -6.05 or lon > 9.50:
+    if lat < 35.45 or lat > 43.55 or lon < -6.05 or lon > 10.00:
         return False
     if lat <= 36.90:
         return lon >= -5.90
@@ -87,6 +109,8 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
         return False
     if _en_tierra_francia_med(lat, lon):
         return False
+    if _en_tierra_corcega_cerdena(lat, lon):
+        return False
     return True
 
 
@@ -102,28 +126,3 @@ def fraccion_mar_celda(lat: float, lon: float, half: float) -> float:
 def celda_solo_mar(lat: float, lon: float, half: float) -> bool:
     """True si centro y esquinas de la celda están en mar (no invade tierra)."""
     return fraccion_mar_celda(lat, lon, half) >= 1.0
-
-
-def land_overlay_boxes() -> list[tuple[float, float, float, float]]:
-    """
-    Rectángulos de tierra a dibujar ENCIMA de la capa SST.
-
-    Formato: (lat_min, lat_max, lon_min, lon_max).
-    Cubren Magreb y sur de Francia (fuera del IGN).
-    """
-    return [
-        # Marruecos / Argelia occidental
-        (30.00, 35.90, -6.50, -2.50),
-        (30.00, 35.40, -2.50, -1.20),
-        (30.00, 35.85, -1.20, 0.50),
-        # Argelia central / oriental
-        (30.00, 36.50, 0.50, 2.50),
-        (30.00, 36.80, 2.50, 4.50),
-        (30.00, 36.90, 4.50, 6.50),
-        (30.00, 37.10, 6.50, 9.50),
-        # Sur de Francia
-        (42.55, 46.50, 1.80, 3.20),
-        (43.05, 46.50, 3.20, 4.80),
-        (43.15, 46.50, 4.80, 6.20),
-        (43.20, 46.50, 6.20, 8.20),
-    ]
