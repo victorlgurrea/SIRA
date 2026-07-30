@@ -343,6 +343,7 @@ def add_capa_sst_med(
     lons: list[float] = []
     temps: list[float] = []
     hovers: list[str] = []
+    sizes: list[float] = []
 
     for c in celdas:
         if c.get("sst_c") is None:
@@ -351,10 +352,19 @@ def add_capa_sst_med(
         lon = float(c["lon"])
         if usar_mascara_local and fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
             continue
+        frac_mar = fraccion_mar_celda(lat, lon, half)
         temp = float(c["sst_c"])
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)
+        if frac_mar >= 0.95:
+            sizes.append(11)
+        elif frac_mar >= 0.75:
+            sizes.append(10)
+        elif frac_mar >= 0.55:
+            sizes.append(8)
+        else:
+            sizes.append(6)
         hovers.append(
             f"SST Mediterráneo{fecha_txt}<br>"
             f"<b>{temp:.1f} °C</b><br>"
@@ -364,7 +374,6 @@ def add_capa_sst_med(
     if not lats:
         return
 
-    size_px = max(8, min(14, round(22 * 0.125 / max(paso, 0.08))))
     fig.add_trace(go.Scattergeo(
         lat=lats,
         lon=lons,
@@ -373,7 +382,7 @@ def add_capa_sst_med(
         legendgroup="sst_med",
         marker=dict(
             symbol="square",
-            size=size_px,
+            size=sizes,
             color=temps,
             colorscale=SST_MED_COLORSCALE,
             cmin=SST_MED_LEYENDA_MIN,

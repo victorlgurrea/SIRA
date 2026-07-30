@@ -89,9 +89,9 @@ def _rellenar_huecos_mar(
         while lon <= round(float(lon_max), 4) + 1e-9:
             key = (round(lat, 4), round(lon, 4))
             if key not in idx and punto_en_mar_mediterraneo(key[0], key[1]):
-                if fraccion_mar_celda(key[0], key[1], half) >= 0.55:
+                if fraccion_mar_celda(key[0], key[1], half) >= 0.20:
                     vecinos: list[tuple[float, float]] = []
-                    for radius in (1, 2, 3):
+                    for radius in range(1, 9):
                         for di in range(-radius, radius + 1):
                             for dj in range(-radius, radius + 1):
                                 if di == 0 and dj == 0:
