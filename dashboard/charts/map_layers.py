@@ -319,14 +319,13 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST continua tipo raster sobre el geo de Plotly."""
+    """Malla SST continua mediante polígonos explícitos sobre mar."""
     if not celdas:
         return
     from charts.figures import (
-        SST_MED_COLORSCALE,
-        SST_MED_LEYENDA_MAX,
-        SST_MED_LEYENDA_MIN,
+        sst_med_fill_rgba,
     )
+    from sira.config.settings import CMEMS_SST_MAP_MAX_CELDAS
     from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
 
     paso = float(paso_deg or 0.12)
@@ -343,10 +342,8 @@ def add_capa_sst_med(
     lons: list[float] = []
     temps: list[float] = []
     hovers: list[str] = []
-    features: list[dict] = []
-    locations: list[str] = []
 
-    for idx, c in enumerate(celdas):
+    for c in celdas:
         if c.get("sst_c") is None:
             continue
         lat = float(c["lat"])
@@ -362,44 +359,26 @@ def add_capa_sst_med(
             f"<b>{temp:.1f} °C</b><br>"
             f"Zona {lat:.2f}°N, {lon:.2f}°E"
         )
-        cell_id = f"sst-{idx}"
-        locations.append(cell_id)
-        features.append({
-            "type": "Feature",
-            "id": cell_id,
-            "properties": {"id": cell_id},
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [[
-                    [lon - half, lat - half],
-                    [lon + half, lat - half],
-                    [lon + half, lat + half],
-                    [lon - half, lat + half],
-                    [lon - half, lat - half],
-                ]],
-            },
-        })
 
-    if not lats or not features:
+    if not lats:
         return
 
-    fig.add_trace(go.Choropleth(
-        geo="geo",
-        geojson={"type": "FeatureCollection", "features": features},
-        locations=locations,
-        featureidkey="properties.id",
-        z=temps,
-        showlegend=False,
-        legendgroup="sst_med",
-        colorscale=SST_MED_COLORSCALE,
-        zmin=SST_MED_LEYENDA_MIN,
-        zmax=SST_MED_LEYENDA_MAX,
-        marker=dict(line=dict(width=0)),
-        customdata=hovers,
-        hovertemplate="%{customdata}<extra></extra>",
-        showscale=False,
-        autocolorscale=False,
-    ))
+    dibujadas = 0
+    for lat, lon, temp, hover in zip(lats, lons, temps, hovers):
+        if dibujadas >= CMEMS_SST_MAP_MAX_CELDAS:
+            break
+        fig.add_trace(go.Scattergeo(
+            lat=[lat - half, lat - half, lat + half, lat + half, lat - half],
+            lon=[lon - half, lon + half, lon + half, lon - half, lon - half],
+            mode="lines",
+            fill="toself",
+            fillcolor=sst_med_fill_rgba(temp, 0.95),
+            line=dict(width=0, color="rgba(0,0,0,0)"),
+            showlegend=False,
+            legendgroup="sst_med",
+            hovertemplate=hover + "<extra></extra>",
+        ))
+        dibujadas += 1
 
     add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
 
