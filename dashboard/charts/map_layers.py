@@ -319,21 +319,22 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST continua mediante polígonos explícitos sobre mar."""
+    """Malla SST densa mediante cuadrados sobre mar."""
     if not celdas:
         return
     from charts.figures import (
-        sst_med_fill_rgba,
+        SST_MED_COLORSCALE,
+        SST_MED_LEYENDA_MAX,
+        SST_MED_LEYENDA_MIN,
     )
-    from sira.config.settings import CMEMS_SST_MAP_MAX_CELDAS
     from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda
 
     paso = float(paso_deg or 0.12)
-    half = paso * 0.5
     # Si la fuente es Copernicus, los puntos ya vienen en mar (más cobertura, p.ej. Italia).
     # En fallback Open-Meteo mantenemos máscara local para no invadir costa.
     fuente_txt = str(fuente or "").lower()
     usar_mascara_local = "copernicus" not in fuente_txt
+    half = paso * 0.5
     half_mask = max(0.02, half * 0.35)
     umbral_mar = 0.8
     fecha_txt = f" · {fecha}" if fecha else ""
@@ -363,22 +364,26 @@ def add_capa_sst_med(
     if not lats:
         return
 
-    dibujadas = 0
-    for lat, lon, temp, hover in zip(lats, lons, temps, hovers):
-        if dibujadas >= CMEMS_SST_MAP_MAX_CELDAS:
-            break
-        fig.add_trace(go.Scattergeo(
-            lat=[lat - half, lat - half, lat + half, lat + half, lat - half],
-            lon=[lon - half, lon + half, lon + half, lon - half, lon - half],
-            mode="lines",
-            fill="toself",
-            fillcolor=sst_med_fill_rgba(temp, 0.95),
-            line=dict(width=0, color="rgba(0,0,0,0)"),
-            showlegend=False,
-            legendgroup="sst_med",
-            hovertemplate=hover + "<extra></extra>",
-        ))
-        dibujadas += 1
+    size_px = max(7, min(12, round(18 * 0.125 / max(paso, 0.08))))
+    fig.add_trace(go.Scattergeo(
+        lat=lats,
+        lon=lons,
+        mode="markers",
+        showlegend=False,
+        legendgroup="sst_med",
+        marker=dict(
+            symbol="square",
+            size=size_px,
+            color=temps,
+            colorscale=SST_MED_COLORSCALE,
+            cmin=SST_MED_LEYENDA_MIN,
+            cmax=SST_MED_LEYENDA_MAX,
+            line=dict(width=0),
+            opacity=0.92,
+        ),
+        text=hovers,
+        hovertemplate="%{text}<extra></extra>",
+    ))
 
     add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
 
