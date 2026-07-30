@@ -61,6 +61,7 @@ def status_snapshot() -> dict:
         "generado_en": data.get("generado_en", "—"),
         "fuentes_estado": data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
         "suscripciones_push": count_subscriptions(),
+        "ingesta": {"running": False, "started_at": None, "finished_at": None, "last_error": None},
         "ok": bool(data.get("generado_en")),
     }
 
@@ -96,6 +97,12 @@ def register_routes(server, dash_app, assets_path: Path) -> None:
         fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
         generado = fmt_ingesta_local(data.get("generado_en"))
         n_push = data.get("suscripciones_push", 0)
+        ingesta = data.get("ingesta") if isinstance(data.get("ingesta"), dict) else {}
+        ingesta_running = bool(ingesta.get("running"))
+        ingesta_estado = "En curso" if ingesta_running else "Reposo"
+        ingesta_ini = fmt_ingesta_local(ingesta.get("started_at"))
+        ingesta_fin = fmt_ingesta_local(ingesta.get("finished_at"))
+        ingesta_err = ingesta.get("last_error") or "—"
         filas = []
         for clave, etiqueta in _FUENTE_ETIQUETAS.items():
             info = fuentes.get(clave, {})
@@ -133,6 +140,8 @@ def register_routes(server, dash_app, assets_path: Path) -> None:
     <div class="sira-container">
       <h1 class="sira-title">Estado del sistema</h1>
       <p class="sira-status-ts">Última ingesta: <strong>{generado}</strong> <span class="sira-ts-badge">Hora local</span></p>
+      <p class="sira-status-ts">Estado ingesta: <strong>{ingesta_estado}</strong> · Inicio: <strong>{ingesta_ini}</strong> · Fin: <strong>{ingesta_fin}</strong></p>
+      <p class="sira-status-ts">Último error ingesta: <strong>{ingesta_err}</strong></p>
       <p class="sira-status-ts">Suscripciones push activas: <strong>{n_push}</strong></p>
       <table class="sira-status-table">
         <thead><tr><th>Fuente</th><th>Descripción</th><th>Estado</th></tr></thead>

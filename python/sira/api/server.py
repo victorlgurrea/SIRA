@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,20 +65,32 @@ app.add_middleware(
 )
 _last_post: dict[str, float] = defaultdict(float)
 _ingesta_lock = threading.Lock()
+_ingesta_state: dict[str, object] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "last_error": None,
+}
 
 
 def _run_ingesta_job() -> None:
     if not _ingesta_lock.acquire(blocking=False):
         log.info("Ingesta cron omitida: ya hay una ejecución en curso")
         return
+    _ingesta_state["running"] = True
+    _ingesta_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _ingesta_state["last_error"] = None
     try:
         ejecutar_ingesta()
         dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
         n = notify_new_alerts(dashboard_url)
         log.info("Ingesta cron completada; push_enviados=%s", n)
     except Exception:  # noqa: BLE001
+        _ingesta_state["last_error"] = "Fallo en ingesta cron"
         log.exception("Fallo en ingesta cron en segundo plano")
     finally:
+        _ingesta_state["running"] = False
+        _ingesta_state["finished_at"] = datetime.now(timezone.utc).isoformat()
         _ingesta_lock.release()
 
 
@@ -192,6 +205,7 @@ def status():
         "generado_en": data.get("generado_en"),
         "fuentes_estado": fuentes,
         "suscripciones_push": count_subscriptions(),
+        "ingesta": dict(_ingesta_state),
         "ok": bool(data.get("generado_en")),
     }
 
