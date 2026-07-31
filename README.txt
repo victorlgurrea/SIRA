@@ -66,11 +66,24 @@ Despliegue Render
   3. Dashboard: https://sira-dashboard.onrender.com
   4. API: URL exacta del servicio sira-api en Render (suele llevar sufijo).
 
-Cron horario (GitHub Actions)
+Cron cada 3h (GitHub Actions)
 ─────────────────────────────
   Workflow: .github/workflows/ingesta-hourly.yml
   Tests CI: .github/workflows/tests.yml (pytest en cada push/PR a main)
   Secrets: SIRA_API_URL (servicio API, no el dashboard), SIRA_CRON_SECRET
+
+Cuota Render Free (750 h de instancia / mes, por workspace)
+─────────────────────────────────────────────────────────────
+  sira-api + sira-dashboard son 2 servicios Free; cada request les impide
+  hibernar 15 min más. Si se dejan despiertos casi siempre, las 750 h
+  compartidas se agotan antes de fin de mes y Render suspende ambos
+  servicios hasta el día 1 (ya ha pasado una vez, el 31/07).
+  Mitigado con:
+    - DASHBOARD_REFRESH_MIN=30 en producción (render.yaml), no 5.
+    - Cron de ingesta cada 3h, no cada hora.
+    - No dejar el dashboard abierto en una pestaña muchas horas seguidas.
+    - No apuntar un uptime-monitor externo a sira-api/sira-dashboard.
+  Revisar consumo: panel de Render → Workspace → Usage/Billing.
 
 Persistencia SQLite (push + historial)
 ──────────────────────────────────────

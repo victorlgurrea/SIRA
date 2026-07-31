@@ -5,12 +5,17 @@
 #
 # En plan Free, un POST directo suele devolver 503 (servicio hibernado).
 # Este workflow despierta la API y reintenta antes de lanzar la ingesta.
+#
+# Frecuencia: cada 3h (no cada hora). El plan Free del workspace tiene
+# 750 h de instancia/mes compartidas entre sira-api y sira-dashboard;
+# despertar la API con más frecuencia agota esa cuota antes de fin de mes
+# (ver incidente: suspensión el 31/07 por 750/750 h usadas).
 
-name: Ingesta horaria SIRA
+name: Ingesta cada 3h SIRA
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 jobs:

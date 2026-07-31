@@ -44,8 +44,11 @@ services:
         value: false
       - key: ENABLE_API_DOCS
         value: false
+      # Solo informativo (label en UI); la frecuencia real la marca
+      # .github/workflows/ingesta-hourly.yml. Cada 3h en vez de cada 1h
+      # reduce los "despertares" de Render Free ~3x (ver notas de cuota).
       - key: INGESTA_INTERVAL_MIN
-        value: "60"
+        value: "180"
       - key: CORS_ORIGINS
         fromService:
           type: web
@@ -70,7 +73,12 @@ services:
       - key: ALLOW_DATA_REFRESH
         value: false
       - key: INGESTA_INTERVAL_MIN
-        value: "60"
+        value: "180"
+      # Plan Free: refrescar cada 5 min mantiene ambos servicios despiertos
+      # (se agotan las 750 h/mes del workspace). Con una pestaña abierta,
+      # 30 min basta y deja hibernar entre visitas.
+      - key: DASHBOARD_REFRESH_MIN
+        value: "30"
       - key: API_BASE_URL
         fromService:
           type: web
