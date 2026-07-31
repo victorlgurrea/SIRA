@@ -62,10 +62,20 @@ def test_alboran_si_entra():
 
 
 def test_magreb_tierra_no_es_mar():
-    # Marruecos / Argelia cerca costa (tierra).
-    assert not punto_en_mar_mediterraneo(35.50, -2.90)
-    assert not punto_en_mar_mediterraneo(35.40, -1.80)
+    # Marruecos / Argelia, interior claro (tierra).
+    assert not punto_en_mar_mediterraneo(34.90, -2.90)
+    assert not punto_en_mar_mediterraneo(34.90, -1.80)
     assert not punto_en_mar_mediterraneo(36.55, 2.80)
+
+
+def test_magreb_mar_real_cerca_costa_no_se_tapa():
+    # La costa magrebí baja hasta lat~35.0-35.2 (Al Hoceima, Nador, Saidia,
+    # Ghazaouet); el mar justo al norte de esos puntos debe seguir siendo mar
+    # (regresión: un suelo/umbral demasiado alto tapaba estas celdas).
+    assert punto_en_mar_mediterraneo(35.32, -3.93)  # frente a Al Hoceima
+    assert punto_en_mar_mediterraneo(35.25, -2.95)  # frente a Nador
+    assert punto_en_mar_mediterraneo(35.18, -2.24)  # frente a Saidia
+    assert punto_en_mar_mediterraneo(35.20, -1.85)  # frente a Ghazaouet
 
 
 def test_corcega_tierra_no_es_mar():

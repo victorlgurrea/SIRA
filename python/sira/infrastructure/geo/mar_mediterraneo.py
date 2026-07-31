@@ -41,6 +41,55 @@ def _en_tierra_francia_catalunya(lat: float, lon: float) -> bool:
     return lat >= 43.18
 
 
+# Costa mediterránea magrebí: puntos reales aproximados (lon, lat), de oeste a
+# este (Estrecho → frontera Túnez/Argelia). Interpolados linealmente para no
+# sobrestimar tierra y tapar mar real cerca de la costa (Al Hoceima, Nador,
+# Saidia/Ghazaouet bajan hasta lat≈35.0-35.1, muy por debajo de escalones
+# anteriores que llegaban a marcar como "tierra" mar real frente a esos tramos).
+_COSTA_MAGREB: tuple[tuple[float, float], ...] = (
+    (-6.20, 35.90),
+    (-5.31, 35.89),  # Ceuta
+    (-5.28, 35.68),  # Cabo Negro
+    (-5.08, 35.44),  # Oued Laou
+    (-4.68, 35.36),  # Targha
+    (-3.93, 35.25),  # Al Hoceima
+    (-2.95, 35.17),  # Nador
+    (-2.24, 35.09),  # Saidia (frontera Marruecos/Argelia)
+    (-1.85, 35.10),  # Ghazaouet
+    (-1.38, 35.31),  # Beni Saf
+    (-0.63, 35.70),  # Orán
+    (-0.32, 35.85),  # Arzew
+    (0.09, 35.94),  # Mostaganem
+    (1.31, 36.52),  # Ténès
+    (2.19, 36.60),  # Cherchell
+    (3.06, 36.77),  # Argel
+    (3.92, 36.92),  # Dellys
+    (5.08, 36.75),  # Bejaia
+    (5.77, 36.82),  # Jijel
+    (6.90, 36.88),  # Skikda
+    (7.77, 36.90),  # Annaba
+    (8.60, 36.90),  # El Kala
+    (9.87, 37.27),  # Biserta
+    (10.00, 37.30),
+)
+
+
+def _lat_costa_magreb(lon: float) -> float:
+    """Latitud aproximada de la costa magrebí en una longitud dada (interp. lineal)."""
+    pts = _COSTA_MAGREB
+    if lon <= pts[0][0]:
+        return pts[0][1]
+    if lon >= pts[-1][0]:
+        return pts[-1][1]
+    for (lon0, lat0), (lon1, lat1) in zip(pts, pts[1:]):
+        if lon0 <= lon <= lon1:
+            if lon1 == lon0:
+                return lat0
+            t = (lon - lon0) / (lon1 - lon0)
+            return lat0 + (lat1 - lat0) * t
+    return pts[-1][1]
+
+
 def _en_tierra_magreb(lat: float, lon: float) -> bool:
     """
     Tierra aproximada de Marruecos/Argelia/Túnez mediterráneos.
@@ -51,24 +100,9 @@ def _en_tierra_magreb(lat: float, lon: float) -> bool:
         return False
     if _en_corredor_mar_andalucia(lat, lon):
         return False
-    # Costa mediterránea magrebí (aprox. sur del litoral).
-    if lon < -4.80:
-        return lat < 36.05
-    if lon < -2.80:
-        return lat < 35.82
-    if lon < -1.40:
-        return lat < 35.62
-    if lon < 0.30:
-        return lat < 36.12
-    if lon < 1.60:
-        return lat < 36.68
-    if lon < 3.20:
-        return lat < 36.82
-    if lon < 5.00:
-        return lat < 36.92
-    if lon < 7.00:
-        return lat < 37.02
-    return lat < 37.15
+    # Pequeño margen hacia el mar: mejor pintar una celda de más junto a la
+    # costa que tapar mar real (huecos en blanco frente a Marruecos/Argelia).
+    return lat < _lat_costa_magreb(lon) - 0.04
 
 
 def _en_tierra_corcega_cerdena(lat: float, lon: float) -> bool:
@@ -96,7 +130,10 @@ def _en_mar_mediterraneo_west(lat: float, lon: float) -> bool:
     """Envolvente aproximada del Mediterráneo occidental / Alborán."""
     if _en_corredor_mar_andalucia(lat, lon):
         return True
-    if lat < 35.45 or lat > 43.55 or lon < -6.05 or lon > 10.00:
+    # Suelo bajado de 35.45 a 34.85: la costa magrebí llega a ~35.0-35.1
+    # (Nador, Saidia, Ghazaouet); con 35.45 se excluía mar real frente a
+    # Marruecos/Argelia antes de llegar a evaluar _en_tierra_magreb.
+    if lat < 34.85 or lat > 43.55 or lon < -6.05 or lon > 10.00:
         return False
     if lat <= 36.90:
         return lon >= -5.90
