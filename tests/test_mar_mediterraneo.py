@@ -93,3 +93,22 @@ def test_mar_entre_corcega_cerdena_si_entra():
 def test_celda_costera_estricto():
     # Celda con esquinas en tierra no debe pasar umbral 0.8.
     assert fraccion_mar_celda(42.48, 3.10, 0.06) < 0.8
+
+
+def test_mediterraneo_centro_oriental_mar():
+    # Tirreno, Adriático, Jónico, Egeo, Levante: mar abierto (contorno mundial).
+    assert punto_en_mar_mediterraneo(41.50, 12.20)  # Tirreno, frente a Roma
+    assert punto_en_mar_mediterraneo(45.30, 12.60)  # Adriático, frente a Venecia
+    assert punto_en_mar_mediterraneo(37.90, 21.00)  # Jónico, frente a Grecia
+    assert punto_en_mar_mediterraneo(36.20, 25.20)  # Egeo, entre Santorini y Creta
+    assert punto_en_mar_mediterraneo(34.50, 33.00)  # sur de Chipre
+    assert punto_en_mar_mediterraneo(33.89, 35.20)  # frente a Beirut
+    assert punto_en_mar_mediterraneo(31.45, 30.00)  # frente a Alejandría
+
+
+def test_mediterraneo_centro_oriental_tierra():
+    assert not punto_en_mar_mediterraneo(41.90, 12.49)  # Roma
+    assert not punto_en_mar_mediterraneo(38.00, 23.73)  # Atenas
+    assert not punto_en_mar_mediterraneo(35.17, 33.36)  # Nicosia (Chipre)
+    assert not punto_en_mar_mediterraneo(33.85, 36.05)  # valle Bekaa (Líbano)
+    assert not punto_en_mar_mediterraneo(31.50, 13.20)  # interior de Libia

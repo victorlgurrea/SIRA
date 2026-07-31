@@ -1,9 +1,10 @@
-"""Puntos en mar (Mediterráneo occidental) sin invadir tierra."""
+"""Puntos en mar Mediterráneo (occidental + centro-oriental) sin invadir tierra."""
 from __future__ import annotations
 
 from functools import lru_cache
 
 from sira.infrastructure.geo.bordes_clip import anillos_tierra, punto_en_tierra
+from sira.infrastructure.geo.mundo_tierra import punto_en_tierra_mundo
 
 
 def _en_corredor_mar_andalucia(lat: float, lon: float) -> bool:
@@ -146,6 +147,20 @@ def _en_mar_mediterraneo_west(lat: float, lon: float) -> bool:
     return lon >= 1.80
 
 
+def _en_mar_mediterraneo_este(lat: float, lon: float) -> bool:
+    """
+    Envolvente amplia del Mediterráneo centro-oriental (Cerdeña → Levante).
+
+    Rectángulo laxo a propósito: aquí no hay heurísticas de costa hechas a
+    mano, así que la exclusión de tierra (Italia, Adriático, Grecia, Turquía,
+    Chipre, Líbano/Israel/Egipto...) corre a cargo de `anillos_tierra_mediterraneo`
+    (Natural Earth). El Mar Negro y el Egeo más al norte quedan fuera del
+    dataset CMEMS Med-Physics (llegan como NaN y se descartan antes de
+    evaluar esta máscara), así que no hace falta recortarlos aquí.
+    """
+    return 30.00 <= lat <= 46.00 and 10.00 < lon <= 36.50
+
+
 @lru_cache(maxsize=1)
 def _anillos_ign() -> list[list[list[float]]]:
     return anillos_tierra()
@@ -153,15 +168,24 @@ def _anillos_ign() -> list[list[list[float]]]:
 
 def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
     """True si el punto cae en mar (no tierra) dentro del bbox SST habitual."""
-    if not _en_mar_mediterraneo_west(lat, lon):
+    if lon <= 10.00:
+        # Mediterráneo occidental: envolvente + heurísticas afinadas a mano
+        # (IGN España + Magreb + frontera FR-ES + Córcega/Cerdeña).
+        if not _en_mar_mediterraneo_west(lat, lon):
+            return False
+        if punto_en_tierra(lon, lat, _anillos_ign()):
+            return False
+        if _en_tierra_magreb(lat, lon):
+            return False
+        if _en_tierra_francia_catalunya(lat, lon):
+            return False
+        if _en_tierra_corcega_cerdena(lat, lon):
+            return False
+        return True
+    # Mediterráneo centro-oriental: envolvente amplia + contorno mundial (indexado).
+    if not _en_mar_mediterraneo_este(lat, lon):
         return False
-    if punto_en_tierra(lon, lat, _anillos_ign()):
-        return False
-    if _en_tierra_magreb(lat, lon):
-        return False
-    if _en_tierra_francia_catalunya(lat, lon):
-        return False
-    if _en_tierra_corcega_cerdena(lat, lon):
+    if punto_en_tierra_mundo(lat, lon):
         return False
     return True
 
