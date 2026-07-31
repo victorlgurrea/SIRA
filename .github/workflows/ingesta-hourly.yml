@@ -1,7 +1,10 @@
 # Ingesta horaria en el servidor Render (GitHub Actions).
 # Secrets en el repo (Settings → Secrets → Actions):
-#   SIRA_API_URL     = https://sira-api.onrender.com
+#   SIRA_API_URL     = URL exacta de sira-api en Render (la del panel; suele llevar sufijo)
 #   SIRA_CRON_SECRET = mismo valor que CRON_SECRET en Render (sira-api)
+#
+# En plan Free, un POST directo suele devolver 503 (servicio hibernado).
+# Este workflow despierta la API y reintenta antes de lanzar la ingesta.
 
 name: Ingesta horaria SIRA
 
@@ -13,8 +16,53 @@ on:
 jobs:
   ingesta:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Disparar ingesta en Render
+      - name: Despertar API y disparar ingesta
+        env:
+          API_URL: ${{ secrets.SIRA_API_URL }}
+          CRON_SECRET: ${{ secrets.SIRA_CRON_SECRET }}
         run: |
-          curl -sfS -X POST "${{ secrets.SIRA_API_URL }}/api/cron/ingesta" \
-            -H "X-Cron-Secret: ${{ secrets.SIRA_CRON_SECRET }}"
+          set -euo pipefail
+          if [ -z "${API_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Faltan secrets SIRA_API_URL o SIRA_CRON_SECRET"
+            exit 1
+          fi
+          API_URL="${API_URL%/}"
+
+          echo "Despertando API (GET /)…"
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 "${API_URL}/" || true)
+            echo "  intento $i → HTTP $code"
+            if [ "$code" = "200" ] || [ "$code" = "404" ]; then
+              # 200 = raíz OK; 404 = host vivo pero ruta distinta (seguimos)
+              break
+            fi
+            sleep 15
+          done
+
+          echo "POST /api/cron/ingesta…"
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/sira_ingesta_body.txt -w "%{http_code}" \
+              --max-time 600 \
+              -X POST "${API_URL}/api/cron/ingesta" \
+              -H "X-Cron-Secret: ${CRON_SECRET}" \
+              -H "Content-Type: application/json" || true)
+            echo "  intento $i → HTTP $code"
+            if [ "$code" = "200" ]; then
+              head -c 500 /tmp/sira_ingesta_body.txt || true
+              echo
+              exit 0
+            fi
+            # 503 típico en Free (cold start / overload); 502/504 también reintentables
+            if [ "$code" = "503" ] || [ "$code" = "502" ] || [ "$code" = "504" ]; then
+              sleep 20
+              continue
+            fi
+            echo "Respuesta no reintentable:"
+            head -c 800 /tmp/sira_ingesta_body.txt || true
+            echo
+            exit 1
+          done
+          echo "Agotados los reintentos (API sigue en 503/5xx)."
+          exit 1
