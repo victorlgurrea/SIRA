@@ -32,7 +32,13 @@ def test_descargar_sismos_enriquece(monkeypatch):
         },
         "geometry": {"coordinates": [0.2, 39.5, 10.0]},
     }
-    monkeypatch.setattr(orch, "fetch_json", lambda *a, **k: {"features": [feature]})
+
+    def fake_fetch(url, params=None, headers=None):
+        if "seismicportal" in str(url):
+            return {"features": []}
+        return {"features": [feature]}
+
+    monkeypatch.setattr(orch, "fetch_json", fake_fetch)
     sismos = orch.descargar_sismos()
     assert len(sismos) == 1
     s = sismos[0]
@@ -40,6 +46,32 @@ def test_descargar_sismos_enriquece(monkeypatch):
     assert s["region"]
     assert "dist_valencia_km" in s
     assert "alerta_tsunami" in s
+
+
+def test_descargar_sismos_incluye_emsc_si_usgs_vacio(monkeypatch):
+    emsc = {
+        "id": "20260802_0000160",
+        "properties": {
+            "mag": 4.1,
+            "time": "2026-08-02T09:59:25.34Z",
+            "flynn_region": "SPAIN",
+            "depth": 3.8,
+            "unid": "20260802_0000160",
+        },
+        "geometry": {"coordinates": [-1.4271, 37.9664, -3.8]},
+    }
+
+    def fake_fetch(url, params=None, headers=None):
+        if "seismicportal" in str(url):
+            return {"features": [emsc]}
+        return {"features": []}
+
+    monkeypatch.setattr(orch, "fetch_json", fake_fetch)
+    sismos = orch.descargar_sismos()
+    assert len(sismos) == 1
+    assert sismos[0]["magnitud"] == 4.1
+    assert sismos[0]["fuente"] == "EMSC"
+    assert "Spain" in sismos[0]["lugar"] or "SPAIN" in sismos[0]["lugar"].upper()
 
 
 def test_descargar_aforos_con_estado_agrega_cuencas(monkeypatch):

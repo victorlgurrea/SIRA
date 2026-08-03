@@ -146,6 +146,11 @@ CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
 ).strip().lower() in {"1", "true", "yes", "on"}
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
+# EMSC (cubre sismos ibéricos que USGS a menudo no publica, p.ej. Murcia M4.1)
+EMSC_URL = os.getenv(
+    "EMSC_URL",
+    "https://www.seismicportal.eu/fdsnws/event/1/query",
+)
 # NASA FIRMS — focos activos (clave gratuita: https://firms.modaps.eosdis.nasa.gov/api/map_key)
 FIRMS_MAP_KEY = os.getenv("FIRMS_MAP_KEY", "")
 FIRMS_BASE_URL = os.getenv("FIRMS_BASE_URL", "https://firms.modaps.eosdis.nasa.gov/api")
@@ -243,7 +248,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 ALLOWED_HOSTS = frozenset({
-    "earthquake.usgs.gov", "marine-api.open-meteo.com", "api.open-meteo.com",
+    "earthquake.usgs.gov", "www.seismicportal.eu", "seismicportal.eu",
+    "marine-api.open-meteo.com", "api.open-meteo.com",
     "geocoding-api.open-meteo.com", "datasets-server.huggingface.co",
     "raw.githubusercontent.com", "huggingface.co",
     "opendata.aemet.es", "www.aemet.es", "aemet.es",

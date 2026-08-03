@@ -11,7 +11,7 @@ from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
 
 _FUENTE_ETIQUETAS = {
-    "usgs": "USGS (sismos)",
+    "usgs": "USGS + EMSC (sismos)",
     "aemet_meteo": "AEMET meteo",
     "termico_ccaa": "Térmico CCAA (ingesta)",
     "aemet_cap": "AEMET CAP",
@@ -26,7 +26,7 @@ _FUENTE_ETIQUETAS = {
 }
 
 _FUENTE_DESCRIPCIONES = {
-    "usgs": "Sismos recientes en España y entorno (magnitud, epicentro, profundidad, alerta tsunami USGS).",
+    "usgs": "Sismos recientes en España y entorno (USGS + EMSC; magnitud, epicentro, profundidad, alerta tsunami USGS).",
     "aemet_meteo": "Predicción horaria municipal AEMET (lluvia, probabilidad de precipitación, tiempo actual).",
     "termico_ccaa": "Temperatura máxima prevista 24 h por provincia/CCAA (alimenta el mapa de riesgos).",
     "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",

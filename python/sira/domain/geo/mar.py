@@ -48,6 +48,9 @@ def usgs_lugar_indica_tierra(lugar: str | None) -> bool:
 def _en_tierra_iberica(lat: float, lon: float) -> bool:
     if 38.2 <= lat <= 40.8 and 0.05 <= lon <= 3.0:
         return False
+    # Interior Murcia (Librilla / Alhama): no marcar como mar por la caja Alborán.
+    if 37.55 <= lat <= 38.35 and -2.05 <= lon <= -1.05:
+        return True
     if 36.8 <= lat <= 38.2 and -2.0 <= lon <= 1.5:
         return False
     if 27.45 <= lat <= 29.65 and -18.55 <= lon <= -12.95:

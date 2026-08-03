@@ -14,6 +14,7 @@ from sira.infrastructure.sources.ocean.cmems_sst import descargar_sst_med_cuadri
 from sira.config.settings import (
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
+    EMSC_URL,
     FORECAST_DAYS,
     MAPA,
     MARES,
@@ -23,7 +24,7 @@ from sira.config.settings import (
     ZONA,
 )
 from sira.infrastructure.http.client import fetch_aemet, fetch_json, write_dashboard
-from sira.infrastructure.parsers.fuentes import parse_usgs_feature
+from sira.infrastructure.parsers.fuentes import parse_emsc_feature, parse_usgs_feature
 from sira.services.historial.snapshots import guardar_snapshots_diarios
 from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly, pack_meteo as _pack_meteo, parse_aemet as _parse_aemet
 from sira.infrastructure.sources.meteo.live import meteo_localidad
@@ -52,45 +53,104 @@ def _dist_km(lat: float, lon: float) -> float:
     return distancia_km(lat, lon, rlat, rlon)
 
 
-def descargar_sismos() -> list[dict]:
-    fin, inicio = date.today(), date.today() - timedelta(days=ZONA["dias_atras"])
-    params = {
-        "format": "geojson", "starttime": inicio.isoformat(), "endtime": fin.isoformat(),
-        "minlatitude": MAPA["lat_min"], "maxlatitude": MAPA["lat_max"],
-        "minlongitude": MAPA["lon_min"], "maxlongitude": MAPA["lon_max"],
-        "minmagnitude": ZONA["magnitud_min"], "orderby": "time",
-    }
-    features = fetch_json(USGS_URL, params).get("features", [])
+def _parse_ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
-    sismos = []
-    for f in features:
-        row = parse_usgs_feature(f)
-        if not row:
+
+def _sismo_duplicado(candidato: dict, existentes: list[dict]) -> bool:
+    """True si ya hay un evento USGS/EMSC muy cercano en espacio/tiempo."""
+    c_ts = _parse_ts(candidato.get("timestamp"))
+    for e in existentes:
+        if distancia_km(e["lat"], e["lon"], candidato["lat"], candidato["lon"]) > 40.0:
             continue
-        lat, lon = row["lat"], row["lon"]
-        mag, prof = row["magnitud"], row["profundidad"]
-        en_mar = row["en_mar"]
-        sub = row["es_submarino"]
-        dist = _dist_km(lat, lon)
-        ts_flag = riesgo_tsunami(mag, prof, en_mar, row.get("_tsunami_raw"))
-        sismos.append({
-            "id": row["id"],
-            "magnitud": mag,
-            "lugar": row["lugar"],
-            "timestamp": row["timestamp"],
-            "lat": lat,
-            "lon": lon,
-            "profundidad": prof,
-            "dist_valencia_km": dist,
-            "en_mar": en_mar,
-            "es_submarino": sub,
-            "region": _region(lat, lon),
-            "usgs_tsunami": row["usgs_tsunami"],
-            "alerta_tsunami": ts_flag,
-            "radio_tsunami_km": radio_tsunami_km(mag, prof, en_mar=True) if ts_flag else 0.0,
-            **score_sismo(mag, prof, dist, sub),
-        })
-    log.info("Sismos: %d", len(sismos))
+        if abs(float(e["magnitud"]) - float(candidato["magnitud"])) > 0.7:
+            continue
+        e_ts = _parse_ts(e.get("timestamp"))
+        if c_ts and e_ts and abs((c_ts - e_ts).total_seconds()) > 3 * 3600:
+            continue
+        return True
+    return False
+
+
+def _enriquecer_sismo(row: dict) -> dict:
+    lat, lon = row["lat"], row["lon"]
+    mag, prof = row["magnitud"], row["profundidad"]
+    en_mar = row["en_mar"]
+    sub = row["es_submarino"]
+    dist = _dist_km(lat, lon)
+    ts_flag = riesgo_tsunami(mag, prof, en_mar, row.get("_tsunami_raw"))
+    return {
+        "id": row["id"],
+        "magnitud": mag,
+        "lugar": row["lugar"],
+        "timestamp": row["timestamp"],
+        "lat": lat,
+        "lon": lon,
+        "profundidad": prof,
+        "dist_valencia_km": dist,
+        "en_mar": en_mar,
+        "es_submarino": sub,
+        "region": _region(lat, lon),
+        "usgs_tsunami": row["usgs_tsunami"],
+        "alerta_tsunami": ts_flag,
+        "radio_tsunami_km": radio_tsunami_km(mag, prof, en_mar=True) if ts_flag else 0.0,
+        "fuente": row.get("fuente") or "USGS",
+        **score_sismo(mag, prof, dist, sub),
+    }
+
+
+def descargar_sismos() -> list[dict]:
+    """Sismos del bbox: USGS + EMSC (cubre Iberia cuando USGS no publica)."""
+    fin, inicio = date.today(), date.today() - timedelta(days=ZONA["dias_atras"])
+    bbox = {
+        "minlatitude": MAPA["lat_min"],
+        "maxlatitude": MAPA["lat_max"],
+        "minlongitude": MAPA["lon_min"],
+        "maxlongitude": MAPA["lon_max"],
+    }
+    usgs_params = {
+        "format": "geojson",
+        "starttime": inicio.isoformat(),
+        "endtime": fin.isoformat(),
+        "minmagnitude": ZONA["magnitud_min"],
+        "orderby": "time",
+        **bbox,
+    }
+    emsc_params = {
+        "format": "json",
+        "starttime": inicio.isoformat(),
+        "endtime": (fin + timedelta(days=1)).isoformat(),
+        "minmag": ZONA["magnitud_min"],
+        "orderby": "time-desc",
+        "limit": 200,
+        **bbox,
+    }
+
+    rows: list[dict] = []
+    try:
+        for f in fetch_json(USGS_URL, usgs_params).get("features", []) or []:
+            row = parse_usgs_feature(f)
+            if row:
+                rows.append(row)
+    except (requests.RequestException, ValueError, OSError) as exc:
+        log.warning("USGS sismos: %s", exc)
+
+    try:
+        for f in fetch_json(EMSC_URL, emsc_params).get("features", []) or []:
+            row = parse_emsc_feature(f)
+            if row and not _sismo_duplicado(row, rows):
+                rows.append(row)
+    except (requests.RequestException, ValueError, OSError) as exc:
+        log.warning("EMSC sismos: %s", exc)
+
+    sismos = [_enriquecer_sismo(row) for row in rows]
+    sismos.sort(key=lambda s: str(s.get("timestamp") or ""), reverse=True)
+    log.info("Sismos: %d (USGS+EMSC)", len(sismos))
     return sismos
 
 

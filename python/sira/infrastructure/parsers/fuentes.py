@@ -75,14 +75,63 @@ def parse_usgs_feature(feature: dict[str, Any]) -> dict[str, Any] | None:
         "timestamp": datetime.fromtimestamp(props["time"] / 1000, tz=timezone.utc).isoformat(),
         "lat": lat,
         "lon": lon,
-        "profundidad": prof,
+        "profundidad": abs(prof),
         "usgs_tsunami": 1 if usgs_tsunami_flag(usgs_ts) else 0,
         "en_mar": en_mar,
-        "es_submarino": prof < 200,
+        "es_submarino": abs(prof) < 200,
         "usgs_alert": props.get("alert"),
         "usgs_status": props.get("status"),
         "mag_type": props.get("magType"),
+        "fuente": "USGS",
         "_tsunami_raw": usgs_ts,
+    }
+
+
+def parse_emsc_feature(feature: dict[str, Any]) -> dict[str, Any] | None:
+    """GeoJSON Feature EMSC (seismicportal) → dict normalizado para SIRA."""
+    props = feature.get("properties") or {}
+    coords = (feature.get("geometry") or {}).get("coordinates") or []
+    if props.get("mag") is None or len(coords) < 2:
+        return None
+
+    lon = float(coords[0])
+    lat = float(coords[1])
+    prof_raw = coords[2] if len(coords) > 2 else props.get("depth")
+    try:
+        prof = abs(float(prof_raw or 0))
+    except (TypeError, ValueError):
+        prof = 0.0
+    mag = float(props["mag"])
+    region = str(props.get("flynn_region") or props.get("region") or "").strip()
+    lugar = (f"{region.title()}, near {lat:.2f}°N {lon:.2f}°E" if region else f"EMSC {lat:.2f}°N {lon:.2f}°E")[:200]
+    time_raw = props.get("time")
+    if isinstance(time_raw, str):
+        ts = datetime.fromisoformat(time_raw.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+    elif isinstance(time_raw, (int, float)):
+        # epoch ms o s
+        sec = float(time_raw) / 1000.0 if float(time_raw) > 1e12 else float(time_raw)
+        ts = datetime.fromtimestamp(sec, tz=timezone.utc).isoformat()
+    else:
+        return None
+
+    en_mar = epicentro_en_mar(lat, lon, lugar=lugar, profundidad_km=prof, usgs_tsunami=0)
+    eid = feature.get("id") or props.get("unid") or props.get("source_id")
+    return {
+        "id": f"emsc-{eid}",
+        "magnitud": mag,
+        "lugar": lugar,
+        "timestamp": ts,
+        "lat": lat,
+        "lon": lon,
+        "profundidad": prof,
+        "usgs_tsunami": 0,
+        "en_mar": en_mar,
+        "es_submarino": prof < 200,
+        "usgs_alert": None,
+        "usgs_status": props.get("auth") or "EMSC",
+        "mag_type": props.get("magtype") or props.get("magType"),
+        "fuente": "EMSC",
+        "_tsunami_raw": 0,
     }
 
 
