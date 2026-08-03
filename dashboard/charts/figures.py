@@ -208,6 +208,17 @@ def annots_ultima_con_semaforo(texto: str, color_dot: str, *, theme: str = "dark
 # Figuras de series temporales
 # ---------------------------------------------------------------------------
 
+def _xy_json_safe(s: pd.DataFrame, campo: str) -> tuple[list[str | None], list[float | None]]:
+    """Listas Python puras: plotly.py 6 serializa Series/ndarray como bdata binario
+    que el Plotly.js del CDN no decodifica → diagonal 0..N en PRO."""
+    ts = pd.to_datetime(s["timestamp"], errors="coerce")
+    xs: list[str | None] = [
+        None if pd.isna(t) else pd.Timestamp(t).strftime("%Y-%m-%dT%H:%M:%S") for t in ts
+    ]
+    ys: list[float | None] = [None if pd.isna(v) else float(v) for v in s[campo]]
+    return xs, ys
+
+
 def fig_corrientes(serie: list, uirev: str, *, theme: str = "dark") -> go.Figure:
     fig = go.Figure()
     dir_txt = "—"
@@ -216,8 +227,9 @@ def fig_corrientes(serie: list, uirev: str, *, theme: str = "dark") -> go.Figure
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
+        xs, ys = _xy_json_safe(s, "corriente_vel_ms")
         fig.add_trace(go.Scatter(
-            x=s["timestamp"], y=s["corriente_vel_ms"],
+            x=xs, y=ys,
             mode="lines", name="m/s", line=dict(color=C_GREEN),
         ))
         vel = s["corriente_vel_ms"].dropna()
@@ -249,7 +261,8 @@ def fig_linea(serie: list, campo: str, color: str, unidad: str, uirev: str, *, c
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        fig.add_trace(go.Scatter(x=s["timestamp"], y=s[campo], mode="lines", line=dict(color=color)))
+        xs, ys = _xy_json_safe(s, campo)
+        fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", line=dict(color=color)))
         vals = s[campo].dropna()
         if not vals.empty:
             ult_val = float(vals.iloc[-1])
@@ -291,7 +304,7 @@ def fig_historial(
         **plotly_bg(theme),
     )
     if serie_tiene_datos(serie):
-        fechas = [r["fecha"] for r in serie]
+        fechas = [str(r["fecha"]) for r in serie]
         scores = [int(r["score_sismo_max"] or 0) for r in serie]
         fig.add_trace(go.Scatter(
             x=fechas, y=scores,
@@ -391,11 +404,13 @@ def fig_lluvia(serie: list, *, theme: str = "dark") -> go.Figure:
     if serie:
         s = pd.DataFrame(serie)
         s["timestamp"] = pd.to_datetime(s["timestamp"], errors="coerce")
-        precip = s["precip_mm"].fillna(0)
-        fig.add_trace(go.Bar(x=s["timestamp"], y=precip, name="mm", marker_color=C_TEAL))
+        xs, _ = _xy_json_safe(s, "precip_mm")
+        precip_y = [0.0 if pd.isna(v) else float(v) for v in s["precip_mm"].fillna(0)]
+        fig.add_trace(go.Bar(x=xs, y=precip_y, name="mm", marker_color=C_TEAL))
         if s["prob_precip_pct"].notna().any():
-            fig.add_trace(go.Scatter(x=s["timestamp"], y=s["prob_precip_pct"], name="%", yaxis="y2", line=dict(color="#a78bfa")))
-        max_precip = float(precip.max())
+            _, prob_y = _xy_json_safe(s, "prob_precip_pct")
+            fig.add_trace(go.Scatter(x=xs, y=prob_y, name="%", yaxis="y2", line=dict(color="#a78bfa")))
+        max_precip = max(precip_y) if precip_y else 0.0
         yaxis["range"] = [0, max(1.0, max_precip * 1.15)]
         x = xaxis_lluvia(s["timestamp"], theme=theme)
     else:

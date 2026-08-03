@@ -87,7 +87,6 @@ app.index_string = f"""
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
-        <link rel="preload" href="{_PLOTLY_JS_CDN}" as="script" crossorigin="anonymous">
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
