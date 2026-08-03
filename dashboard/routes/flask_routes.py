@@ -4,11 +4,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import requests
-from flask import Response, jsonify, send_from_directory
+from flask import Response, jsonify, redirect, request, send_from_directory
 
 from sira.config.settings import API_BASE_URL
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
+
+# Stub cuando Dash pide async-plotlyjs.js (en PRO esa ruta del suite devuelve 500).
+_ASYNC_PLOTLYJS_STUB = """
+(function (root) {
+  var P = root.Plotly;
+  if (typeof define === "function" && define.amd) {
+    define(function () { return P; });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = P;
+  } else {
+    root.PlotlyAsync = P;
+  }
+})(typeof self !== "undefined" ? self : this);
+"""
 
 _FUENTE_ETIQUETAS = {
     "usgs": "USGS + EMSC (sismos)",
@@ -66,8 +80,26 @@ def status_snapshot() -> dict:
     }
 
 
-def register_routes(server, dash_app, assets_path: Path) -> None:
+def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None = None) -> None:
     """Registra rutas Flask no gestionadas por Dash."""
+
+    cdn = (plotly_cdn or "").strip()
+
+    @server.before_request
+    def _fix_plotly_suite_routes():
+        """En Render Free, dash/dcc/plotly*.js responde 500 y la UI se queda en Loading..."""
+        path = request.path or ""
+        if not path.startswith("/_dash-component-suites/"):
+            return None
+        if path.endswith("/async-plotlyjs.js"):
+            return Response(
+                _ASYNC_PLOTLYJS_STUB,
+                mimetype="application/javascript",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        if cdn and path.endswith("/plotly.min.js") and "/dash/dcc/" in path:
+            return redirect(cdn, code=302)
+        return None
 
     @server.route("/sw.js")
     def _service_worker():

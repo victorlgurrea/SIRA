@@ -60,10 +60,10 @@ _LOGO_FILE = _ASSETS / "logo-sira_4.png"
 if not _LOGO_FILE.is_file():
     raise SystemExit(f"Falta el logo: {_LOGO_FILE}")
 
-# Plotly.js vía CDN: en Render Free el origen suele devolver 503 al servir
-# dash/dcc/plotly.min.js (~3.6 MB) y Dash aborta a los 30 s ("plotly.js did not load").
+# Plotly.js vía CDN (v3, alineado con plotly.py 6 / paquete en Render).
+# Las rutas dash/dcc/plotly*.js en Free suelen devolver 500 y dejan la UI en "Loading...".
 _PLOTLY_JS_CDN = (
-    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.25.2/plotly.min.js"
+    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.7.0/plotly.min.js"
 )
 
 app = Dash(
@@ -527,7 +527,7 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
 
 # WSGI (gunicorn en Render)
 server = app.server
-register_routes(server, app, _ASSETS)
+register_routes(server, app, _ASSETS, plotly_cdn=_PLOTLY_JS_CDN)
 
 
 clientside_callback(
