@@ -258,7 +258,11 @@ app.layout = html.Div(className="sira-page", children=[
 
 def _load() -> dict:
     try:
-        r = requests.get(f"{API_BASE_URL}/api/dashboard", timeout=30)
+        r = requests.get(
+            f"{API_BASE_URL}/api/dashboard",
+            timeout=90,
+            headers={"Accept-Encoding": "gzip"},
+        )
         if r.ok:
             data = r.json()
             if isinstance(data, dict) and data.get("generado_en"):

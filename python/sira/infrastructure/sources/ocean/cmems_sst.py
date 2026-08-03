@@ -23,6 +23,7 @@ from sira.config.settings import (
 )
 from sira.infrastructure.geo.mar_mediterraneo import densificar_celdas_mar, fraccion_mar_celda
 from sira.infrastructure.http.client import fetch_json
+from sira.infrastructure.sources.ocean.sst_transport import limitar_celdas_mapa
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ def _idx_ultimo_disponible(times, ahora: datetime) -> int:
 def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
     if not celdas:
         raise RuntimeError(f"{fuente}: sin celdas válidas en el bbox solicitado")
+    celdas = limitar_celdas_mapa(celdas)
     sst_vals = [c["sst_c"] for c in celdas]
     return {
         "fuente": fuente,

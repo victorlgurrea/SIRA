@@ -12,6 +12,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse
 from starlette.responses import Response
 
@@ -29,15 +30,17 @@ from sira.config.settings import (
 )
 from sira.infrastructure.http.client import read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions, get_historial_municipio
+from sira.infrastructure.sources.ocean.sst_transport import slim_sst_grid_for_transport
 
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="SIRA API", docs_url="/docs" if ENABLE_API_DOCS else None, redoc_url=None)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "X-Cron-Secret", "Content-Type"],
+    allow_headers=["X-API-Key", "X-Cron-Secret", "Content-Type", "Accept-Encoding"],
     allow_credentials=False,
 )
 _last_post: dict[str, float] = defaultdict(float)
@@ -196,7 +199,16 @@ def health():
 
 @app.get("/api/dashboard")
 def dashboard():
-    return read_dashboard()
+    data = read_dashboard()
+    if not isinstance(data, dict):
+        return data
+    # PRO: mallas SST >10k celdas hacen timeout al dashboard (fallback a JSON vacío).
+    grid = slim_sst_grid_for_transport(data.get("sst_med_grid"))
+    if grid is data.get("sst_med_grid"):
+        return data
+    out = dict(data)
+    out["sst_med_grid"] = grid
+    return out
 
 
 @app.get("/api/status")
