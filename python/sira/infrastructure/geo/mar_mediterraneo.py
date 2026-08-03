@@ -236,7 +236,7 @@ def densificar_celdas_mar(
         return []
 
     # Varias pasadas: rellena huecos adyacentes a celdas conocidas.
-    for _ in range(6):
+    for _ in range(8):
         candidatos: dict[tuple[float, float], list[tuple[float, float]]] = {}
         for la, lo in list(idx.keys()):
             for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
@@ -246,7 +246,8 @@ def densificar_celdas_mar(
                 candidatos.setdefault(nk, []).append((idx[(la, lo)], 1.0))
         added = 0
         for key, vecinos in candidatos.items():
-            if len(vecinos) < 2:
+            # 1 vecino basta para rellenar corredores estrechos de mar.
+            if len(vecinos) < 1:
                 continue
             if not punto_en_mar_mediterraneo(key[0], key[1]):
                 continue

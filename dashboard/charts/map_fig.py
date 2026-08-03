@@ -48,6 +48,52 @@ def fmt_sismo_fecha(ts) -> str:
         return "—"
 
 
+def fmt_sismo_linea(sismo: dict | object, *, bullet: bool = False) -> str:
+    """Misma línea que la tooltip de la card SISMOS: lugar · M… · fecha."""
+    if isinstance(sismo, dict):
+        lugar = sismo.get("lugar")
+        mag = sismo.get("magnitud")
+        ts = sismo.get("timestamp")
+    else:
+        lugar = getattr(sismo, "lugar", None)
+        mag = getattr(sismo, "magnitud", None)
+        ts = getattr(sismo, "timestamp", None)
+    lugar_txt = str(lugar or "epicentro desconocido").strip()
+    partes = [lugar_txt]
+    if mag is not None and mag != "":
+        partes.append(f"M{mag}")
+    fecha = fmt_sismo_fecha(ts)
+    if fecha and fecha != "—":
+        partes.append(fecha)
+    linea = " · ".join(partes)
+    return f"· {linea}" if bullet else linea
+
+
+def hover_html_zona_sismo(sismo: dict | object, radio_km: float | None = None) -> str:
+    """Hover del círculo perceptible: texto de card + radio aproximado."""
+    linea = fmt_sismo_linea(sismo, bullet=False)
+    if radio_km is not None and float(radio_km) > 0:
+        return f"{linea}<br>Zona perceptible (hasta ~{float(radio_km):.0f} km)"
+    return linea
+
+
+def _con_hover_sismos(df: pd.DataFrame, *, radio_col: str = "radio_perceptible_km") -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    radios = (
+        out[radio_col].fillna(0).tolist()
+        if radio_col in out.columns
+        else [0.0] * len(out)
+    )
+    hovers: list[str] = []
+    for idx, row in enumerate(out.itertuples(index=False)):
+        r = float(radios[idx] or 0)
+        hovers.append(hover_html_zona_sismo(row, r if r > 0 else None))
+    out["hover_html"] = hovers
+    return out
+
+
 def geo_layout(
     fig: go.Figure,
     viewport: dict | None = None,
@@ -219,21 +265,16 @@ def fig_mapa(
         base = sub["magnitud"] * 2 + 5
         sizes = [9 if h else b for b, h in zip(base, hoy_mask)]
         borders = [("white", 1) if h else ("white", 0.5) for h in hoy_mask]
+        hover_txt = [fmt_sismo_linea(row) for row in sub.itertuples(index=False)]
         fig.add_trace(go.Scattergeo(
             lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
             marker=dict(
                 size=sizes, color=color,
                 line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
             ),
-            text=sub["lugar"],
+            text=hover_txt,
             customdata=list(zip(sub["magnitud"], sub["score_local"], reg_col, fechas, dist_loc)),
-            hovertemplate=(
-                "Sismo — %{text}<br>"
-                "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
-                "Distancia: %{customdata[4]} km"
-                "<extra></extra>"
-            ),
+            hovertemplate="%{text}<extra></extra>",
         ))
 
     if not df_per.empty and "timestamp" in df_per.columns:
@@ -248,7 +289,7 @@ def fig_mapa(
             hoy_perceptible = hoy_df
         if not hoy_perceptible.empty:
             add_circulos_perceptibles(
-                fig, hoy_perceptible,
+                fig, _con_hover_sismos(hoy_perceptible),
                 legend_name="Zona perceptible (hoy)", legendgroup="hoy", period_ms=1600,
             )
         if "alerta_tsunami" in hoy_df.columns and mostrar_tsunami:
@@ -293,7 +334,7 @@ def fig_mapa(
         df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
         if not df_prueba_hoy.empty:
             add_circulos_perceptibles(
-                fig, df_prueba_hoy,
+                fig, _con_hover_sismos(df_prueba_hoy),
                 legend_name="Zona perceptible (prueba)", legendgroup="prueba", period_ms=1400,
                 show_legend=False,
             )

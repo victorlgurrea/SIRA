@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 
-from charts.map_fig import es_sismo_hoy, fig_mapa, fmt_sismo_fecha, geo_layout
+from charts.map_fig import es_sismo_hoy, fig_mapa, fmt_sismo_fecha, fmt_sismo_linea, geo_layout
 from sira.infrastructure.geo.ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
 from sira.infrastructure.geo.es import (
     CCAA_PROVINCIAS,
@@ -37,6 +37,7 @@ from ui.theme import (
 __all__ = [
     "es_sismo_hoy",
     "fmt_sismo_fecha",
+    "fmt_sismo_linea",
     "geo_layout",
     "fig_mapa",
     "fig_corrientes",

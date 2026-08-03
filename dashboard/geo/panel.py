@@ -23,6 +23,7 @@ from sira.config.settings import (
 )
 from charts.figures import (
     fmt_sismo_fecha as _fmt_sismo_fecha,
+    fmt_sismo_linea as _fmt_sismo_linea,
     fig_lluvia as _fig_lluvia,
     fig_mapa as _fig_mapa,
 )
@@ -91,17 +92,7 @@ def _lineas_sismos(sismos: list[dict], *, limite: int = 8) -> list[str]:
         key=lambda s: str(s.get("timestamp") or ""),
         reverse=True,
     )
-    lineas: list[str] = []
-    for s in ordenados[:limite]:
-        lugar = str(s.get("lugar") or "epicentro desconocido").strip()
-        mag = s.get("magnitud")
-        fecha = _fmt_sismo_fecha(s.get("timestamp"))
-        linea = f"· {lugar}"
-        if mag is not None:
-            linea += f" · M{mag}"
-        if fecha and fecha != "—":
-            linea += f" · {fecha}"
-        lineas.append(linea)
+    lineas = [_fmt_sismo_linea(s, bullet=True) for s in ordenados[:limite]]
     if len(sismos) > limite:
         lineas.append(f"· … y {len(sismos) - limite} más.")
     return lineas

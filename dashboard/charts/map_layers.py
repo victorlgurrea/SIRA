@@ -319,7 +319,7 @@ def add_capa_sst_med(
     fuente: str | None = None,
     theme: str = "dark",
 ) -> None:
-    """Malla SST solo-mar con markers cuadrados (Scattergeo fill=toself fusiona todo en un bloque)."""
+    """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom (sin huecos)."""
     if not celdas:
         return
     from charts.figures import (
@@ -330,9 +330,15 @@ def add_capa_sst_med(
     from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
-    half_mask = max(paso * 0.48, 0.05)
-    # Tamaño en px aprox. para paso ~0.12° en vista Valencia (sin huecos graves ni invasión).
-    size = max(8, min(13, round(paso * 90)))
+    lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
+    if len(lats_u) >= 2:
+        diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
+        if diffs:
+            paso = max(paso, sorted(diffs)[len(diffs) // 2])
+    half_mask = max(paso * 0.42, 0.035)
+    umbral_mar = 0.90
+    # Tamaño base (vista España); pulse-map / sst-zoom lo crece al acercar.
+    size = max(10, min(16, round(paso * 100)))
     fecha_txt = f" · {fecha}" if fecha else ""
 
     lats: list[float] = []
@@ -347,7 +353,8 @@ def add_capa_sst_med(
         lon = float(c["lon"])
         if not punto_en_mar_mediterraneo(lat, lon):
             continue
-        if fraccion_mar_celda(lat, lon, half_mask) < 0.8:
+        # Centro en mar + casi toda la celda en mar → no pisa costa/tierra.
+        if fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
             continue
         temp = float(c["sst_c"])
         lats.append(lat)
@@ -362,25 +369,29 @@ def add_capa_sst_med(
     if not lats:
         return
 
-    fig.add_trace(go.Scattergeo(
-        lat=lats,
-        lon=lons,
-        mode="markers",
-        showlegend=False,
-        legendgroup="sst_med",
-        marker=dict(
-            symbol="square",
-            size=size,
-            color=temps,
-            colorscale=SST_MED_COLORSCALE,
-            cmin=SST_MED_LEYENDA_MIN,
-            cmax=SST_MED_LEYENDA_MAX,
-            line=dict(width=0),
-            opacity=0.92,
-        ),
-        text=hovers,
-        hovertemplate="%{text}<extra></extra>",
-    ))
+    fig.add_trace(
+        go.Scattergeo(
+            lat=lats,
+            lon=lons,
+            mode="markers",
+            showlegend=False,
+            legendgroup="sst_med",
+            name="sst_med_cells",
+            marker=dict(
+                symbol="square",
+                size=size,
+                color=temps,
+                colorscale=SST_MED_COLORSCALE,
+                cmin=SST_MED_LEYENDA_MIN,
+                cmax=SST_MED_LEYENDA_MAX,
+                line=dict(width=0),
+                opacity=0.94,
+            ),
+            text=hovers,
+            hovertemplate="%{text}<extra></extra>",
+            meta={"sira_layer": "sst_med", "paso_deg": paso, "base_size": size},
+        )
+    )
 
     add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
 
