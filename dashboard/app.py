@@ -60,34 +60,43 @@ _LOGO_FILE = _ASSETS / "logo-sira_4.png"
 if not _LOGO_FILE.is_file():
     raise SystemExit(f"Falta el logo: {_LOGO_FILE}")
 
+# Plotly.js vía CDN: en Render Free el origen suele devolver 503 al servir
+# dash/dcc/plotly.min.js (~3.6 MB) y Dash aborta a los 30 s ("plotly.js did not load").
+_PLOTLY_JS_CDN = (
+    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.25.2/plotly.min.js"
+)
+
 app = Dash(
     __name__,
     title="SIRA — Sistema Ibérico de Riesgos y Alerta",
     assets_folder=str(_ASSETS),
+    compress=True,
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
-app.index_string = """
+app.index_string = f"""
 <!DOCTYPE html>
 <html>
     <head>
-        {%metas%}
-        <title>{%title%}</title>
-        {%favicon%}
-        {%css%}
+        {{%metas%}}
+        <title>{{%title%}}</title>
+        {{%favicon%}}
+        {{%css%}}
         <link rel="stylesheet" href="/assets/sira.css?v=36">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
+        <link rel="preload" href="{_PLOTLY_JS_CDN}" as="script" crossorigin="anonymous">
+        <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
-        {%app_entry%}
+        {{%app_entry%}}
         <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
+            {{%config%}}
+            {{%scripts%}}
+            {{%renderer%}}
         </footer>
     </body>
 </html>
