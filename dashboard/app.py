@@ -70,7 +70,6 @@ app = Dash(
     __name__,
     title="SIRA — Sistema Ibérico de Riesgos y Alerta",
     assets_folder=str(_ASSETS),
-    compress=True,
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
