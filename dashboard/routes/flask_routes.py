@@ -150,6 +150,12 @@ def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None 
             elif ok:
                 n = info.get("registros", "—")
                 estado = f'<span class="sira-status-ok">OK</span> <span class="sira-status-meta">({n} registros)</span>'
+            elif not info:
+                # Sin entrada aún (arranque / ingesta en curso): no es un fallo real.
+                if ingesta_running:
+                    estado = '<span class="sira-status-warn">pendiente</span> <span class="sira-status-meta">(ingesta en curso)</span>'
+                else:
+                    estado = '<span class="sira-status-warn">sin datos</span>'
             else:
                 err = info.get("error") or "error"
                 estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'

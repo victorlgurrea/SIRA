@@ -506,6 +506,8 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
     cards, mapa, lluvia = build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
+    if not d.get("generado_en"):
+        ts = "sin datos — ingesta en curso o API no lista (recarga en 2–5 min)"
     if d.get("sismo_prueba_activo"):
         ts = f"{ts} · Sismo de prueba en mapa"
 
