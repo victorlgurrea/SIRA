@@ -112,12 +112,14 @@ def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN, tooltip: str | Non
         children.append(detalle)
     if ayuda:
         children.append(html.P(ayuda, className="sira-card-help"))
-    return html.Div(
-        className="sira-card",
-        style={"borderLeftColor": accent},
-        title=tooltip,
-        children=children,
-    )
+    props: dict = {
+        "className": "sira-card",
+        "style": {"borderLeftColor": accent},
+        "children": children,
+    }
+    if tooltip:
+        props["title"] = tooltip
+    return html.Div(**props)
 
 
 def card_doble(
@@ -129,20 +131,32 @@ def card_doble(
     ayuda: str,
     accent: str = C_CYAN,
     tooltip: str | None = None,
+    tooltip_espana: str | None = None,
+    tooltip_local: str | None = None,
 ) -> html.Div:
     """Tarjeta con dos cifras: España / localidad."""
+    # tooltip (legacy) aplica solo a la cifra local si no hay tooltip_local.
+    tip_loc = tooltip_local if tooltip_local is not None else tooltip
     valor = html.Div(className="sira-card-dual", children=[
-        html.Div(className="sira-card-dual-part", children=[
-            html.Span(str(valor_esp), className="sira-card-value-num"),
-            html.Span(etiqueta_esp, className="sira-card-dual-lbl"),
-        ]),
+        html.Div(
+            className="sira-card-dual-part",
+            **({"title": tooltip_espana} if tooltip_espana else {}),
+            children=[
+                html.Span(str(valor_esp), className="sira-card-value-num"),
+                html.Span(etiqueta_esp, className="sira-card-dual-lbl"),
+            ],
+        ),
         html.Span("·", className="sira-card-dual-sep"),
-        html.Div(className="sira-card-dual-part", children=[
-            html.Span(str(valor_loc), className="sira-card-value-num"),
-            html.Span(etiqueta_loc, className="sira-card-dual-lbl"),
-        ]),
+        html.Div(
+            className="sira-card-dual-part",
+            **({"title": tip_loc} if tip_loc else {}),
+            children=[
+                html.Span(str(valor_loc), className="sira-card-value-num"),
+                html.Span(etiqueta_loc, className="sira-card-dual-lbl"),
+            ],
+        ),
     ])
-    return card(titulo, valor, "", ayuda, accent, tooltip=tooltip)
+    return card(titulo, valor, "", ayuda, accent)
 
 
 def card_sismos_combinada(
@@ -154,30 +168,35 @@ def card_sismos_combinada(
     detalle: str,
     ayuda: str,
     accent: str = C_ORANGE,
-    tooltip: str | None = None,
+    tooltip_espana: str | None = None,
+    tooltip_local: str | None = None,
 ) -> html.Div:
     valor = html.Div(className="sira-card-sismos-combo", children=[
         html.Div(className="sira-card-dual", children=[
             html.Div(
                 className="sira-card-dual-part",
-                title=tooltip,
+                title=tooltip_espana,
                 children=[
                     html.Span(str(n_esp), className="sira-card-value-num"),
                     html.Span("España", className="sira-card-dual-lbl"),
                 ],
             ),
             html.Span("·", className="sira-card-dual-sep"),
-            html.Div(className="sira-card-dual-part", children=[
-                html.Span(str(n_loc), className="sira-card-value-num"),
-                html.Span(f"perceptibles · {localidad}", className="sira-card-dual-lbl"),
-            ]),
+            html.Div(
+                className="sira-card-dual-part",
+                title=tooltip_local,
+                children=[
+                    html.Span(str(n_loc), className="sira-card-value-num"),
+                    html.Span(f"perceptibles · {localidad}", className="sira-card-dual-lbl"),
+                ],
+            ),
         ]),
         html.Div(className="sira-card-sismos-mag", children=[
             mag_con_riesgo(mag_max, nivel_max),
             html.Div(detalle, className="sira-card-detail") if detalle else None,
         ]),
     ])
-    return card("Sismos", valor, "", ayuda, accent, tooltip=tooltip)
+    return card("Sismos", valor, "", ayuda, accent)
 
 
 def regiones(reg: dict) -> html.Div:

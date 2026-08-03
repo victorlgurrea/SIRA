@@ -103,7 +103,13 @@ def parse_emsc_feature(feature: dict[str, Any]) -> dict[str, Any] | None:
         prof = 0.0
     mag = float(props["mag"])
     region = str(props.get("flynn_region") or props.get("region") or "").strip()
-    lugar = (f"{region.title()}, near {lat:.2f}°N {lon:.2f}°E" if region else f"EMSC {lat:.2f}°N {lon:.2f}°E")[:200]
+    if region.upper() == "SPAIN" and 37.5 <= lat <= 38.5 and -2.2 <= lon <= -1.0:
+        lugar = f"Murcia (cerca Librilla), {lat:.2f}°N {lon:.2f}°E"
+    elif region:
+        lugar = f"{region.title()}, near {lat:.2f}°N {lon:.2f}°E"
+    else:
+        lugar = f"EMSC {lat:.2f}°N {lon:.2f}°E"
+    lugar = lugar[:200]
     time_raw = props.get("time")
     if isinstance(time_raw, str):
         ts = datetime.fromisoformat(time_raw.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()

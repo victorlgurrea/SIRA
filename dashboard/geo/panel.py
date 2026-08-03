@@ -84,23 +84,15 @@ def _sismo_mag_max(sismos: list, mag_max: float) -> dict | None:
     return max(candidatos, key=lambda s: (s.get("score_local", s.get("score_total", 0)), s.get("magnitud", 0)))
 
 
-def _tooltip_sismos(
-    sismos_espana: list[dict],
-    sismos_local: list[dict],
-    localidad: str,
-) -> str:
-    """Lista lugar y magnitud de los sismos de España (y perceptibles locales)."""
-    n_esp = len(sismos_espana)
-    if n_esp <= 0:
-        return f"Sin sismos recientes en España. Ninguno perceptible cerca de {localidad}."
-
-    partes = [f"{n_esp} sismo(s) recientes en España:"]
+def _lineas_sismos(sismos: list[dict], *, limite: int = 8) -> list[str]:
+    """Una línea por sismo, del más reciente al más antiguo."""
     ordenados = sorted(
-        sismos_espana,
-        key=lambda s: float(s.get("magnitud") or 0),
+        sismos,
+        key=lambda s: str(s.get("timestamp") or ""),
         reverse=True,
     )
-    for s in ordenados[:8]:
+    lineas: list[str] = []
+    for s in ordenados[:limite]:
         lugar = str(s.get("lugar") or "epicentro desconocido").strip()
         mag = s.get("magnitud")
         fecha = _fmt_sismo_fecha(s.get("timestamp"))
@@ -109,15 +101,77 @@ def _tooltip_sismos(
             linea += f" · M{mag}"
         if fecha and fecha != "—":
             linea += f" · {fecha}"
-        partes.append(linea)
-    if n_esp > 8:
-        partes.append(f"· … y {n_esp - 8} más.")
+        lineas.append(linea)
+    if len(sismos) > limite:
+        lineas.append(f"· … y {len(sismos) - limite} más.")
+    return lineas
 
-    if sismos_local:
-        partes.append(f"{len(sismos_local)} perceptible(s) cerca de {localidad}.")
-    else:
-        partes.append(f"Ninguno perceptible cerca de {localidad}.")
-    return " ".join(partes)
+
+def _tooltip_sismos_espana(sismos_espana: list[dict]) -> str:
+    n = len(sismos_espana)
+    if n <= 0:
+        return "Sin sismos recientes en España."
+    return "\n".join([f"{n} sismo(s) recientes en España:", *_lineas_sismos(sismos_espana)])
+
+
+def _tooltip_sismos_perceptibles(sismos_local: list[dict], localidad: str) -> str:
+    n = len(sismos_local)
+    if n <= 0:
+        return f"Ningún sismo perceptible cerca de {localidad}."
+    return "\n".join([
+        f"{n} sismo(s) perceptible(s) cerca de {localidad}:",
+        *_lineas_sismos(sismos_local),
+    ])
+
+
+def _ubicacion_foco(incendio: dict) -> str:
+    """Municipio más cercano al centroide del foco (fallback a coords)."""
+    try:
+        from sira.infrastructure.geo.es import municipio_mas_cercano
+
+        lat = float(incendio["lat"])
+        lon = float(incendio["lon"])
+        muni = municipio_mas_cercano(lat, lon)
+        if muni and muni.get("municipio"):
+            nom = str(muni["municipio"])
+            prov = muni.get("provincia")
+            if prov:
+                return f"{nom} ({prov})"
+            return nom
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        return f"{float(incendio['lat']):.2f}°N, {float(incendio['lon']):.2f}°E"
+    except (TypeError, ValueError, KeyError):
+        return "ubicación desconocida"
+
+
+def _tooltip_incendios_local(incendios_local: list[dict], localidad: str) -> str:
+    """Una línea por foco cercano: municipio próximo + hectáreas estimadas."""
+    n = len(incendios_local)
+    if n <= 0:
+        return f"Ningún foco cerca de {localidad}."
+    ordenados = sorted(
+        incendios_local,
+        key=lambda i: float(i.get("dist_local_km") or 1e9),
+    )
+    lineas = [f"{n} foco(s) cerca de {localidad}:"]
+    for i in ordenados[:8]:
+        ubi = _ubicacion_foco(i)
+        area_km2 = float(i.get("area_km2") or 0)
+        ha = area_km2 * 100.0
+        if ha >= 100:
+            ha_txt = f"{ha:,.0f} ha".replace(",", ".")
+        else:
+            ha_txt = f"{ha:.0f} ha"
+        dist = i.get("dist_local_km")
+        linea = f"· Cerca de {ubi} · {ha_txt}"
+        if dist is not None:
+            linea += f" · a {float(dist):.0f} km"
+        lineas.append(linea)
+    if n > 8:
+        lineas.append(f"· … y {n - 8} más.")
+    return "\n".join(lineas)
 
 
 def _detalle_sismo(sismo: dict | None) -> html.Div | str:
@@ -245,7 +299,8 @@ def build_panel_geo(
             _detalle_sismo(sismo_max),
             "",
             accent=C_ORANGE,
-            tooltip=_tooltip_sismos(d.get("sismos") or [], sismos, localidad),
+            tooltip_espana=_tooltip_sismos_espana(d.get("sismos") or []),
+            tooltip_local=_tooltip_sismos_perceptibles(sismos, localidad),
         ),
         card_doble(
             "Incendios activos",
@@ -255,7 +310,7 @@ def build_panel_geo(
             f"cerca · {localidad}",
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
-            tooltip="Focos térmicos satelitales (NASA FIRMS) con recuento nacional y proximidad local.",
+            tooltip_local=_tooltip_incendios_local(incendios_local, localidad),
         ),
         card(
             "Tiempo ahora",
