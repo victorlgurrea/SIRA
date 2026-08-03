@@ -54,8 +54,10 @@ jobs:
               -H "X-Cron-Secret: ${CRON_SECRET}" \
               -H "Content-Type: application/json" || true)
             echo "  intento $i → HTTP $code"
-            if [ "$code" = "200" ]; then
-              head -c 500 /tmp/sira_ingesta_body.txt || true
+            body="$(head -c 800 /tmp/sira_ingesta_body.txt || true)"
+            # 200 legacy; 202 = aceptada en background o ya en curso (ambos OK)
+            if [ "$code" = "200" ] || [ "$code" = "202" ]; then
+              echo "$body"
               echo
               exit 0
             fi
@@ -65,7 +67,7 @@ jobs:
               continue
             fi
             echo "Respuesta no reintentable:"
-            head -c 800 /tmp/sira_ingesta_body.txt || true
+            echo "$body"
             echo
             exit 1
           done
