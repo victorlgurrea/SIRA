@@ -29,6 +29,12 @@ def dashboard_payload():
     }
 
 
+def test_api_health(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
 def test_api_dashboard(client, dashboard_payload):
     with patch("sira.api.server.read_dashboard", return_value=dashboard_payload):
         r = client.get("/api/dashboard")

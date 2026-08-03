@@ -134,10 +134,10 @@ CMEMS_SST_DATASET_ID = os.getenv(
     "cmems_mod_med_phy-tem_anfc_4.2km-2D_PT1H-m",
 )
 CMEMS_SST_VARIABLE = os.getenv("CMEMS_SST_VARIABLE", "thetao")
-CMEMS_SST_LAT_MIN = _f("CMEMS_SST_LAT_MIN", "30.00")
-CMEMS_SST_LAT_MAX = _f("CMEMS_SST_LAT_MAX", "46.50")
+CMEMS_SST_LAT_MIN = _f("CMEMS_SST_LAT_MIN", "30.20")
+CMEMS_SST_LAT_MAX = _f("CMEMS_SST_LAT_MAX", "45.97")
 CMEMS_SST_LON_MIN = _f("CMEMS_SST_LON_MIN", "-6.50")
-CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "36.30")
+CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "36.29")
 CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.12")
 CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "2600")
 # La malla Open-Meteo gasta el cupo diario y deja vacíos los KPIs SST/corrientes.

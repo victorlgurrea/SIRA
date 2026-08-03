@@ -28,30 +28,7 @@ from sira.config.settings import (
     RATE_LIMIT_SEC,
 )
 from sira.infrastructure.http.client import read_dashboard
-from sira.infrastructure.persistence.sqlite import count_subscriptions, get_historial_municipio, migrar_desde_json
-from sira.infrastructure.geo.es import (
-    localidades,
-    municipio_mas_cercano,
-    municipio_por_id,
-    provincia_de_municipio,
-    provincias,
-)
-from sira.services.ingesta.orchestrator import ejecutar_ingesta
-from sira.infrastructure.sources.meteo.live import meteo_localidad
-from sira.services.push.web import (
-    add_subscription,
-    debug_aemet_matches,
-    debug_push_state,
-    notify_new_alerts,
-    notify_new_meteo_alerts,
-    remove_subscription,
-    send_bootstrap_meteo_for_subscription,
-    send_test_meteo_push,
-    send_test_push,
-    vapid_enabled,
-    vapid_public_key,
-)
-from sira.services.overlays.meteo_alerts import save_test_alert
+from sira.infrastructure.persistence.sqlite import count_subscriptions, get_historial_municipio
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +58,9 @@ def _run_ingesta_job() -> None:
     _ingesta_state["started_at"] = datetime.now(timezone.utc).isoformat()
     _ingesta_state["last_error"] = None
     try:
+        from sira.services.ingesta.orchestrator import ejecutar_ingesta
+        from sira.services.push.web import notify_new_alerts
+
         ejecutar_ingesta()
         dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
         n = notify_new_alerts(dashboard_url)
@@ -156,13 +136,23 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 @app.on_event("startup")
 def _startup_migrar_json() -> None:
-    try:
-        migrar_desde_json()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Migraci├│n JSONÔåÆSQLite: %s", exc)
-    if not read_dashboard().get("generado_en"):
-        log.info("Sin dashboard_data.json: ingesta inicial en segundo plano")
-        threading.Thread(target=_run_ingesta_job, name="sira-boot-ingesta", daemon=True).start()
+    """No bloquea el bind de Uvicorn: Render solo da 5s al health check."""
+
+    def _boot() -> None:
+        try:
+            from sira.infrastructure.persistence.sqlite import migrar_desde_json
+
+            migrar_desde_json()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Migración JSON→SQLite: %s", exc)
+        try:
+            if not read_dashboard().get("generado_en"):
+                log.info("Sin dashboard_data.json: ingesta inicial en segundo plano")
+                _run_ingesta_job()
+        except Exception:  # noqa: BLE001
+            log.exception("Boot ingesta falló")
+
+    threading.Thread(target=_boot, name="sira-boot", daemon=True).start()
 
 
 def _valid_api_key(provided: str | None) -> bool:
@@ -187,12 +177,21 @@ def _require_debug_auth(api_key: str | None, cron_secret: str | None) -> None:
 
 
 def _meteo_test_defaults(municipio_id: str | None) -> tuple[str, str]:
+    from sira.infrastructure.geo.es import municipio_por_id, provincia_de_municipio, provincias
+
     muni_id = str(municipio_id or AEMET_MUNICIPIO).zfill(5)
     muni = municipio_por_id(muni_id)
     prov_id = provincia_de_municipio(muni_id) or "46"
     prov_name = next((p.get("nombre") for p in provincias() if str(p.get("id")) == str(prov_id)), "Valencia")
     area = f"{muni.get('nombre') if muni else 'Valencia'} ({prov_name})"
     return muni_id, area
+
+
+@app.get("/")
+@app.get("/api/health")
+def health():
+    """Health check ligero (Render: timeout 5s). Sin I/O pesado."""
+    return {"ok": True, "service": "sira-api"}
 
 
 @app.get("/api/dashboard")
@@ -215,6 +214,8 @@ def status():
 
 @app.get("/api/historial/{municipio_id}")
 def historial(municipio_id: str, dias: int = HISTORIAL_DIAS_DEFAULT):
+    from sira.infrastructure.geo.es import municipio_por_id
+
     mid = str(municipio_id).zfill(5)
     muni = municipio_por_id(mid)
     if not muni:
@@ -231,6 +232,9 @@ def historial(municipio_id: str, dias: int = HISTORIAL_DIAS_DEFAULT):
 @app.get("/api/meteo/{municipio_id}")
 def meteo_municipio(municipio_id: str, localidad: str | None = None):
     """Meteo horaria AEMET (o Open-Meteo) para el municipio seleccionado."""
+    from sira.infrastructure.geo.es import municipio_por_id
+    from sira.infrastructure.sources.meteo.live import meteo_localidad
+
     mid = str(municipio_id).zfill(5)
     muni = municipio_por_id(mid)
     if not muni:
@@ -241,11 +245,13 @@ def meteo_municipio(municipio_id: str, localidad: str | None = None):
 
 @app.get("/api/geo/municipio-cercano")
 def geo_municipio_cercano(lat: float, lon: float):
+    from sira.infrastructure.geo.es import localidades, municipio_mas_cercano
+
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise HTTPException(400, "Coordenadas inv├ílidas")
+        raise HTTPException(400, "Coordenadas inválidas")
     res = municipio_mas_cercano(lat, lon)
     if not res:
-        raise HTTPException(404, "Sin municipios en cat├ílogo geo")
+        raise HTTPException(404, "Sin municipios en catálogo geo")
     locs = localidades(res["municipio_id"])
     return {
         **res,
@@ -257,15 +263,18 @@ def geo_municipio_cercano(lat: float, lon: float):
 @app.post("/api/actualizar")
 def actualizar(request: Request, x_api_key: str | None = Header(default=None)):
     if not ALLOW_DATA_REFRESH:
-        raise HTTPException(403, "Actualizaci├│n deshabilitada (modo solo consulta)")
+        raise HTTPException(403, "Actualización deshabilitada (modo solo consulta)")
     if not API_KEY:
         raise HTTPException(503, "API_KEY no configurada")
     if not _valid_api_key(x_api_key):
-        raise HTTPException(401, "API key inv├ílida")
+        raise HTTPException(401, "API key inválida")
     client = request.client.host if request.client else "unknown"
     if time.monotonic() - _last_post[client] < RATE_LIMIT_SEC:
         raise HTTPException(429, f"Espera {RATE_LIMIT_SEC}s")
     _last_post[client] = time.monotonic()
+    from sira.services.ingesta.orchestrator import ejecutar_ingesta
+    from sira.services.push.web import notify_new_alerts
+
     ejecutar_ingesta()
     n = notify_new_alerts(CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com")
     return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
@@ -297,6 +306,8 @@ def cron_meteo(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Se
         raise HTTPException(503, "CRON_SECRET no configurado")
     if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
         raise HTTPException(401, "No autorizado")
+    from sira.services.push.web import notify_new_meteo_alerts
+
     dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
     n = notify_new_meteo_alerts(dashboard_url)
     return {"ok": True, "generado_en": read_dashboard().get("generado_en"), "push_enviados": n}
@@ -304,6 +315,8 @@ def cron_meteo(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Se
 
 @app.get("/api/push/public-key")
 def push_public_key():
+    from sira.services.push.web import vapid_enabled, vapid_public_key
+
     if not vapid_enabled():
         raise HTTPException(503, "Web Push no configurado")
     return {"public_key": vapid_public_key()}
@@ -311,9 +324,10 @@ def push_public_key():
 
 @app.post("/api/push/subscribe")
 def push_subscribe(sub: SubscriptionIn):
+    from sira.services.push.web import add_subscription, send_bootstrap_meteo_for_subscription
+
     payload = sub.model_dump()
     n = add_subscription(payload)
-    # Bootstrap: si ya hay avisos meteo activos, env├¡a al nuevo endpoint.
     dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
     bootstrap = send_bootstrap_meteo_for_subscription(dashboard_url, payload)
     return {"ok": True, "suscripciones": n, "bootstrap_meteo": bootstrap}
@@ -321,6 +335,8 @@ def push_subscribe(sub: SubscriptionIn):
 
 @app.post("/api/push/unsubscribe")
 def push_unsubscribe(payload: UnsubscribeIn):
+    from sira.services.push.web import remove_subscription
+
     n = remove_subscription(payload.endpoint)
     return {"ok": True, "suscripciones": n}
 
@@ -331,11 +347,13 @@ def push_test(
     x_api_key: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
 ):
-    """Notificaci├│n de prueba (Postman). Requiere X-API-Key o X-Cron-Secret."""
+    """Notificación de prueba (Postman). Requiere X-API-Key o X-Cron-Secret."""
     if not API_KEY and not CRON_SECRET:
         raise HTTPException(503, "API_KEY o CRON_SECRET no configurado en el servidor")
     if not _valid_push_test_auth(x_api_key, x_cron_secret):
-        raise HTTPException(401, "No autorizado (X-API-Key o X-Cron-Secret inv├ílido)")
+        raise HTTPException(401, "No autorizado (X-API-Key o X-Cron-Secret inválido)")
+    from sira.services.push.web import send_test_push, vapid_enabled
+
     if not vapid_enabled():
         raise HTTPException(503, "Web Push no configurado")
     dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
@@ -359,10 +377,10 @@ def push_test(
             tsunami=payload.tsunami,
         )
     except Exception as exc:
-        log.exception("push/test fall├│")
+        log.exception("push/test falló")
         raise HTTPException(500, f"Error interno al enviar push: {exc}") from exc
     if not result.get("ok"):
-        raise HTTPException(404 if result.get("error") == "No hay suscripciones activas" else 503, result.get("error", "Env├¡o fallido"))
+        raise HTTPException(404 if result.get("error") == "No hay suscripciones activas" else 503, result.get("error", "Envío fallido"))
     return result
 
 
@@ -371,6 +389,8 @@ def debug_push(
     x_api_key: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
 ):
+    from sira.services.push.web import debug_push_state
+
     _require_debug_auth(x_api_key, x_cron_secret)
     return debug_push_state()
 
@@ -381,6 +401,8 @@ def debug_aemet(
     x_api_key: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
 ):
+    from sira.services.push.web import debug_aemet_matches
+
     _require_debug_auth(x_api_key, x_cron_secret)
     try:
         return debug_aemet_matches(
@@ -389,7 +411,7 @@ def debug_aemet(
             localidad_id=payload.localidad_id,
         )
     except Exception as exc:
-        log.exception("debug/aemet fall├│")
+        log.exception("debug/aemet falló")
         raise HTTPException(500, f"Error interno al leer avisos AEMET: {exc}") from exc
 
 
@@ -399,18 +421,21 @@ def meteo_test(
     x_api_key: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret"),
 ):
+    from sira.services.overlays.meteo_alerts import save_test_alert
+    from sira.services.push.web import send_test_meteo_push, vapid_enabled
+
     _require_debug_auth(x_api_key, x_cron_secret)
     muni_id, area_default = _meteo_test_defaults(payload.solo_municipio_id)
     tipo = (payload.tipo or "AT").strip().upper()
     nivel = (payload.nivel or "naranja").strip().lower()
     names = {
-        "AT": ("Temperatura m├íxima", "TA;Temperatura m├íxima;39 ┬║C"),
-        "VI": ("Viento", "RM;Racha m├íxima;90 km/h"),
-        "CO": ("Fen├│meno costero", "CO;Oleaje;4 m"),
-        "PR": ("Lluvia", "P1;Precipitaci├│n 1h;30 mm"),
+        "AT": ("Temperatura máxima", "TA;Temperatura máxima;39 °C"),
+        "VI": ("Viento", "RM;Racha máxima;90 km/h"),
+        "CO": ("Fenómeno costero", "CO;Oleaje;4 m"),
+        "PR": ("Lluvia", "P1;Precipitación 1h;30 mm"),
         "TO": ("Tormenta", "TO;Tormenta;muy fuerte"),
     }
-    desc, param_default = names.get(tipo, ("Fen├│meno meteorol├│gico", f"{tipo};Fen├│meno;ÔÇö"))
+    desc, param_default = names.get(tipo, ("Fenómeno meteorológico", f"{tipo};Fenómeno;—"))
     alert = {
         "id": f"aemet-test-{tipo}-{int(time.time())}",
         "source": "AEMET",
@@ -426,7 +451,7 @@ def meteo_test(
         "parametro": payload.parametro or param_default,
         "probabilidad": "40%-70%",
         "zona": f"test-{muni_id}",
-        "icon": {"AT": "­ƒîí´©Å", "VI": "­ƒÆ¿", "CO": "­ƒîè", "PR": "­ƒîº´©Å", "TO": "Ôøê´©Å"}.get(tipo, "ÔÜá´©Å"),
+        "icon": {"AT": "🌡️", "VI": "💨", "CO": "🌊", "PR": "🌧️", "TO": "⛈️"}.get(tipo, "⚠️"),
     }
     saved = save_test_alert(alert, ttl_min=payload.ttl_minutos)
     out = {"ok": True, "alerta": saved}
