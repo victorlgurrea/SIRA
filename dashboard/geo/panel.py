@@ -206,8 +206,10 @@ def build_mapa_fig(
     capas: list[str] | None = None,
     theme: str = "dark",
     map_aspect: float | None = None,
+    *,
+    ctx: dict | None = None,
 ) -> go.Figure:
-    ctx = datos_mapa(geo, d)
+    ctx = ctx or datos_mapa(geo, d)
     geo_r = ctx["geo"]
     act = capas_activas(capas)
     viewport = map_viewport(geo_r)
@@ -246,7 +248,7 @@ def build_panel_geo(
 
     sismos = [s for s in sismos_mapa if s.get("perceptible_local")]
     incendios_local = [i for i in incendios_mapa if i.get("cerca_local")]
-    met = meteo_para_geo(muni_id, localidad)
+    met = meteo_para_geo(muni_id, localidad, dashboard=d)
     res_met = met.get("resumen", {})
     lluvia_24 = float(res_met.get("precip_prox_24h_mm") or 0)
     res_emb = resumen_embalses(d.get("embalses", []), lat_obs, lon_obs, lluvia_24h_mm=lluvia_24)
@@ -317,6 +319,6 @@ def build_panel_geo(
             tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
         ),
     ]
-    mapa = build_mapa_fig(geo_r, d, capas, theme, map_aspect=map_aspect)
+    mapa = build_mapa_fig(geo_r, d, capas, theme, map_aspect=map_aspect, ctx=ctx)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia

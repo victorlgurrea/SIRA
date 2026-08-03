@@ -34,6 +34,9 @@ from sira.infrastructure.sources.ocean.sst_transport import slim_sst_grid_for_tr
 
 log = logging.getLogger(__name__)
 
+# Cache del payload /api/dashboard (mismo generado_en → mismo JSON slim).
+_DASHBOARD_RESP_CACHE: dict[str, object] = {"generado_en": None, "payload": None}
+
 app = FastAPI(title="SIRA API", docs_url="/docs" if ENABLE_API_DOCS else None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
@@ -202,12 +205,19 @@ def dashboard():
     data = read_dashboard()
     if not isinstance(data, dict):
         return data
-    # PRO: mallas SST >10k celdas hacen timeout al dashboard (fallback a JSON vacío).
+    gen = data.get("generado_en")
+    if gen and _DASHBOARD_RESP_CACHE.get("generado_en") == gen and _DASHBOARD_RESP_CACHE.get("payload") is not None:
+        return _DASHBOARD_RESP_CACHE["payload"]
+    # PRO: mallas SST grandes hacen timeout al dashboard (fallback a JSON vacío).
     grid = slim_sst_grid_for_transport(data.get("sst_med_grid"))
-    if grid is data.get("sst_med_grid"):
-        return data
-    out = dict(data)
-    out["sst_med_grid"] = grid
+    if grid is not data.get("sst_med_grid"):
+        out = dict(data)
+        out["sst_med_grid"] = grid
+    else:
+        out = data
+    if gen:
+        _DASHBOARD_RESP_CACHE["generado_en"] = gen
+        _DASHBOARD_RESP_CACHE["payload"] = out
     return out
 
 

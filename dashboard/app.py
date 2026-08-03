@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import time
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -33,6 +34,9 @@ from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard  #
 from routes.flask_routes import register_routes
 
 log = logging.getLogger(__name__)
+
+_LOAD_CACHE: tuple[float, dict | None] = (0.0, None)
+_LOAD_TTL_SEC = 45.0
 from geo.context import DEFAULT_LOC, DEFAULT_MUNI, DEFAULT_PROV, default_geo, geo_resuelto, theme_val
 from geo.panel import alertas_meteo_fuente, build_mapa_fig, build_panel_geo
 from sira.infrastructure.geo.es import (
@@ -264,15 +268,21 @@ app.layout = html.Div(className="sira-page", children=[
 
 
 def _load() -> dict:
+    """Lee dashboard con cache corto (el callback se dispara muchas veces al cargar)."""
+    global _LOAD_CACHE
+    now = time.monotonic()
+    if _LOAD_CACHE[1] is not None and (now - _LOAD_CACHE[0]) < _LOAD_TTL_SEC:
+        return _LOAD_CACHE[1]
     try:
         r = requests.get(
             f"{API_BASE_URL}/api/dashboard",
-            timeout=90,
+            timeout=25,
             headers={"Accept-Encoding": "gzip"},
         )
         if r.ok:
             data = r.json()
             if isinstance(data, dict) and data.get("generado_en"):
+                _LOAD_CACHE = (now, data)
                 return data
         log.warning("API sin dashboard utilizable (%s %s)", r.status_code, API_BASE_URL)
     except requests.RequestException as exc:
@@ -280,6 +290,8 @@ def _load() -> dict:
     local = read_dashboard()
     if not local.get("generado_en"):
         log.warning("Sin datos locales en %s", DATA_FILE)
+    elif local.get("generado_en"):
+        _LOAD_CACHE = (now, local)
     return local
 
 

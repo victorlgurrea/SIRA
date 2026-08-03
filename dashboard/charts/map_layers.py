@@ -327,7 +327,7 @@ def add_capa_sst_med(
         SST_MED_LEYENDA_MAX,
         SST_MED_LEYENDA_MIN,
     )
-    from sira.infrastructure.geo.mar_mediterraneo import fraccion_mar_celda, punto_en_mar_mediterraneo
+    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
     lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
@@ -335,9 +335,7 @@ def add_capa_sst_med(
         diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
         if diffs:
             paso = max(paso, sorted(diffs)[len(diffs) // 2])
-    half_mask = max(paso * 0.42, 0.035)
-    umbral_mar = 0.90
-    # Tamaño base (vista España); pulse-map / sst-zoom lo crece al acercar.
+    # Tamaño base (vista España); sst-zoom.js lo crece al acercar.
     size = max(10, min(16, round(paso * 100)))
     fecha_txt = f" · {fecha}" if fecha else ""
 
@@ -351,10 +349,8 @@ def add_capa_sst_med(
             continue
         lat = float(c["lat"])
         lon = float(c["lon"])
+        # Solo centro: la malla ya viene filtrada en ingesta; fraccion_mar aquí era muy caro.
         if not punto_en_mar_mediterraneo(lat, lon):
-            continue
-        # Centro en mar + casi toda la celda en mar → no pisa costa/tierra.
-        if fraccion_mar_celda(lat, lon, half_mask) < umbral_mar:
             continue
         temp = float(c["sst_c"])
         lats.append(lat)

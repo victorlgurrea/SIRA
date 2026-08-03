@@ -1,9 +1,11 @@
 """Servicio de aplicación: ensambla datos del mapa geográfico (sin UI Dash)."""
 from __future__ import annotations
 
+import time
+
 import requests
 
-from sira.config.settings import API_BASE_URL, ZONA
+from sira.config.settings import AEMET_MUNICIPIO, API_BASE_URL, ZONA
 from sira.domain.seismic.sismos import enriquecer_local
 from sira.domain.seismic.tsunami_oficial import anexar_boletin_tsunami
 from sira.infrastructure.geo.es import coords_observacion, provincia_de_municipio, viewport_mapa_geo
@@ -20,6 +22,10 @@ from sira.infrastructure.sources.meteo.live import meteo_localidad
 DEFAULT_MUNI = "46250"
 DEFAULT_PROV = "46"
 
+# Cache meteo en memoria del proceso dashboard (evita /api/meteo en cada pintado).
+_METEO_CACHE: dict[str, tuple[float, dict]] = {}
+_METEO_TTL_SEC = 180.0
+
 
 def geo_resuelto_min(geo: dict) -> dict:
     """Normaliza ids de provincia/municipio sin dependencia del dashboard."""
@@ -32,19 +38,46 @@ def geo_resuelto_min(geo: dict) -> dict:
     return out
 
 
-def meteo_para_geo(municipio_id: str, localidad: str | None = None) -> dict:
-    """GET /api/meteo/{municipio}; fallback local si la API no responde."""
+def meteo_para_geo(
+    municipio_id: str,
+    localidad: str | None = None,
+    *,
+    dashboard: dict | None = None,
+) -> dict:
+    """Meteo para el municipio: cache → meteo de la ingesta → API (timeout corto)."""
     mid = str(municipio_id or DEFAULT_MUNI).zfill(5)
-    params = {"localidad": localidad} if localidad else None
+    loc = (localidad or "").strip() or ""
+    cache_key = f"{mid}|{loc}"
+    now = time.monotonic()
+    hit = _METEO_CACHE.get(cache_key)
+    if hit and (now - hit[0]) < _METEO_TTL_SEC:
+        return hit[1]
+
+    # Reutilizar meteo ya ingerido cuando coincide el municipio de referencia.
+    ref = str(AEMET_MUNICIPIO or DEFAULT_MUNI).zfill(5)
+    met_ing = (dashboard or {}).get("meteorologia") if isinstance(dashboard, dict) else None
+    if (
+        mid == ref
+        and isinstance(met_ing, dict)
+        and (met_ing.get("serie_horaria") or met_ing.get("resumen"))
+    ):
+        _METEO_CACHE[cache_key] = (now, met_ing)
+        return met_ing
+
+    params = {"localidad": loc} if loc else None
     try:
-        r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=30)
+        r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=8)
         if r.ok:
             data = r.json()
             if isinstance(data, dict):
+                _METEO_CACHE[cache_key] = (now, data)
                 return data
     except requests.RequestException:
         pass
-    return meteo_localidad(mid, localidad)
+    data = meteo_localidad(mid, loc or None)
+    if isinstance(data, dict):
+        _METEO_CACHE[cache_key] = (now, data)
+    return data
 
 
 def alertas_meteo_fuente(d: dict) -> list[dict]:
