@@ -16,15 +16,14 @@ def _en_tierra_francia_catalunya(lat: float, lon: float) -> bool:
     """
     Tierra al norte de la costa mediterránea ES-FR-IT (Cap Creus → Liguria).
 
-    Polilínea de costa (como Magreb): solo marca tierra claramente inland.
-    El escalonado anterior dejaba franjas de mar en blanco (Costa Azul).
+    Polilínea de costa (como Magreb): rechaza inland sin comerse el mar abierto.
+    Margen inland ~0.03° (~3 km) para que las celdas SST no invadan el basemap.
     """
     if lon < 1.50 or lon > 9.20:
         return False
     if lat < 41.90:
         return False
-    # Margen mínimo inland: rellena hasta la orilla; Natural Earth/IGN cortan el interior.
-    return lat > _lat_costa_francia_liguria(lon) + 0.008
+    return lat > _lat_costa_francia_liguria(lon) + 0.03
 
 
 # Costa mediterránea Cap Creus → Liguria (lon, lat), oeste→este.
@@ -128,9 +127,8 @@ def _en_tierra_magreb(lat: float, lon: float) -> bool:
         return False
     if _en_corredor_mar_andalucia(lat, lon):
         return False
-    # Pequeño margen hacia el mar: mejor pintar una celda de más junto a la
-    # costa que tapar mar real (huecos en blanco frente a Marruecos/Argelia).
-    return lat < _lat_costa_magreb(lon) - 0.04
+    # Sin margen hacia el mar: prioriza no pintar tierra (basemap Plotly/NE).
+    return lat < _lat_costa_magreb(lon)
 
 
 def _en_tierra_corcega_cerdena(lat: float, lon: float) -> bool:
@@ -193,7 +191,8 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
     """True si el punto cae en mar (no tierra) dentro del bbox SST habitual."""
     if lon <= 10.00:
         # Mediterráneo occidental: envolvente + heurísticas afinadas a mano
-        # (IGN España + Magreb + frontera FR-ES + Córcega/Cerdeña).
+        # (IGN España + Magreb + frontera FR-ES + Córcega/Cerdeña) y Natural Earth
+        # para alinear con el basemap Plotly (evita celdas SST sobre tierra blanca).
         if not _en_mar_mediterraneo_west(lat, lon):
             return False
         if punto_en_tierra(lon, lat, _anillos_ign()):
@@ -203,6 +202,8 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
         if _en_tierra_francia_catalunya(lat, lon):
             return False
         if _en_tierra_corcega_cerdena(lat, lon):
+            return False
+        if punto_en_tierra_mundo(lat, lon):
             return False
         return True
     # Mediterráneo centro-oriental: envolvente amplia + contorno mundial (indexado).
@@ -238,24 +239,23 @@ def fraccion_mar_celda(lat: float, lon: float, half: float) -> float:
     return mar / len(muestras)
 
 
-def celda_solo_mar(lat: float, lon: float, half: float) -> bool:
-    """True si la celda no invade tierra (umbral estricto)."""
-    return fraccion_mar_celda(lat, lon, half) >= 0.8
+def celda_solo_mar(lat: float, lon: float, half: float, *, umbral: float = 0.9) -> bool:
+    """True si la huella de la celda casi no invade tierra."""
+    return fraccion_mar_celda(lat, lon, half) >= float(umbral)
 
 
 def densificar_celdas_mar(
     celdas: list[dict],
     *,
     paso: float,
-    umbral_mar: float = 0.7,
+    umbral_mar: float = 0.85,
     max_celdas: int | None = None,
     solo_costa: bool = False,
 ) -> list[dict]:
-    """Rellena huecos de mar expandiendo vecinos (umbral algo laxo en costa)."""
+    """Rellena huecos de mar expandiendo vecinos (sin relajar umbral en costa)."""
     step = round(float(paso), 4)
-    half = max(step * 0.45, 0.045)
+    half = max(step * 0.48, 0.05)
     umbral = float(umbral_mar)
-    umbral_costa = max(0.55, umbral - 0.15)
     idx: dict[tuple[float, float], float] = {}
     for c in celdas:
         if c.get("sst_c") is None:
@@ -297,8 +297,7 @@ def densificar_celdas_mar(
                 continue
             if not punto_en_mar_mediterraneo(key[0], key[1]):
                 continue
-            umbral_local = umbral_costa if _cerca_costa_n(key[0], key[1]) else umbral
-            if fraccion_mar_celda(key[0], key[1], half) < umbral_local:
+            if fraccion_mar_celda(key[0], key[1], half) < umbral:
                 continue
             num = sum(val * w for val, w in vecinos)
             den = sum(w for _, w in vecinos)

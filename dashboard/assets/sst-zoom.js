@@ -37,8 +37,8 @@
       const meta = tr && tr.meta;
       if (!meta || meta.sira_layer !== "sst_med") continue;
       const base = Number(meta.base_size) || 12;
-      const factor = Math.min(4.5, Math.max(1, scale / baseScale));
-      const size = Math.min(42, Math.max(base, Math.round(base * factor * 1.08)));
+      const factor = Math.min(2.2, Math.max(1, scale / baseScale));
+      const size = Math.min(28, Math.max(base, Math.round(base * factor)));
       idxs.push(i);
       sizes.push(size);
     }

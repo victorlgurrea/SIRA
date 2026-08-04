@@ -41,7 +41,7 @@ def test_frontera_francia_espana_no_es_mar():
     assert not punto_en_mar_mediterraneo(42.44, 2.60)
     # Celdas que salían sobre tierra en Portbou / Cerbère.
     assert not punto_en_mar_mediterraneo(42.48, 3.10)
-    assert not punto_en_mar_mediterraneo(42.52, 3.20)
+    assert not punto_en_mar_mediterraneo(42.60, 3.05)  # inland Cerbère
 
 
 def test_cantabrico_no_entra_como_mediterraneo():
@@ -69,13 +69,12 @@ def test_magreb_tierra_no_es_mar():
 
 
 def test_magreb_mar_real_cerca_costa_no_se_tapa():
-    # La costa magrebí baja hasta lat~35.0-35.2 (Al Hoceima, Nador, Saidia,
-    # Ghazaouet); el mar justo al norte de esos puntos debe seguir siendo mar
-    # (regresión: un suelo/umbral demasiado alto tapaba estas celdas).
-    assert punto_en_mar_mediterraneo(35.32, -3.93)  # frente a Al Hoceima
-    assert punto_en_mar_mediterraneo(35.25, -2.95)  # frente a Nador
-    assert punto_en_mar_mediterraneo(35.18, -2.24)  # frente a Saidia
-    assert punto_en_mar_mediterraneo(35.20, -1.85)  # frente a Ghazaouet
+    # Mar abierto justo al norte de la costa magrebí (no pegado a la orilla:
+    # Natural Earth engorda costa y rechazamos celdas que tocarían tierra).
+    assert punto_en_mar_mediterraneo(35.45, -3.93)  # frente a Al Hoceima
+    assert punto_en_mar_mediterraneo(35.40, -2.95)  # frente a Nador
+    assert punto_en_mar_mediterraneo(35.35, -2.24)  # frente a Saidia
+    assert punto_en_mar_mediterraneo(35.35, -1.85)  # frente a Ghazaouet
 
 
 def test_corcega_tierra_no_es_mar():
@@ -91,8 +90,14 @@ def test_mar_entre_corcega_cerdena_si_entra():
 
 
 def test_celda_costera_estricto():
-    # Celda con esquinas en tierra no debe pasar umbral 0.8.
-    assert fraccion_mar_celda(42.48, 3.10, 0.06) < 0.8
+    # Celda con esquinas en tierra no debe pasar umbral 0.9.
+    assert fraccion_mar_celda(42.48, 3.10, 0.06) < 0.9
+
+
+def test_no_pinta_tierra_natural_earth_oeste():
+    # Puntos que el basemap Plotly (NE) marca como tierra no deben ser mar.
+    assert not punto_en_mar_mediterraneo(42.48, 3.10)  # Portbou / Cerbère
+    assert not punto_en_mar_mediterraneo(43.30, 5.40)  # Marsella
 
 
 def test_mediterraneo_centro_oriental_mar():

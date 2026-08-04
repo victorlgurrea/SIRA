@@ -327,7 +327,11 @@ def add_capa_sst_med(
         SST_MED_LEYENDA_MAX,
         SST_MED_LEYENDA_MIN,
     )
-    from sira.infrastructure.geo.mar_mediterraneo import densificar_celdas_mar, punto_en_mar_mediterraneo
+    from sira.infrastructure.geo.mar_mediterraneo import (
+        celda_solo_mar,
+        densificar_celdas_mar,
+        punto_en_mar_mediterraneo,
+    )
 
     paso = float(paso_deg or 0.12)
     lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
@@ -341,15 +345,16 @@ def add_capa_sst_med(
         celdas = densificar_celdas_mar(
             list(celdas),
             paso=paso,
-            umbral_mar=0.6,
+            umbral_mar=0.9,
             max_celdas=n0 + 700,
             solo_costa=True,
         )
     except Exception:  # noqa: BLE001
         pass
-    # Tamaño base (vista España); sst-zoom.js lo crece al acercar.
-    size = max(10, min(16, round(paso * 100)))
+    # Tamaño base (vista España); sst-zoom.js lo crece al acercar (tope moderado).
+    size = max(9, min(14, round(paso * 90)))
     fecha_txt = f" · {fecha}" if fecha else ""
+    half = max(paso * 0.48, 0.05)
 
     lats: list[float] = []
     lons: list[float] = []
@@ -362,6 +367,9 @@ def add_capa_sst_med(
         lat = float(c["lat"])
         lon = float(c["lon"])
         if not punto_en_mar_mediterraneo(lat, lon):
+            continue
+        # Huella de la celda: rechaza las que invaden tierra (no solo el centro).
+        if not celda_solo_mar(lat, lon, half, umbral=0.9):
             continue
         temp = float(c["sst_c"])
         lats.append(lat)
