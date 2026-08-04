@@ -194,7 +194,7 @@ def _desde_cmems() -> dict:
 
     paso_out = stride * native
     out = _pack(
-        densificar_celdas_mar(celdas, paso=paso_out, umbral_mar=0.8),
+        densificar_celdas_mar(celdas, paso=paso_out, umbral_mar=0.7),
         fuente="Copernicus Med-Physics SST (ultimo disponible)",
         dataset_id=CMEMS_SST_DATASET_ID,
         fecha=fecha,
@@ -247,7 +247,7 @@ def _desde_open_meteo() -> dict:
     celdas: list[dict] = []
     fecha_ref: str | None = None
     half = max(paso * 0.48, 0.06)
-    umbral_mar = 0.8
+    umbral_mar = 0.7
 
     data = None
     for i in range(0, len(puntos), _OM_BATCH):

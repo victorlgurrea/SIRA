@@ -14,32 +14,57 @@ def _en_corredor_mar_andalucia(lat: float, lon: float) -> bool:
 
 def _en_tierra_francia_catalunya(lat: float, lon: float) -> bool:
     """
-    Tierra aproximada: interior Cataluña / Rosellón + sur de Francia.
+    Tierra al norte de la costa mediterránea ES-FR-IT (Cap Creus → Liguria).
 
-    Corta celdas en la frontera ES-FR (Cerbère / Pirineo) que IGN no siempre detecta.
+    Polilínea de costa (como Magreb): solo marca tierra claramente inland.
+    El escalonado anterior dejaba franjas de mar en blanco (Costa Azul).
     """
-    if lon < 1.50 or lon > 8.20:
+    if lon < 1.50 or lon > 9.20:
         return False
-    if lat < 42.20:
+    if lat < 41.90:
         return False
-    # Oeste del Cabo de Creus → tierra (Pirineo / interior).
-    if lon < 3.05:
-        return lat >= 42.28
-    # Portbou / Cerbère: celdas que salían norte de la costa.
-    if lon < 3.22:
-        return lat >= 42.40
-    # Banyuls / Cap Béar (tierra al norte; mar al sur = Cap Creus).
-    if lon < 3.45:
-        return lat >= 42.48
-    if lon < 3.85:
-        return lat >= 42.62
-    if lon < 4.40:
-        return lat >= 42.95
-    if lon < 5.30:
-        return lat >= 43.05
-    if lon < 6.50:
-        return lat >= 43.12
-    return lat >= 43.18
+    # Margen pequeño hacia tierra: prioriza rellenar mar costero sin pintar interior.
+    return lat > _lat_costa_francia_liguria(lon) + 0.015
+
+
+# Costa mediterránea Cap Creus → Liguria (lon, lat), oeste→este.
+# Valores en la línea de costa real; tierra = norte de la polilínea.
+_COSTA_FRANCIA_LIGURIA: tuple[tuple[float, float], ...] = (
+    (1.60, 42.25),  # Golfo de Roses / Cap Creus (lado mar)
+    (3.00, 42.42),  # Banyuls / Cerbère
+    (3.15, 42.85),  # Leucate
+    (3.55, 43.20),  # Narbonne-Plage
+    (3.90, 43.35),  # Sète
+    (4.50, 43.38),  # Camargue
+    (5.15, 43.25),  # Oeste Marsella
+    (5.45, 43.18),  # Marsella
+    (5.95, 43.05),  # Toulon
+    (6.40, 43.15),  # Saint-Tropez
+    (6.85, 43.40),  # Fréjus / Cannes O
+    (7.15, 43.55),  # Cannes / Antibes
+    (7.35, 43.72),  # Niza (costa)
+    (7.55, 43.79),  # Menton
+    (8.00, 43.88),  # Sanremo
+    (8.50, 44.10),  # Imperia
+    (8.95, 44.38),  # Génova costa
+    (9.20, 44.30),  # E Liguria
+)
+
+
+def _lat_costa_francia_liguria(lon: float) -> float:
+    """Latitud aproximada de la costa FR/Liguria en una longitud dada."""
+    pts = _COSTA_FRANCIA_LIGURIA
+    if lon <= pts[0][0]:
+        return pts[0][1]
+    if lon >= pts[-1][0]:
+        return pts[-1][1]
+    for (lon0, lat0), (lon1, lat1) in zip(pts, pts[1:]):
+        if lon0 <= lon <= lon1:
+            if lon1 == lon0:
+                return lat0
+            t = (lon - lon0) / (lon1 - lon0)
+            return lat0 + (lat1 - lat0) * t
+    return pts[-1][1]
 
 
 # Costa mediterránea magrebí: puntos reales aproximados (lon, lat), de oeste a
@@ -108,33 +133,29 @@ def _en_tierra_magreb(lat: float, lon: float) -> bool:
 
 def _en_tierra_corcega_cerdena(lat: float, lon: float) -> bool:
     """
-    Tierra aproximada de Córcega y Cerdeña.
-
-    Franjas estrechas para no comerse el mar alrededor.
+    Núcleo de Córcega y Cerdeña (franjas estrechas para no comerse el mar).
     """
-    # Córcega.
-    if 41.34 <= lat <= 43.02 and 8.52 <= lon <= 9.58:
+    # Córcega (núcleo; deja franja marina en costa W/E).
+    if 41.45 <= lat <= 42.95 and 8.70 <= lon <= 9.45:
         return True
-    # Cerdeña (franjas N→S).
-    if 40.88 <= lat <= 41.26 and 8.48 <= lon <= 9.72:
+    # Cerdeña (núcleo).
+    if 40.95 <= lat <= 41.20 and 8.65 <= lon <= 9.55:
         return True
-    if 40.15 <= lat <= 40.88 and 8.22 <= lon <= 9.68:
+    if 40.25 <= lat <= 40.95 and 8.45 <= lon <= 9.50:
         return True
-    if 39.35 <= lat <= 40.15 and 8.28 <= lon <= 9.72:
+    if 39.50 <= lat <= 40.25 and 8.50 <= lon <= 9.55:
         return True
-    if 38.84 <= lat <= 39.35 and 8.38 <= lon <= 9.62:
+    if 38.95 <= lat <= 39.50 and 8.55 <= lon <= 9.45:
         return True
     return False
 
 
 def _en_mar_mediterraneo_west(lat: float, lon: float) -> bool:
-    """Envolvente aproximada del Mediterráneo occidental / Alborán."""
+    """Envolvente aproximada del Mediterráneo occidental / Alborán / Liguria."""
     if _en_corredor_mar_andalucia(lat, lon):
         return True
-    # Suelo bajado de 35.45 a 34.85: la costa magrebí llega a ~35.0-35.1
-    # (Nador, Saidia, Ghazaouet); con 35.45 se excluía mar real frente a
-    # Marruecos/Argelia antes de llegar a evaluar _en_tierra_magreb.
-    if lat < 34.85 or lat > 43.55 or lon < -6.05 or lon > 10.00:
+    # Techo 44.55: incluye Costa Azul y mar de Liguria (antes 43.55 dejaba huecos).
+    if lat < 34.85 or lat > 44.55 or lon < -6.05 or lon > 10.00:
         return False
     if lat <= 36.90:
         return lon >= -5.90
@@ -217,11 +238,15 @@ def densificar_celdas_mar(
     celdas: list[dict],
     *,
     paso: float,
-    umbral_mar: float = 0.8,
+    umbral_mar: float = 0.7,
 ) -> list[dict]:
-    """Rellena huecos de mar expandiendo vecinos (solo puntos en mar estricto)."""
+    """Rellena huecos de mar expandiendo vecinos (umbral algo laxo en costa)."""
     step = round(float(paso), 4)
-    half = max(step * 0.48, 0.05)
+    half = max(step * 0.45, 0.045)
+    # Umbral algo más bajo en costas (Francia/Italia) para no dejar blancos;
+    # el centro debe seguir en mar.
+    umbral = float(umbral_mar)
+    umbral_costa = max(0.55, umbral - 0.15)
     idx: dict[tuple[float, float], float] = {}
     for c in celdas:
         if c.get("sst_c") is None:
@@ -229,14 +254,21 @@ def densificar_celdas_mar(
         key = (round(float(c["lat"]), 4), round(float(c["lon"]), 4))
         if not punto_en_mar_mediterraneo(key[0], key[1]):
             continue
-        if fraccion_mar_celda(key[0], key[1], half) < umbral_mar:
+        if fraccion_mar_celda(key[0], key[1], half) < umbral:
             continue
         idx[key] = float(c["sst_c"])
     if not idx:
         return []
 
-    # Varias pasadas: rellena huecos adyacentes a celdas conocidas.
-    for _ in range(8):
+    def _cerca_costa_n(lat: float, lon: float) -> bool:
+        # Golfo de León / Costa Azul / Liguria / Tirreno W / Adriático S.
+        if 41.5 <= lat <= 44.6 and 2.5 <= lon <= 10.0:
+            return True
+        if 36.5 <= lat <= 44.5 and 10.0 < lon <= 19.0:
+            return True
+        return False
+
+    for _ in range(12):
         candidatos: dict[tuple[float, float], list[tuple[float, float]]] = {}
         for la, lo in list(idx.keys()):
             for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
@@ -246,12 +278,12 @@ def densificar_celdas_mar(
                 candidatos.setdefault(nk, []).append((idx[(la, lo)], 1.0))
         added = 0
         for key, vecinos in candidatos.items():
-            # 1 vecino basta para rellenar corredores estrechos de mar.
             if len(vecinos) < 1:
                 continue
             if not punto_en_mar_mediterraneo(key[0], key[1]):
                 continue
-            if fraccion_mar_celda(key[0], key[1], half) < umbral_mar:
+            umbral_local = umbral_costa if _cerca_costa_n(key[0], key[1]) else umbral
+            if fraccion_mar_celda(key[0], key[1], half) < umbral_local:
                 continue
             num = sum(val * w for val, w in vecinos)
             den = sum(w for _, w in vecinos)
