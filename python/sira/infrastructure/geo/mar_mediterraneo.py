@@ -23,31 +23,33 @@ def _en_tierra_francia_catalunya(lat: float, lon: float) -> bool:
         return False
     if lat < 41.90:
         return False
-    # Margen pequeño hacia tierra: prioriza rellenar mar costero sin pintar interior.
-    return lat > _lat_costa_francia_liguria(lon) + 0.015
+    # Margen mínimo inland: rellena hasta la orilla; Natural Earth/IGN cortan el interior.
+    return lat > _lat_costa_francia_liguria(lon) + 0.008
 
 
 # Costa mediterránea Cap Creus → Liguria (lon, lat), oeste→este.
-# Valores en la línea de costa real; tierra = norte de la polilínea.
+# Ajustada a la orilla real (Golfo de León / Costa Azul) para no dejar mar en blanco.
 _COSTA_FRANCIA_LIGURIA: tuple[tuple[float, float], ...] = (
-    (1.60, 42.25),  # Golfo de Roses / Cap Creus (lado mar)
-    (3.00, 42.42),  # Banyuls / Cerbère
-    (3.15, 42.85),  # Leucate
-    (3.55, 43.20),  # Narbonne-Plage
-    (3.90, 43.35),  # Sète
-    (4.50, 43.38),  # Camargue
-    (5.15, 43.25),  # Oeste Marsella
-    (5.45, 43.18),  # Marsella
-    (5.95, 43.05),  # Toulon
-    (6.40, 43.15),  # Saint-Tropez
-    (6.85, 43.40),  # Fréjus / Cannes O
-    (7.15, 43.55),  # Cannes / Antibes
-    (7.35, 43.72),  # Niza (costa)
-    (7.55, 43.79),  # Menton
-    (8.00, 43.88),  # Sanremo
-    (8.50, 44.10),  # Imperia
-    (8.95, 44.38),  # Génova costa
-    (9.20, 44.30),  # E Liguria
+    (1.60, 42.28),  # Cap Creus
+    (3.00, 42.48),  # Banyuls / Cerbère
+    (3.12, 42.92),  # Leucate
+    (3.50, 43.28),  # Narbonne-Plage
+    (3.85, 43.42),  # Sète
+    (4.10, 43.52),  # La Grande-Motte
+    (4.55, 43.42),  # Camargue E
+    (5.10, 43.30),  # Oeste Marsella
+    (5.40, 43.22),  # Marsella
+    (5.90, 43.08),  # Toulon
+    (6.35, 43.20),  # Saint-Tropez
+    (6.80, 43.42),  # Fréjus
+    (7.10, 43.58),  # Cannes
+    (7.30, 43.70),  # Antibes / Niza O
+    (7.40, 43.75),  # Niza
+    (7.60, 43.80),  # Menton
+    (8.05, 43.90),  # Sanremo
+    (8.55, 44.12),  # Imperia
+    (8.95, 44.40),  # Génova
+    (9.20, 44.32),  # E Liguria
 )
 
 
@@ -207,6 +209,13 @@ def punto_en_mar_mediterraneo(lat: float, lon: float) -> bool:
     if not _en_mar_mediterraneo_este(lat, lon):
         return False
     if punto_en_tierra_mundo(lat, lon):
+        # Natural Earth 50m engorda costa: offset a mar abierto => franja costera OK.
+        if (
+            not punto_en_tierra_mundo(lat - 0.06, lon)
+            or not punto_en_tierra_mundo(lat, lon - 0.06)
+            or not punto_en_tierra_mundo(lat - 0.04, lon - 0.04)
+        ):
+            return True
         return False
     return True
 
@@ -239,12 +248,12 @@ def densificar_celdas_mar(
     *,
     paso: float,
     umbral_mar: float = 0.7,
+    max_celdas: int | None = None,
+    solo_costa: bool = False,
 ) -> list[dict]:
     """Rellena huecos de mar expandiendo vecinos (umbral algo laxo en costa)."""
     step = round(float(paso), 4)
     half = max(step * 0.45, 0.045)
-    # Umbral algo más bajo en costas (Francia/Italia) para no dejar blancos;
-    # el centro debe seguir en mar.
     umbral = float(umbral_mar)
     umbral_costa = max(0.55, umbral - 0.15)
     idx: dict[tuple[float, float], float] = {}
@@ -261,23 +270,29 @@ def densificar_celdas_mar(
         return []
 
     def _cerca_costa_n(lat: float, lon: float) -> bool:
-        # Golfo de León / Costa Azul / Liguria / Tirreno W / Adriático S.
         if 41.5 <= lat <= 44.6 and 2.5 <= lon <= 10.0:
             return True
         if 36.5 <= lat <= 44.5 and 10.0 < lon <= 19.0:
             return True
         return False
 
+    tope = int(max_celdas) if max_celdas and max_celdas > 0 else None
     for _ in range(12):
+        if tope is not None and len(idx) >= tope:
+            break
         candidatos: dict[tuple[float, float], list[tuple[float, float]]] = {}
         for la, lo in list(idx.keys()):
             for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
                 nk = (round(la + di * step, 4), round(lo + dj * step, 4))
                 if nk in idx:
                     continue
+                if solo_costa and not _cerca_costa_n(nk[0], nk[1]):
+                    continue
                 candidatos.setdefault(nk, []).append((idx[(la, lo)], 1.0))
         added = 0
         for key, vecinos in candidatos.items():
+            if tope is not None and len(idx) >= tope:
+                break
             if len(vecinos) < 1:
                 continue
             if not punto_en_mar_mediterraneo(key[0], key[1]):
