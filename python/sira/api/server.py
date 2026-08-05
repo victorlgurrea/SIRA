@@ -153,6 +153,15 @@ def _startup_migrar_json() -> None:
             log.warning("Migración JSON→SQLite: %s", exc)
         try:
             if not read_dashboard().get("generado_en"):
+                # Intentar restaurar snapshot de GitHub antes de reingestar
+                try:
+                    from sira.infrastructure.persistence.snapshot import download_snapshot
+
+                    if download_snapshot():
+                        log.info("Snapshot restaurado; ingesta completa innecesaria")
+                        return
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("No se pudo restaurar snapshot: %s", exc)
                 log.info("Sin dashboard_data.json: ingesta inicial en segundo plano")
                 _run_ingesta_job()
         except Exception:  # noqa: BLE001

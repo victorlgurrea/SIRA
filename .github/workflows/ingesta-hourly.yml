@@ -18,6 +18,9 @@ on:
     - cron: "0 */3 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write   # necesario para crear/actualizar releases (snapshot)
+
 jobs:
   ingesta:
     runs-on: ubuntu-latest
@@ -40,7 +43,6 @@ jobs:
             code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 "${API_URL}/" || true)
             echo "  intento $i → HTTP $code"
             if [ "$code" = "200" ] || [ "$code" = "404" ]; then
-              # 200 = raíz OK; 404 = host vivo pero ruta distinta (seguimos)
               break
             fi
             sleep 15
@@ -55,13 +57,11 @@ jobs:
               -H "Content-Type: application/json" || true)
             echo "  intento $i → HTTP $code"
             body="$(head -c 800 /tmp/sira_ingesta_body.txt || true)"
-            # 200 legacy; 202 = aceptada en background o ya en curso (ambos OK)
             if [ "$code" = "200" ] || [ "$code" = "202" ]; then
               echo "$body"
               echo
-              exit 0
+              break
             fi
-            # 503 típico en Free (cold start / overload); 502/504 también reintentables
             if [ "$code" = "503" ] || [ "$code" = "502" ] || [ "$code" = "504" ]; then
               sleep 20
               continue
@@ -71,5 +71,80 @@ jobs:
             echo
             exit 1
           done
-          echo "Agotados los reintentos (API sigue en 503/5xx)."
-          exit 1
+
+      # Esperar a que la ingesta en background termine y guardar snapshot
+      - name: Esperar ingesta y guardar snapshot
+        env:
+          API_URL: ${{ secrets.SIRA_API_URL }}
+          CRON_SECRET: ${{ secrets.SIRA_CRON_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          API_URL="${API_URL%/}"
+
+          echo "Esperando a que la ingesta termine…"
+          for i in $(seq 1 30); do
+            sleep 20
+            body=$(curl -sS --max-time 30 "${API_URL}/api/status" \
+              -H "X-Cron-Secret: ${CRON_SECRET}" 2>/dev/null || echo '{}')
+            running=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ingesta',{}).get('running',True))" 2>/dev/null || echo "True")
+            gen=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('generado_en',''))" 2>/dev/null || echo "")
+            echo "  check $i: running=$running generado_en=$gen"
+            if [ -n "$gen" ] && [ "$running" = "False" ]; then
+              echo "Ingesta completa."
+              break
+            fi
+          done
+
+          echo "Descargando dashboard JSON del API…"
+          curl -sS --max-time 120 -H "Accept-Encoding: gzip" \
+            "${API_URL}/api/dashboard" -o /tmp/dashboard_data.json
+          size=$(wc -c < /tmp/dashboard_data.json)
+          echo "Descargado: ${size} bytes"
+          if [ "$size" -lt 100 ]; then
+            echo "JSON demasiado pequeño; no se sube snapshot"
+            exit 0
+          fi
+
+          # Comprimir
+          gzip -9 -k -f /tmp/dashboard_data.json
+          gz_size=$(wc -c < /tmp/dashboard_data.json.gz)
+          echo "Comprimido: ${gz_size} bytes"
+
+          # Subir como release asset «latest-data»
+          REPO="${GITHUB_REPOSITORY}"
+          TAG="latest-data"
+          ASSET="dashboard_data.json.gz"
+
+          # Obtener o crear release
+          rel_id=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+            "${GITHUB_API_URL}/repos/${REPO}/releases/tags/${TAG}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+
+          if [ -z "$rel_id" ]; then
+            echo "Creando release ${TAG}…"
+            rel_id=$(curl -sS -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${GITHUB_API_URL}/repos/${REPO}/releases" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"Último snapshot\",\"prerelease\":true}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          fi
+
+          # Borrar asset anterior
+          for asset_id in $(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+            "${GITHUB_API_URL}/repos/${REPO}/releases/${rel_id}/assets" \
+            | python3 -c "import sys,json; [print(a['id']) for a in json.load(sys.stdin) if a['name']=='${ASSET}']" 2>/dev/null); do
+            curl -sS -X DELETE -H "Authorization: Bearer ${GH_TOKEN}" \
+              "${GITHUB_API_URL}/repos/${REPO}/releases/assets/${asset_id}" || true
+          done
+
+          # Subir nuevo
+          echo "Subiendo snapshot…"
+          upload_url="https://uploads.github.com/repos/${REPO}/releases/${rel_id}/assets?name=${ASSET}"
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @/tmp/dashboard_data.json.gz \
+            "${upload_url}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Asset:', d.get('name'), d.get('size'), 'bytes')"
+          echo "Snapshot subido ✓"
