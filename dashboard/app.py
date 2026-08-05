@@ -271,28 +271,21 @@ def _load() -> dict:
     """Lee dashboard con cache corto (el callback se dispara muchas veces al cargar)."""
     global _LOAD_CACHE
     now = time.monotonic()
-    if _LOAD_CACHE[1] is not None and (now - _LOAD_CACHE[0]) < _LOAD_TTL_SEC:
-        return _LOAD_CACHE[1]
-    try:
-        r = requests.get(
-            f"{API_BASE_URL}/api/dashboard",
-            timeout=25,
-            headers={"Accept-Encoding": "gzip"},
-        )
-        if r.ok:
-            data = r.json()
-            if isinstance(data, dict) and data.get("generado_en"):
-                _LOAD_CACHE = (now, data)
-                return data
-        log.warning("API sin dashboard utilizable (%s %s)", r.status_code, API_BASE_URL)
-    except requests.RequestException as exc:
-        log.warning("No se pudo leer API dashboard (%s): %s", API_BASE_URL, exc)
-    local = read_dashboard()
-    if not local.get("generado_en"):
-        log.warning("Sin datos locales en %s", DATA_FILE)
-    elif local.get("generado_en"):
-        _LOAD_CACHE = (now, local)
-    return local
+    cached = _LOAD_CACHE[1]
+    if cached is not None and cached.get("generado_en") and (now - _LOAD_CACHE[0]) < _LOAD_TTL_SEC:
+        return cached
+    from sira.infrastructure.http.dashboard_fetch import load_dashboard_payload
+
+    data = load_dashboard_payload(API_BASE_URL)
+    if data.get("generado_en"):
+        _LOAD_CACHE = (now, data)
+        return data
+    if cached and cached.get("generado_en"):
+        log.warning("API sin datos; sirviendo cache reciente del dashboard")
+        return cached
+    if not data.get("generado_en"):
+        log.warning("Sin datos en API, disco ni snapshot (%s)", DATA_FILE)
+    return data
 
 
 def _bloque_oce(oce: dict, clave: str) -> dict:
@@ -542,6 +535,20 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
 # WSGI (gunicorn en Render)
 server = app.server
 register_routes(server, app, _ASSETS, plotly_cdn=_PLOTLY_JS_CDN)
+
+import threading  # noqa: E402
+
+
+def _warm_dashboard_cache() -> None:
+    try:
+        from sira.infrastructure.http.dashboard_fetch import load_dashboard_payload
+
+        load_dashboard_payload(API_BASE_URL)
+    except Exception:  # noqa: BLE001
+        log.exception("Precarga dashboard falló")
+
+
+threading.Thread(target=_warm_dashboard_cache, name="sira-dashboard-warm", daemon=True).start()
 
 
 clientside_callback(

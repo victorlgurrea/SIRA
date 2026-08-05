@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import requests
 from flask import Response, jsonify, redirect, request, send_from_directory
 
 from sira.config.settings import API_BASE_URL
@@ -61,16 +60,25 @@ _ANDROID_SHA256_DEBUG = (
 
 
 def status_snapshot() -> dict:
-    """Lee estado desde API; fallback local si no responde."""
-    try:
-        r = requests.get(f"{API_BASE_URL}/api/status", timeout=15)
-        if r.ok:
-            payload = r.json()
-            if isinstance(payload, dict):
-                return payload
-    except requests.RequestException:
-        pass
-    data = read_dashboard()
+    """Lee estado desde API; fallback local / snapshot si no responde."""
+    from sira.infrastructure.http.dashboard_fetch import ensure_dashboard_on_disk, fetch_status_api
+
+    payload = fetch_status_api(API_BASE_URL)
+    if isinstance(payload, dict) and payload.get("generado_en"):
+        return payload
+    data = ensure_dashboard_on_disk()
+    if isinstance(payload, dict):
+        # API respondió pero sin generado_en (ingesta en curso): conservar bloque ingesta.
+        merged = dict(payload)
+        if data.get("generado_en"):
+            merged.setdefault("generado_en", data.get("generado_en"))
+            merged.setdefault(
+                "fuentes_estado",
+                data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
+            )
+            merged["ok"] = True
+        return merged
+    data = read_dashboard() if not data.get("generado_en") else data
     return {
         "generado_en": data.get("generado_en", "—"),
         "fuentes_estado": data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
