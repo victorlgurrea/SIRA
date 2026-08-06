@@ -98,16 +98,25 @@ jobs:
           done
 
           echo "Descargando dashboard JSON del API…"
-          curl -sS --max-time 120 -H "Accept-Encoding: gzip" \
+          # --compressed: curl descomprime Content-Encoding (si no, se sube doble gzip).
+          curl -sS --compressed --max-time 120 \
             "${API_URL}/api/dashboard" -o /tmp/dashboard_data.json
           size=$(wc -c < /tmp/dashboard_data.json)
           echo "Descargado: ${size} bytes"
           if [ "$size" -lt 100 ]; then
             echo "JSON demasiado pequeño; no se sube snapshot"
-            exit 0
+            exit 1
           fi
+          # Validar que es JSON real (no gzip residual)
+          gen=$(python3 -c "import json; d=json.load(open('/tmp/dashboard_data.json',encoding='utf-8')); print(d.get('generado_en') or '')" || true)
+          if [ -z "$gen" ]; then
+            echo "El body no es un dashboard JSON válido (¿doble gzip / HTML?)"
+            head -c 120 /tmp/dashboard_data.json | xxd || true
+            exit 1
+          fi
+          echo "generado_en=$gen"
 
-          # Comprimir
+          # Comprimir UNA vez
           gzip -9 -k -f /tmp/dashboard_data.json
           gz_size=$(wc -c < /tmp/dashboard_data.json.gz)
           echo "Comprimido: ${gz_size} bytes"

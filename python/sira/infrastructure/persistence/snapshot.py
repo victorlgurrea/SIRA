@@ -99,10 +99,35 @@ def upload_snapshot(token: str | None = None) -> bool:
 
 # --- Download ---
 
+def _gunzip_until_json(raw: bytes) -> tuple[bytes, dict] | tuple[None, None]:
+    """Descomprime 1–N capas gzip hasta obtener JSON con generado_en."""
+    blob = raw
+    for _ in range(4):
+        try:
+            data = json.loads(blob)
+            if isinstance(data, dict) and data.get("generado_en"):
+                if isinstance(blob, str):
+                    blob = blob.encode("utf-8")
+                elif not isinstance(blob, (bytes, bytearray)):
+                    blob = json.dumps(data, ensure_ascii=False).encode("utf-8")
+                return bytes(blob), data
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError, ValueError):
+            pass
+        if len(blob) >= 2 and blob[:2] == b"\x1f\x8b":
+            try:
+                blob = gzip.decompress(blob)
+                continue
+            except Exception:  # noqa: BLE001
+                return None, None
+        return None, None
+    return None, None
+
+
 def download_snapshot(token: str | None = None) -> bool:
     """Descarga el snapshot más reciente a DATA_FILE. Retorna True si OK.
 
     En repos públicos funciona sin token (descarga directa del asset).
+    Tolera 1 o 2 capas gzip (regresión del workflow con Accept-Encoding).
     """
     hdr = _headers(token)
 
@@ -125,7 +150,6 @@ def download_snapshot(token: str | None = None) -> bool:
         log.info("Release sin asset %s", _ASSET_NAME)
         return False
 
-    # Intentar descarga directa (browser_download_url funciona en repos públicos)
     download_url = asset.get("browser_download_url") or asset["url"]
     try:
         dl_hdr = {**hdr, "Accept": "application/octet-stream"}
@@ -135,19 +159,9 @@ def download_snapshot(token: str | None = None) -> bool:
         log.warning("Error descargando snapshot: %s", e)
         return False
 
-    raw = r.content
-    try:
-        decompressed = gzip.decompress(raw)
-    except Exception:
-        decompressed = raw
-
-    try:
-        data = json.loads(decompressed)
-        if not isinstance(data, dict) or not data.get("generado_en"):
-            log.warning("Snapshot descargado no tiene generado_en")
-            return False
-    except (json.JSONDecodeError, ValueError) as e:
-        log.warning("Snapshot no es JSON válido: %s", e)
+    decompressed, data = _gunzip_until_json(r.content)
+    if not decompressed or not data:
+        log.warning("Snapshot no es JSON válido tras descomprimir")
         return False
 
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
