@@ -158,3 +158,9 @@ jobs:
             --data-binary @/tmp/dashboard_data.json.gz \
             "${upload_url}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Asset:', d.get('name'), d.get('size'), 'bytes')"
           echo "Snapshot subido ✓"
+
+          echo "Forzando restore-snapshot en la API…"
+          code=$(curl -sS -o /tmp/sira_restore.txt -w "%{http_code}" --max-time 120 \
+            -X POST "${API_URL}/api/cron/restore-snapshot" \
+            -H "X-Cron-Secret: ${CRON_SECRET}" || true)
+          echo "  restore → HTTP $code $(head -c 200 /tmp/sira_restore.txt || true)"

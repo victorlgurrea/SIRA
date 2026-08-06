@@ -330,6 +330,24 @@ def cron_ingesta(x_cron_secret: str | None = Header(default=None, alias="X-Cron-
     )
 
 
+@app.post("/api/cron/restore-snapshot")
+def cron_restore_snapshot(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
+    """Fuerza restauración del release GitHub latest-data → dashboard_data.json."""
+    if not CRON_SECRET:
+        raise HTTPException(503, "CRON_SECRET no configurado")
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, CRON_SECRET):
+        raise HTTPException(401, "No autorizado")
+    from sira.infrastructure.persistence.snapshot import download_snapshot
+
+    ok = download_snapshot()
+    data = read_dashboard()
+    return {
+        "ok": bool(ok and data.get("generado_en")),
+        "restored": bool(ok),
+        "generado_en": data.get("generado_en"),
+    }
+
+
 @app.post("/api/cron/meteo")
 def cron_meteo(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
     """Cron ligero: solo revisa avisos meteo AEMET y manda push (sin reingestar todo)."""

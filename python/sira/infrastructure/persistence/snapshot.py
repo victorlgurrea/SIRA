@@ -26,7 +26,10 @@ _TIMEOUT = 60
 
 def _headers(token: str | None = None) -> dict[str, str]:
     tok = token or os.getenv("GITHUB_TOKEN", "")
-    h = {"Accept": "application/vnd.github+json"}
+    h = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "SIRA-dashboard-snapshot/1.0",
+    }
     if tok:
         h["Authorization"] = f"Bearer {tok}"
     return h

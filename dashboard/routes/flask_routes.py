@@ -71,31 +71,38 @@ def status_snapshot() -> dict:
     try:
         from sira.infrastructure.http.dashboard_fetch import ensure_dashboard_on_disk, fetch_status_api
 
+        # Primero disco/snapshot: en PRO la API suele estar vacía tras hibernar.
+        data = ensure_dashboard_on_disk()
         payload = fetch_status_api(API_BASE_URL)
+
         if isinstance(payload, dict) and payload.get("generado_en"):
             return payload
-        data = ensure_dashboard_on_disk()
+
+        if isinstance(data, dict) and data.get("generado_en"):
+            out = {
+                "generado_en": data.get("generado_en"),
+                "fuentes_estado": (
+                    data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
+                ),
+                "suscripciones_push": count_subscriptions(),
+                "ingesta": (
+                    payload.get("ingesta")
+                    if isinstance(payload, dict) and isinstance(payload.get("ingesta"), dict)
+                    else {"running": False, "started_at": None, "finished_at": None, "last_error": None}
+                ),
+                "ok": True,
+            }
+            return out
+
         if isinstance(payload, dict):
-            merged = dict(payload)
-            if data.get("generado_en"):
-                merged.setdefault("generado_en", data.get("generado_en"))
-                fuentes = data.get("fuentes_estado")
-                if isinstance(fuentes, dict):
-                    merged.setdefault("fuentes_estado", fuentes)
-                merged["ok"] = True
-            return merged
-        if not isinstance(data, dict) or not data.get("generado_en"):
-            data = read_dashboard()
+            return payload
+
         return {
-            "generado_en": data.get("generado_en", "—") if isinstance(data, dict) else "—",
-            "fuentes_estado": (
-                data.get("fuentes_estado")
-                if isinstance(data, dict) and isinstance(data.get("fuentes_estado"), dict)
-                else {}
-            ),
+            "generado_en": "—",
+            "fuentes_estado": {},
             "suscripciones_push": count_subscriptions(),
             "ingesta": {"running": False, "started_at": None, "finished_at": None, "last_error": None},
-            "ok": bool(isinstance(data, dict) and data.get("generado_en")),
+            "ok": False,
         }
     except Exception:  # noqa: BLE001
         import logging
