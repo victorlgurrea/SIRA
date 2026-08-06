@@ -177,14 +177,20 @@ def fig_mapa(
     grid = sst_med_grid if isinstance(sst_med_grid, dict) else {}
     sst_activo = bool(grid.get("celdas"))
     if sst_activo:
-        add_capa_sst_med(
-            fig,
-            grid.get("celdas") or [],
-            fecha=str(grid.get("fecha") or "") or None,
-            paso_deg=grid.get("paso_deg"),
-            fuente=str(grid.get("fuente") or "") or None,
-            theme=theme,
-        )
+        try:
+            add_capa_sst_med(
+                fig,
+                grid.get("celdas") or [],
+                fecha=str(grid.get("fecha") or "") or None,
+                paso_deg=grid.get("paso_deg"),
+                fuente=str(grid.get("fuente") or "") or None,
+                theme=theme,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception("Capa SST Med falló; mapa sin SST")
+            sst_activo = False
     if provincia_id:
         add_capa_aemet_zonas(
             fig, str(provincia_id).zfill(2), alertas_meteo or [],

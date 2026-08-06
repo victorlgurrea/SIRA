@@ -327,11 +327,7 @@ def add_capa_sst_med(
         SST_MED_LEYENDA_MAX,
         SST_MED_LEYENDA_MIN,
     )
-    from sira.infrastructure.geo.mar_mediterraneo import (
-        celda_solo_mar,
-        densificar_celdas_mar,
-        punto_en_mar_mediterraneo,
-    )
+    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
     lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
@@ -339,22 +335,10 @@ def add_capa_sst_med(
         diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
         if diffs:
             paso = max(paso, sorted(diffs)[len(diffs) // 2])
-    # Rellena huecos costeros (FR/IT) al pintar, sin esperar reingesta.
-    try:
-        n0 = len(celdas)
-        celdas = densificar_celdas_mar(
-            list(celdas),
-            paso=paso,
-            umbral_mar=0.9,
-            max_celdas=n0 + 700,
-            solo_costa=True,
-        )
-    except Exception:  # noqa: BLE001
-        pass
-    # Tamaño base (vista España); sst-zoom.js lo crece al acercar (tope moderado).
+    # No densificar ni fraccion_mar en el paint (PRO Free: timeout/OOM → 500 en mapa).
+    # El filtro de tierra va en ingesta + centro con Natural Earth.
     size = max(9, min(14, round(paso * 90)))
     fecha_txt = f" · {fecha}" if fecha else ""
-    half = max(paso * 0.48, 0.05)
 
     lats: list[float] = []
     lons: list[float] = []
@@ -364,14 +348,14 @@ def add_capa_sst_med(
     for c in celdas:
         if c.get("sst_c") is None:
             continue
-        lat = float(c["lat"])
-        lon = float(c["lon"])
+        try:
+            lat = float(c["lat"])
+            lon = float(c["lon"])
+            temp = float(c["sst_c"])
+        except (TypeError, ValueError, KeyError):
+            continue
         if not punto_en_mar_mediterraneo(lat, lon):
             continue
-        # Huella de la celda: rechaza las que invaden tierra (no solo el centro).
-        if not celda_solo_mar(lat, lon, half, umbral=0.9):
-            continue
-        temp = float(c["sst_c"])
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)

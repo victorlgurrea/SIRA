@@ -209,25 +209,48 @@ def build_mapa_fig(
     *,
     ctx: dict | None = None,
 ) -> go.Figure:
-    ctx = ctx or datos_mapa(geo, d)
-    geo_r = ctx["geo"]
-    act = capas_activas(capas)
-    viewport = map_viewport(geo_r)
-    map_rev = f"sira-mapa-{ctx['muni_id']}-{viewport.get('nivel', 'municipio')}"
-    return _fig_mapa(
-        ctx["sismos_mapa"] if "sismos" in act else [],
-        ctx["incendios_mapa"] if "incendios" in act else None,
-        ctx["lat_obs"], ctx["lon_obs"], ctx["localidad"],
-        ctx["alertas_mapa_hoy"] if "aemet" in act else None,
-        ctx["embalses_mapa"] if "embalses" in act else None,
-        ctx["aforos_mapa"] if "aforos" in act else None,
-        viewport=viewport, map_uirevision=map_rev,
-        provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
-        theme=theme,
-        mostrar_tsunami="costa" in act,
-        map_aspect=map_aspect,
-        sst_med_grid=ctx.get("sst_med_grid") if "sst" in act else None,
-    )
+    try:
+        ctx = ctx or datos_mapa(geo, d)
+        geo_r = ctx["geo"]
+        act = capas_activas(capas)
+        viewport = map_viewport(geo_r)
+        map_rev = f"sira-mapa-{ctx['muni_id']}-{viewport.get('nivel', 'municipio')}"
+        return _fig_mapa(
+            ctx["sismos_mapa"] if "sismos" in act else [],
+            ctx["incendios_mapa"] if "incendios" in act else None,
+            ctx["lat_obs"], ctx["lon_obs"], ctx["localidad"],
+            ctx["alertas_mapa_hoy"] if "aemet" in act else None,
+            ctx["embalses_mapa"] if "embalses" in act else None,
+            ctx["aforos_mapa"] if "aforos" in act else None,
+            viewport=viewport, map_uirevision=map_rev,
+            provincia_id=geo_r.get("provincia_id") if "aemet" in act else None,
+            theme=theme,
+            mostrar_tsunami="costa" in act,
+            map_aspect=map_aspect,
+            sst_med_grid=ctx.get("sst_med_grid") if "sst" in act else None,
+        )
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("build_mapa_fig falló")
+        fig = go.Figure()
+        fig.update_layout(
+            template="plotly_dark" if theme != "light" else "plotly_white",
+            margin=dict(l=0, r=0, t=0, b=0),
+            geo=dict(showland=True, landcolor="#1e293b" if theme != "light" else "#e2e8f0"),
+            annotations=[
+                dict(
+                    text="Mapa no disponible (reintenta en unos segundos)",
+                    xref="paper",
+                    yref="paper",
+                    x=0.5,
+                    y=0.5,
+                    showarrow=False,
+                    font=dict(size=14, color="#94a3b8"),
+                )
+            ],
+        )
+        return fig
 
 
 def build_panel_geo(

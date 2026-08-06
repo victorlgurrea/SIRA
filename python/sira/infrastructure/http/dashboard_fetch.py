@@ -15,33 +15,38 @@ log = logging.getLogger(__name__)
 _stale: dict | None = None
 
 
-def wake_api(api_base: str, *, attempts: int = 6) -> bool:
-    """Despierta sira-api en Render Free antes de pedir datos pesados."""
-    base = api_base.rstrip("/")
-    for i in range(attempts):
+def wake_api(api_base: str, *, attempts: int = 3, timeout: float = 8.0) -> bool:
+    """Despierta sira-api en Render Free (pocos intentos; no bloquear la UI)."""
+    base = (api_base or "").rstrip("/")
+    if not base:
+        return False
+    for i in range(max(1, attempts)):
         try:
-            r = requests.get(f"{base}/api/health", timeout=20)
+            r = requests.get(f"{base}/api/health", timeout=timeout)
             if r.status_code < 500:
                 return True
         except requests.RequestException as exc:
             log.debug("wake_api intento %s: %s", i + 1, exc)
-        time.sleep(min(2 + i * 2, 12))
+        if i + 1 < attempts:
+            time.sleep(min(1.5 + i, 4.0))
     return False
 
 
 def _fetch_dashboard_api(api_base: str) -> dict | None:
-    base = api_base.rstrip("/")
-    wake_api(base)
-    for attempt in range(5):
+    base = (api_base or "").rstrip("/")
+    if not base:
+        return None
+    wake_api(base, attempts=3, timeout=10.0)
+    for attempt in range(3):
         try:
             r = requests.get(
                 f"{base}/api/dashboard",
-                timeout=50,
+                timeout=35,
                 headers={"Accept-Encoding": "gzip"},
             )
-            if r.status_code in (502, 503, 504) and attempt < 4:
+            if r.status_code in (502, 503, 504) and attempt < 2:
                 log.info("API dashboard %s; reintento %s", r.status_code, attempt + 1)
-                time.sleep(4 + attempt * 4)
+                time.sleep(2 + attempt * 2)
                 continue
             if not r.ok:
                 log.warning("API dashboard HTTP %s", r.status_code)
@@ -50,10 +55,10 @@ def _fetch_dashboard_api(api_base: str) -> dict | None:
             if isinstance(data, dict) and data.get("generado_en"):
                 return data
             return None
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             log.warning("API dashboard error (intento %s): %s", attempt + 1, exc)
-            if attempt < 4:
-                time.sleep(3 + attempt * 3)
+            if attempt < 2:
+                time.sleep(2 + attempt)
     return None
 
 
@@ -61,7 +66,7 @@ def _restore_snapshot_disk() -> bool:
     try:
         from sira.infrastructure.persistence.snapshot import download_snapshot
 
-        return download_snapshot()
+        return bool(download_snapshot())
     except Exception as exc:  # noqa: BLE001
         log.warning("Snapshot GitHub no disponible: %s", exc)
         return False
@@ -82,7 +87,8 @@ def load_dashboard_payload(api_base: str) -> dict:
         except OSError as exc:
             log.warning("No se pudo cachear dashboard en disco: %s", exc)
             return fresh
-        return read_dashboard()
+        cached = read_dashboard()
+        return cached if cached.get("generado_en") else fresh
 
     local = read_dashboard()
     if local.get("generado_en"):
@@ -116,20 +122,22 @@ def ensure_dashboard_on_disk() -> dict:
 
 
 def fetch_status_api(api_base: str) -> dict | None:
-    """GET /api/status con despertar y reintentos."""
-    base = api_base.rstrip("/")
-    wake_api(base, attempts=4)
-    for attempt in range(4):
+    """GET /api/status con despertar breve y reintentos (fail-fast para /status)."""
+    base = (api_base or "").rstrip("/")
+    if not base:
+        return None
+    wake_api(base, attempts=2, timeout=8.0)
+    for attempt in range(2):
         try:
-            r = requests.get(f"{base}/api/status", timeout=25)
-            if r.status_code in (502, 503, 504) and attempt < 3:
-                time.sleep(3 + attempt * 3)
-                continue
-            if r.ok:
-                payload = r.json()
-                if isinstance(payload, dict):
-                    return payload
-        except requests.RequestException:
-            if attempt < 3:
+            r = requests.get(f"{base}/api/status", timeout=12)
+            if r.status_code in (502, 503, 504) and attempt < 1:
                 time.sleep(2)
+                continue
+            if not r.ok:
+                return None
+            payload = r.json()
+            return payload if isinstance(payload, dict) else None
+        except (requests.RequestException, ValueError):
+            if attempt < 1:
+                time.sleep(1.5)
     return None

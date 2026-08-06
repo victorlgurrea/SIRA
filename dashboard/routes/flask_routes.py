@@ -60,32 +60,60 @@ _ANDROID_SHA256_DEBUG = (
 
 
 def status_snapshot() -> dict:
-    """Lee estado desde API; fallback local / snapshot si no responde."""
-    from sira.infrastructure.http.dashboard_fetch import ensure_dashboard_on_disk, fetch_status_api
-
-    payload = fetch_status_api(API_BASE_URL)
-    if isinstance(payload, dict) and payload.get("generado_en"):
-        return payload
-    data = ensure_dashboard_on_disk()
-    if isinstance(payload, dict):
-        # API respondió pero sin generado_en (ingesta en curso): conservar bloque ingesta.
-        merged = dict(payload)
-        if data.get("generado_en"):
-            merged.setdefault("generado_en", data.get("generado_en"))
-            merged.setdefault(
-                "fuentes_estado",
-                data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
-            )
-            merged["ok"] = True
-        return merged
-    data = read_dashboard() if not data.get("generado_en") else data
-    return {
-        "generado_en": data.get("generado_en", "—"),
-        "fuentes_estado": data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {},
-        "suscripciones_push": count_subscriptions(),
+    """Lee estado desde API; fallback local / snapshot si no responde. Nunca lanza."""
+    empty = {
+        "generado_en": "—",
+        "fuentes_estado": {},
+        "suscripciones_push": 0,
         "ingesta": {"running": False, "started_at": None, "finished_at": None, "last_error": None},
-        "ok": bool(data.get("generado_en")),
+        "ok": False,
     }
+    try:
+        from sira.infrastructure.http.dashboard_fetch import ensure_dashboard_on_disk, fetch_status_api
+
+        payload = fetch_status_api(API_BASE_URL)
+        if isinstance(payload, dict) and payload.get("generado_en"):
+            return payload
+        data = ensure_dashboard_on_disk()
+        if isinstance(payload, dict):
+            merged = dict(payload)
+            if data.get("generado_en"):
+                merged.setdefault("generado_en", data.get("generado_en"))
+                fuentes = data.get("fuentes_estado")
+                if isinstance(fuentes, dict):
+                    merged.setdefault("fuentes_estado", fuentes)
+                merged["ok"] = True
+            return merged
+        if not isinstance(data, dict) or not data.get("generado_en"):
+            data = read_dashboard()
+        return {
+            "generado_en": data.get("generado_en", "—") if isinstance(data, dict) else "—",
+            "fuentes_estado": (
+                data.get("fuentes_estado")
+                if isinstance(data, dict) and isinstance(data.get("fuentes_estado"), dict)
+                else {}
+            ),
+            "suscripciones_push": count_subscriptions(),
+            "ingesta": {"running": False, "started_at": None, "finished_at": None, "last_error": None},
+            "ok": bool(isinstance(data, dict) and data.get("generado_en")),
+        }
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("status_snapshot falló")
+        try:
+            data = read_dashboard()
+            empty["generado_en"] = data.get("generado_en", "—") if isinstance(data, dict) else "—"
+            empty["fuentes_estado"] = (
+                data.get("fuentes_estado")
+                if isinstance(data, dict) and isinstance(data.get("fuentes_estado"), dict)
+                else {}
+            )
+            empty["ok"] = bool(isinstance(data, dict) and data.get("generado_en"))
+            empty["suscripciones_push"] = count_subscriptions()
+        except Exception:  # noqa: BLE001
+            pass
+        return empty
 
 
 def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None = None) -> None:
@@ -133,7 +161,16 @@ def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None 
 
     @server.route("/status")
     def _status_page():
-        data = status_snapshot()
+        try:
+            data = status_snapshot()
+        except Exception:  # noqa: BLE001
+            data = {
+                "generado_en": "—",
+                "fuentes_estado": {},
+                "suscripciones_push": 0,
+                "ingesta": {},
+                "ok": False,
+            }
         fuentes = data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
         generado = fmt_ingesta_local(data.get("generado_en"))
         n_push = data.get("suscripciones_push", 0)
@@ -145,7 +182,8 @@ def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None 
         ingesta_err = ingesta.get("last_error") or "—"
         filas = []
         for clave, etiqueta in _FUENTE_ETIQUETAS.items():
-            info = fuentes.get(clave, {})
+            raw = fuentes.get(clave, {})
+            info = raw if isinstance(raw, dict) else {}
             desc = _FUENTE_DESCRIPCIONES.get(clave, "—")
             ok = info.get("ok")
             if info.get("omitido"):

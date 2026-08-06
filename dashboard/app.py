@@ -274,9 +274,18 @@ def _load() -> dict:
     cached = _LOAD_CACHE[1]
     if cached is not None and cached.get("generado_en") and (now - _LOAD_CACHE[0]) < _LOAD_TTL_SEC:
         return cached
-    from sira.infrastructure.http.dashboard_fetch import load_dashboard_payload
+    try:
+        from sira.infrastructure.http.dashboard_fetch import load_dashboard_payload
 
-    data = load_dashboard_payload(API_BASE_URL)
+        data = load_dashboard_payload(API_BASE_URL)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("load_dashboard_payload falló: %s", exc)
+        try:
+            data = read_dashboard()
+        except Exception:  # noqa: BLE001
+            data = cached if isinstance(cached, dict) else {}
+    if not isinstance(data, dict):
+        data = {}
     if data.get("generado_en"):
         _LOAD_CACHE = (now, data)
         return data
