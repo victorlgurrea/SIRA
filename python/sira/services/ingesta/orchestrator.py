@@ -19,14 +19,13 @@ from sira.config.settings import (
     MAPA,
     MARES,
     OPEN_METEO_MARINE_URL,
-    OPEN_METEO_WEATHER_URL,
     USGS_URL,
     ZONA,
 )
 from sira.infrastructure.http.client import fetch_aemet, fetch_json, write_dashboard
 from sira.infrastructure.parsers.fuentes import parse_emsc_feature, parse_usgs_feature
 from sira.services.historial.snapshots import guardar_snapshots_diarios
-from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly, pack_meteo as _pack_meteo, parse_aemet as _parse_aemet
+from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly
 from sira.infrastructure.sources.meteo.live import meteo_localidad
 from sira.infrastructure.sources.meteo.termico import construir_termico_ccaa
 from sira.services.ingesta.source_status import estado_fuente, fmt_error_fuente
@@ -308,27 +307,11 @@ def descargar_oceanografia() -> dict:
 
 
 def descargar_meteo() -> dict:
-    if AEMET_API_KEY:
-        try:
-            data = fetch_aemet(f"prediccion/especifica/municipio/horaria/{AEMET_MUNICIPIO}", AEMET_API_KEY)
-            item = (data[0] if isinstance(data, list) else data) or {}
-            serie = _parse_aemet(data)
-            if serie:
-                log.info("Meteo AEMET: %s", AEMET_MUNICIPIO)
-                return _pack_meteo("AEMET", item.get("nombre", AEMET_MUNICIPIO), serie)
-        except (requests.RequestException, ValueError, OSError) as exc:
-            log.warning("AEMET: %s — fallback Open-Meteo", exc)
-
-    data = fetch_json(OPEN_METEO_WEATHER_URL, {
-        "latitude": ZONA["lat_ref"], "longitude": ZONA["lon_ref"],
-        "hourly": "precipitation,precipitation_probability",
-        "timezone": "Europe/Madrid", "forecast_days": FORECAST_DAYS,
-    })
-    serie = _hourly(data, {"precip_mm": "precipitation", "prob_precip_pct": "precipitation_probability"})
-    for row in serie:
-        row["precip_mm"] = row["precip_mm"] or 0.0
-    log.info("Meteo Open-Meteo")
-    return _pack_meteo("Open-Meteo", ZONA["ciudad_ref"], serie)
+    met = meteo_localidad(AEMET_MUNICIPIO, prefer_aemet=True)
+    if met.get("serie_horaria"):
+        log.info("Meteo %s: %s", met.get("fuente", "—"), AEMET_MUNICIPIO)
+        return met
+    return VACIO_METEO
 
 
 def _descargar_alertas_cap() -> list[dict]:

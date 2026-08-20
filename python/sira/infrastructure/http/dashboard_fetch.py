@@ -15,6 +15,25 @@ log = logging.getLogger(__name__)
 _stale: dict | None = None
 
 
+def _payload_score(data: dict | None) -> int:
+    """Puntuación simple: preferir payloads con contenido real (no solo generado_en)."""
+    if not isinstance(data, dict) or not data.get("generado_en"):
+        return 0
+    oce = data.get("oceanografia") if isinstance(data.get("oceanografia"), dict) else {}
+    oce_n = sum(
+        len(v.get("serie_horaria") or [])
+        for v in oce.values()
+        if isinstance(v, dict)
+    )
+    return (
+        len(data.get("sismos") or [])
+        + len(data.get("incendios") or [])
+        + len(data.get("embalses") or [])
+        + len((data.get("sst_med_grid") or {}).get("celdas") or [])
+        + min(oce_n, 500)
+    )
+
+
 def wake_api(api_base: str, *, attempts: int = 2, timeout: float = 6.0) -> bool:
     """Despierta sira-api en Render Free (pocos intentos; no bloquear la UI)."""
     base = (api_base or "").rstrip("/")
@@ -52,8 +71,10 @@ def _fetch_dashboard_api(api_base: str) -> dict | None:
                 log.warning("API dashboard HTTP %s (%s)", r.status_code, base)
                 return None
             data = r.json()
-            if isinstance(data, dict) and data.get("generado_en"):
+            if isinstance(data, dict) and data.get("generado_en") and _payload_score(data) > 0:
                 return data
+            if isinstance(data, dict) and data.get("generado_en"):
+                log.warning("API dashboard con generado_en pero sin contenido (%s)", base)
             return None
         except (requests.RequestException, ValueError) as exc:
             log.warning("API dashboard error (intento %s): %s", attempt + 1, exc)
@@ -75,18 +96,43 @@ def _restore_snapshot_disk() -> bool:
         return False
 
 
+def bootstrap_dashboard_data(api_base: str) -> dict:
+    """Arranque síncrono: disco → snapshot GitHub (antes del primer request Dash)."""
+    global _stale
+    local = read_dashboard()
+    if local.get("generado_en") and _payload_score(local) > 0:
+        _stale = local
+        log.info(
+            "Bootstrap: disco local generado_en=%s score=%d",
+            local.get("generado_en"),
+            _payload_score(local),
+        )
+        return local
+    if _restore_snapshot_disk():
+        local = read_dashboard()
+        if local.get("generado_en"):
+            _stale = local
+            log.info(
+                "Bootstrap: snapshot GitHub generado_en=%s score=%d",
+                local.get("generado_en"),
+                _payload_score(local),
+            )
+            return local
+    log.warning("Bootstrap: sin datos locales ni snapshot (%s)", DATA_FILE)
+    return local if isinstance(local, dict) else {}
+
+
 def load_dashboard_payload(api_base: str) -> dict:
     """
     Orden óptimo en PRO Free:
-      1) disco local
-      2) snapshot GitHub (si disco vacío) — no esperar a la API
-      3) API (y cachear en disco si responde)
-      4) stale en memoria
+      1) disco local / snapshot (bootstrap)
+      2) API solo si mejora el score (más fresco y con contenido)
+      3) stale en memoria
     """
     global _stale
 
     local = read_dashboard()
-    if local.get("generado_en"):
+    if local.get("generado_en") and _payload_score(local) > 0:
         _stale = local
     elif _restore_snapshot_disk():
         local = read_dashboard()
@@ -94,10 +140,15 @@ def load_dashboard_payload(api_base: str) -> dict:
             _stale = local
             log.info("Dashboard desde snapshot GitHub (generado_en=%s)", local.get("generado_en"))
 
+    local_score = _payload_score(local)
     fresh = _fetch_dashboard_api(api_base)
     if fresh:
-        # Preferir API si trae datos (más fresco que snapshot).
-        if (not local.get("generado_en")) or (fresh.get("generado_en") >= local.get("generado_en", "")):
+        fresh_score = _payload_score(fresh)
+        use_api = fresh_score > local_score or (
+            fresh_score == local_score
+            and str(fresh.get("generado_en") or "") >= str(local.get("generado_en") or "")
+        )
+        if use_api:
             _stale = fresh
             try:
                 write_dashboard(fresh)
@@ -106,6 +157,11 @@ def load_dashboard_payload(api_base: str) -> dict:
                 return fresh
             cached = read_dashboard()
             return cached if cached.get("generado_en") else fresh
+        log.info(
+            "API ignorada (score local=%d >= api=%d); usando snapshot/disco",
+            local_score,
+            fresh_score,
+        )
 
     if local.get("generado_en"):
         return local
@@ -120,7 +176,7 @@ def load_dashboard_payload(api_base: str) -> dict:
 def ensure_dashboard_on_disk() -> dict:
     """Disco local o snapshot GitHub, sin bloquear en /api/dashboard."""
     local = read_dashboard()
-    if local.get("generado_en"):
+    if local.get("generado_en") and _payload_score(local) > 0:
         return local
     if _restore_snapshot_disk():
         local = read_dashboard()

@@ -545,19 +545,21 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
 server = app.server
 register_routes(server, app, _ASSETS, plotly_cdn=_PLOTLY_JS_CDN)
 
-import threading  # noqa: E402
+try:
+    from sira.infrastructure.http.dashboard_fetch import bootstrap_dashboard_data
 
-
-def _warm_dashboard_cache() -> None:
-    try:
-        from sira.infrastructure.http.dashboard_fetch import load_dashboard_payload
-
-        load_dashboard_payload(API_BASE_URL)
-    except Exception:  # noqa: BLE001
-        log.exception("Precarga dashboard falló")
-
-
-threading.Thread(target=_warm_dashboard_cache, name="sira-dashboard-warm", daemon=True).start()
+    _boot = bootstrap_dashboard_data(API_BASE_URL)
+    if _boot.get("generado_en"):
+        log.info(
+            "Dashboard listo: generado_en=%s · %d sismos · %d SST",
+            _boot.get("generado_en"),
+            len(_boot.get("sismos") or []),
+            len((_boot.get("sst_med_grid") or {}).get("celdas") or []),
+        )
+    else:
+        log.warning("Dashboard arrancó sin datos (esperando snapshot/API)")
+except Exception:  # noqa: BLE001
+    log.exception("Bootstrap dashboard falló al arrancar")
 
 
 clientside_callback(

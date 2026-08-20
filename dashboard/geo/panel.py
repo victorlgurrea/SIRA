@@ -29,6 +29,7 @@ from charts.figures import (
 )
 from geo.context import geo_resuelto
 from sira.infrastructure.sources.hydrology.reservoirs import resumen_embalses
+from sira.infrastructure.sources.meteo.live import _proximas_horas_desde_serie
 from sira.services.mapa.panel_data import (
     alertas_meteo_fuente,
     alertas_meteo_locales,
@@ -332,7 +333,7 @@ def build_panel_geo(
             "Tiempo ahora",
             meteo_ahora(
                 res_met,
-                met.get("proximas_horas", []),
+                met.get("proximas_horas") or _proximas_horas_desde_serie(met.get("serie_horaria", []), horas=6),
                 fuente=met.get("fuente"),
                 alertas=alertas_meteo,
             ),

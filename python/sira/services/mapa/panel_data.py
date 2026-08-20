@@ -61,6 +61,20 @@ def meteo_para_geo(
         and isinstance(met_ing, dict)
         and (met_ing.get("serie_horaria") or met_ing.get("resumen"))
     ):
+        # Ingesta antigua solo traía lluvia en resumen; completar con live si falta tiempo actual.
+        res = met_ing.get("resumen") if isinstance(met_ing.get("resumen"), dict) else {}
+        if not res.get("temp_c") or not met_ing.get("proximas_horas"):
+            live = meteo_localidad(mid, loc or None)
+            if live.get("serie_horaria"):
+                merged = dict(met_ing)
+                live_res = live.get("resumen") if isinstance(live.get("resumen"), dict) else {}
+                merged["resumen"] = {**live_res, **(merged.get("resumen") or {})}
+                if not merged.get("proximas_horas"):
+                    merged["proximas_horas"] = live.get("proximas_horas") or []
+                if not merged.get("fuente"):
+                    merged["fuente"] = live.get("fuente")
+                _METEO_CACHE[cache_key] = (now, merged)
+                return merged
         _METEO_CACHE[cache_key] = (now, met_ing)
         return met_ing
 
