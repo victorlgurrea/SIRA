@@ -108,8 +108,19 @@ def status_snapshot() -> dict:
             }
             return out
 
-        if isinstance(payload, dict):
+        if isinstance(payload, dict) and api_fuentes_ok > 0:
             return payload
+
+        if isinstance(data, dict) and data.get("generado_en"):
+            return {
+                "generado_en": data.get("generado_en"),
+                "fuentes_estado": (
+                    data.get("fuentes_estado") if isinstance(data.get("fuentes_estado"), dict) else {}
+                ),
+                "suscripciones_push": count_subscriptions(),
+                "ingesta": {"running": False, "started_at": None, "finished_at": None, "last_error": None},
+                "ok": local_score > 0,
+            }
 
         return {
             "generado_en": "—",
