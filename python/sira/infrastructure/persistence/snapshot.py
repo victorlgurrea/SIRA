@@ -21,6 +21,7 @@ _OWNER_REPO = os.getenv("GITHUB_REPOSITORY", "victorlgurrea/SIRA")
 _TAG = "latest-data"
 _ASSET_NAME = "dashboard_data.json.gz"
 _API = "https://api.github.com"
+_DIRECT_DOWNLOAD_URL = f"https://github.com/{_OWNER_REPO}/releases/download/{_TAG}/{_ASSET_NAME}"
 _TIMEOUT = 60
 
 
@@ -126,47 +127,11 @@ def _gunzip_until_json(raw: bytes) -> tuple[bytes, dict] | tuple[None, None]:
     return None, None
 
 
-def download_snapshot(token: str | None = None) -> bool:
-    """Descarga el snapshot más reciente a DATA_FILE. Retorna True si OK.
-
-    En repos públicos funciona sin token (descarga directa del asset).
-    Tolera 1 o 2 capas gzip (regresión del workflow con Accept-Encoding).
-    """
-    hdr = _headers(token)
-
-    url_rel = f"{_API}/repos/{_OWNER_REPO}/releases/tags/{_TAG}"
-    try:
-        r = requests.get(url_rel, headers=hdr, timeout=_TIMEOUT)
-    except requests.RequestException as e:
-        log.warning("No se pudo comprobar release: %s", e)
-        return False
-    if r.status_code == 404:
-        log.info("No existe release %s; sin snapshot previo", _TAG)
-        return False
-    if not r.ok:
-        log.warning("Error comprobando release: %s", r.status_code)
-        return False
-
-    assets = r.json().get("assets", [])
-    asset = next((a for a in assets if a["name"] == _ASSET_NAME), None)
-    if not asset:
-        log.info("Release sin asset %s", _ASSET_NAME)
-        return False
-
-    download_url = asset.get("browser_download_url") or asset["url"]
-    try:
-        dl_hdr = {**hdr, "Accept": "application/octet-stream"}
-        r = requests.get(download_url, headers=dl_hdr, timeout=120, allow_redirects=True)
-        r.raise_for_status()
-    except requests.RequestException as e:
-        log.warning("Error descargando snapshot: %s", e)
-        return False
-
-    decompressed, data = _gunzip_until_json(r.content)
+def _save_snapshot_bytes(raw: bytes) -> bool:
+    decompressed, data = _gunzip_until_json(raw)
     if not decompressed or not data:
         log.warning("Snapshot no es JSON válido tras descomprimir")
         return False
-
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     DATA_FILE.write_bytes(decompressed)
     log.info(
@@ -174,3 +139,45 @@ def download_snapshot(token: str | None = None) -> bool:
         DATA_FILE, data["generado_en"], len(decompressed) / 1024,
     )
     return True
+
+
+def download_snapshot(token: str | None = None) -> bool:
+    """Descarga el snapshot más reciente a DATA_FILE. Retorna True si OK.
+
+    En repos públicos funciona sin token (descarga directa del asset).
+    Tolera 1 o 2 capas gzip (regresión del workflow con Accept-Encoding).
+    Si la API de GitHub falla (rate limit en Render), usa URL directa del release.
+    """
+    hdr = _headers(token)
+    download_url: str | None = None
+
+    url_rel = f"{_API}/repos/{_OWNER_REPO}/releases/tags/{_TAG}"
+    try:
+        r = requests.get(url_rel, headers=hdr, timeout=_TIMEOUT)
+        if r.status_code == 404:
+            log.info("No existe release %s; probando URL directa", _TAG)
+        elif r.ok:
+            assets = r.json().get("assets", [])
+            asset = next((a for a in assets if a["name"] == _ASSET_NAME), None)
+            if asset:
+                download_url = asset.get("browser_download_url") or asset["url"]
+            else:
+                log.info("Release sin asset %s; probando URL directa", _ASSET_NAME)
+        else:
+            log.warning("Error comprobando release: %s; probando URL directa", r.status_code)
+    except requests.RequestException as e:
+        log.warning("No se pudo comprobar release: %s; probando URL directa", e)
+
+    for url in (download_url, _DIRECT_DOWNLOAD_URL):
+        if not url:
+            continue
+        try:
+            dl_hdr = {**hdr, "Accept": "application/octet-stream"}
+            r = requests.get(url, headers=dl_hdr, timeout=120, allow_redirects=True)
+            r.raise_for_status()
+            if _save_snapshot_bytes(r.content):
+                return True
+        except requests.RequestException as e:
+            log.warning("Error descargando snapshot (%s): %s", url[:60], e)
+
+    return False

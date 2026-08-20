@@ -69,16 +69,30 @@ def status_snapshot() -> dict:
         "ok": False,
     }
     try:
-        from sira.infrastructure.http.dashboard_fetch import ensure_dashboard_on_disk, fetch_status_api
+        from sira.infrastructure.http.dashboard_fetch import (
+            _payload_score,
+            ensure_dashboard_on_disk,
+            fetch_status_api,
+        )
 
         # Primero disco/snapshot: en PRO la API suele estar vacía tras hibernar.
         data = ensure_dashboard_on_disk()
         payload = fetch_status_api(API_BASE_URL)
 
-        if isinstance(payload, dict) and payload.get("generado_en"):
+        local_score = _payload_score(data) if isinstance(data, dict) else 0
+        api_fuentes = (
+            payload.get("fuentes_estado")
+            if isinstance(payload, dict) and isinstance(payload.get("fuentes_estado"), dict)
+            else {}
+        )
+        api_fuentes_ok = sum(
+            1 for v in api_fuentes.values() if isinstance(v, dict) and v.get("ok")
+        )
+
+        if isinstance(payload, dict) and payload.get("generado_en") and api_fuentes_ok > 0 and local_score == 0:
             return payload
 
-        if isinstance(data, dict) and data.get("generado_en"):
+        if isinstance(data, dict) and data.get("generado_en") and local_score > 0:
             out = {
                 "generado_en": data.get("generado_en"),
                 "fuentes_estado": (
