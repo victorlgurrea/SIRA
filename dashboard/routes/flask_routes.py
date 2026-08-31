@@ -1,11 +1,12 @@
 """Rutas Flask auxiliares del dashboard (PWA, estado, manifest)."""
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
 from flask import Response, jsonify, redirect, request, send_from_directory
 
-from sira.config.settings import API_BASE_URL
+from sira.config.settings import API_BASE_URL, CRON_SECRET
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
 
@@ -148,7 +149,13 @@ def status_snapshot() -> dict:
         return empty
 
 
-def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None = None) -> None:
+def register_routes(
+    server,
+    dash_app,
+    assets_path: Path,
+    plotly_cdn: str | None = None,
+    on_data_restored=None,
+) -> None:
     """Registra rutas Flask no gestionadas por Dash."""
 
     cdn = (plotly_cdn or "").strip()
@@ -175,6 +182,33 @@ def register_routes(server, dash_app, assets_path: Path, plotly_cdn: str | None 
         resp.headers["Service-Worker-Allowed"] = "/"
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
+
+    @server.route("/api/cron/restore-snapshot", methods=["POST"])
+    def _cron_restore_snapshot():
+        """Tras cada ingesta: fuerza descarga del release latest-data en este servicio."""
+        if not CRON_SECRET:
+            return jsonify({"ok": False, "detail": "CRON_SECRET no configurado"}), 503
+        provided = request.headers.get("X-Cron-Secret", "")
+        if not provided or not secrets.compare_digest(provided, CRON_SECRET):
+            return jsonify({"ok": False, "detail": "No autorizado"}), 401
+        from sira.infrastructure.http.dashboard_fetch import invalidate_dashboard_cache
+        from sira.infrastructure.persistence.snapshot import download_snapshot
+
+        ok = bool(download_snapshot())
+        data = read_dashboard()
+        invalidate_dashboard_cache()
+        if callable(on_data_restored):
+            try:
+                on_data_restored()
+            except Exception:  # noqa: BLE001
+                pass
+        return jsonify(
+            {
+                "ok": bool(ok and data.get("generado_en")),
+                "restored": ok,
+                "generado_en": data.get("generado_en"),
+            }
+        )
 
     @server.route("/.well-known/assetlinks.json")
     def _assetlinks():

@@ -57,15 +57,29 @@ def _local_is_stale(local: dict | None) -> bool:
     return (datetime.now(timezone.utc) - gen).total_seconds() > max_age_sec
 
 
-def _maybe_refresh_snapshot(local: dict | None) -> dict:
+def invalidate_dashboard_cache() -> None:
+    """Tras restore-snapshot: forzar recarga en el proceso."""
+    global _stale, _last_snapshot_attempt
+    _stale = None
+    _last_snapshot_attempt = 0.0
+
+
+def _maybe_refresh_snapshot(local: dict | None, *, force: bool = False) -> dict:
     """Descarga snapshot GitHub si el JSON local falta o está desactualizado."""
     global _last_snapshot_attempt
 
-    if not _local_is_stale(local):
+    stale = _local_is_stale(local)
+    if not stale and not force:
         return local if isinstance(local, dict) else {}
 
     now = time.monotonic()
-    if (now - _last_snapshot_attempt) < _SNAPSHOT_RETRY_SEC and isinstance(local, dict) and local.get("generado_en"):
+    if (
+        not force
+        and not stale
+        and (now - _last_snapshot_attempt) < _SNAPSHOT_RETRY_SEC
+        and isinstance(local, dict)
+        and local.get("generado_en")
+    ):
         return local
     _last_snapshot_attempt = now
 
@@ -173,59 +187,30 @@ def bootstrap_dashboard_data(api_base: str) -> dict:
 
 def load_dashboard_payload(api_base: str) -> dict:
     """
-    Orden óptimo en PRO Free:
-      1) disco local / snapshot (bootstrap)
-      2) API solo si mejora el score (más fresco y con contenido)
-      3) stale en memoria
+    Fuente de verdad en PRO: snapshot GitHub (actualizado por el workflow cada 3h).
+    La API tiene su propio disco y puede quedar desfasada; no usarla para pintar el dashboard.
     """
     global _stale
 
     local = _maybe_refresh_snapshot(read_dashboard())
-    if local.get("generado_en"):
+    if local.get("generado_en") and _payload_score(local) > 0:
         _stale = local
-
-    local_score = _payload_score(local)
-    fresh = _fetch_dashboard_api(api_base)
-    if fresh:
-        fresh_score = _payload_score(fresh)
-        fresh_gen = str(fresh.get("generado_en") or "")
-        local_gen = str(local.get("generado_en") or "")
-        # Nunca pisar un snapshot reciente con datos viejos de la API (aunque tengan más registros).
-        if local_gen and fresh_gen and fresh_gen < local_gen:
-            log.info(
-                "API ignorada (más antigua que local): api=%s local=%s (score %d vs %d)",
-                fresh_gen,
-                local_gen,
-                fresh_score,
-                local_score,
-            )
-            use_api = False
-        else:
-            use_api = (
-                not local_gen
-                or fresh_gen > local_gen
-                or (fresh_gen == local_gen and fresh_score >= local_score)
-            )
-        if use_api:
-            _stale = fresh
-            try:
-                write_dashboard(fresh)
-            except OSError as exc:
-                log.warning("No se pudo cachear dashboard en disco: %s", exc)
-                return fresh
-            cached = read_dashboard()
-            return cached if cached.get("generado_en") else fresh
-        log.info(
-            "API ignorada (score local=%d >= api=%d); usando snapshot/disco",
-            local_score,
-            fresh_score,
-        )
-
-    if local.get("generado_en"):
         return local
 
+    # Sin snapshot: último recurso API (arranque en frío sin release).
+    fresh = _fetch_dashboard_api(api_base)
+    if fresh and fresh.get("generado_en") and _payload_score(fresh) > 0:
+        _stale = fresh
+        try:
+            write_dashboard(fresh)
+        except OSError as exc:
+            log.warning("No se pudo cachear dashboard en disco: %s", exc)
+            return fresh
+        cached = read_dashboard()
+        return cached if cached.get("generado_en") else fresh
+
     if _stale and _stale.get("generado_en"):
-        log.warning("Usando datos en memoria (API no disponible)")
+        log.warning("Usando datos en memoria (sin snapshot ni API)")
         return _stale
 
     return local if isinstance(local, dict) else {}
@@ -233,7 +218,7 @@ def load_dashboard_payload(api_base: str) -> dict:
 
 def ensure_dashboard_on_disk() -> dict:
     """Disco local o snapshot GitHub, sin bloquear en /api/dashboard."""
-    local = _maybe_refresh_snapshot(read_dashboard())
+    local = _maybe_refresh_snapshot(read_dashboard(), force=_local_is_stale(read_dashboard()))
     if local.get("generado_en"):
         return local
     return local if isinstance(local, dict) else {}

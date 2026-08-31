@@ -77,6 +77,7 @@ jobs:
         env:
           API_URL: ${{ secrets.SIRA_API_URL }}
           CRON_SECRET: ${{ secrets.SIRA_CRON_SECRET }}
+          SIRA_DASHBOARD_URL: ${{ secrets.SIRA_DASHBOARD_URL }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -163,4 +164,18 @@ jobs:
           code=$(curl -sS -o /tmp/sira_restore.txt -w "%{http_code}" --max-time 120 \
             -X POST "${API_URL}/api/cron/restore-snapshot" \
             -H "X-Cron-Secret: ${CRON_SECRET}" || true)
-          echo "  restore → HTTP $code $(head -c 200 /tmp/sira_restore.txt || true)"
+          echo "  restore API → HTTP $code $(head -c 200 /tmp/sira_restore.txt || true)"
+
+          DASHBOARD_URL="${SIRA_DASHBOARD_URL:-https://sira-dashboard.onrender.com}"
+          DASHBOARD_URL="${DASHBOARD_URL%/}"
+          echo "Forzando restore-snapshot en el dashboard (${DASHBOARD_URL})…"
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/sira_dash_restore.txt -w "%{http_code}" --max-time 120 \
+              -X POST "${DASHBOARD_URL}/api/cron/restore-snapshot" \
+              -H "X-Cron-Secret: ${CRON_SECRET}" || true)
+            echo "  restore dashboard intento $i → HTTP $code $(head -c 200 /tmp/sira_dash_restore.txt || true)"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 15
+          done

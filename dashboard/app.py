@@ -267,6 +267,12 @@ app.layout = html.Div(className="sira-page", children=[
 ])
 
 
+def invalidate_load_cache() -> None:
+    """Vacía la cache de _load() tras restore-snapshot."""
+    global _LOAD_CACHE
+    _LOAD_CACHE = (0.0, None)
+
+
 def _load() -> dict:
     """Lee dashboard con cache corto (el callback se dispara muchas veces al cargar)."""
     global _LOAD_CACHE
@@ -543,7 +549,7 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
 
 # WSGI (gunicorn en Render)
 server = app.server
-register_routes(server, app, _ASSETS, plotly_cdn=_PLOTLY_JS_CDN)
+register_routes(server, app, _ASSETS, plotly_cdn=_PLOTLY_JS_CDN, on_data_restored=invalidate_load_cache)
 
 try:
     from sira.infrastructure.http.dashboard_fetch import bootstrap_dashboard_data

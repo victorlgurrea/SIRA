@@ -151,6 +151,18 @@ def download_snapshot(token: str | None = None) -> bool:
     hdr = _headers(token)
     download_url: str | None = None
 
+    # URL directa primero: en Render la API de GitHub suele devolver 403/429.
+    for url in (_DIRECT_DOWNLOAD_URL,):
+        if not url:
+            continue
+        try:
+            r = requests.get(url, headers={"User-Agent": hdr["User-Agent"]}, timeout=120, allow_redirects=True)
+            r.raise_for_status()
+            if _save_snapshot_bytes(r.content):
+                return True
+        except requests.RequestException as e:
+            log.warning("Error descargando snapshot directo: %s", e)
+
     url_rel = f"{_API}/repos/{_OWNER_REPO}/releases/tags/{_TAG}"
     try:
         r = requests.get(url_rel, headers=hdr, timeout=_TIMEOUT)
@@ -168,7 +180,7 @@ def download_snapshot(token: str | None = None) -> bool:
     except requests.RequestException as e:
         log.warning("No se pudo comprobar release: %s; probando URL directa", e)
 
-    for url in (download_url, _DIRECT_DOWNLOAD_URL):
+    for url in (download_url,):
         if not url:
             continue
         try:
