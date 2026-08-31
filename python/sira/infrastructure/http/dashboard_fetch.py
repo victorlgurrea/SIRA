@@ -147,9 +147,18 @@ def _restore_snapshot_disk() -> bool:
 
 
 def bootstrap_dashboard_data(api_base: str) -> dict:
-    """Arranque síncrono: disco → snapshot GitHub (antes del primer request Dash)."""
+    """Arranque síncrono: snapshot GitHub → disco (antes del primer request Dash)."""
     global _stale
-    local = _maybe_refresh_snapshot(read_dashboard())
+    local = read_dashboard()
+    if _restore_snapshot_disk():
+        refreshed = read_dashboard()
+        if isinstance(refreshed, dict) and refreshed.get("generado_en"):
+            local_gen = str(local.get("generado_en") or "")
+            new_gen = str(refreshed.get("generado_en") or "")
+            if not local_gen or new_gen >= local_gen:
+                local = refreshed
+    else:
+        local = _maybe_refresh_snapshot(local)
     if local.get("generado_en") and _payload_score(local) > 0:
         _stale = local
         log.info(
@@ -179,10 +188,24 @@ def load_dashboard_payload(api_base: str) -> dict:
     fresh = _fetch_dashboard_api(api_base)
     if fresh:
         fresh_score = _payload_score(fresh)
-        use_api = fresh_score > local_score or (
-            fresh_score == local_score
-            and str(fresh.get("generado_en") or "") >= str(local.get("generado_en") or "")
-        )
+        fresh_gen = str(fresh.get("generado_en") or "")
+        local_gen = str(local.get("generado_en") or "")
+        # Nunca pisar un snapshot reciente con datos viejos de la API (aunque tengan más registros).
+        if local_gen and fresh_gen and fresh_gen < local_gen:
+            log.info(
+                "API ignorada (más antigua que local): api=%s local=%s (score %d vs %d)",
+                fresh_gen,
+                local_gen,
+                fresh_score,
+                local_score,
+            )
+            use_api = False
+        else:
+            use_api = (
+                not local_gen
+                or fresh_gen > local_gen
+                or (fresh_gen == local_gen and fresh_score >= local_score)
+            )
         if use_api:
             _stale = fresh
             try:
