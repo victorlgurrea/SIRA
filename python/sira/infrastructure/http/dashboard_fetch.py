@@ -3,16 +3,19 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 
 import requests
 
-from sira.config.settings import DATA_FILE
+from sira.config.settings import DATA_FILE, INGESTA_INTERVAL_MIN
 from sira.infrastructure.http.client import read_dashboard, write_dashboard
 
 log = logging.getLogger(__name__)
 
 # Último payload bueno en memoria del proceso (stale si la API falla un rato).
 _stale: dict | None = None
+_last_snapshot_attempt: float = 0.0
+_SNAPSHOT_RETRY_SEC = 30 * 60.0
 
 
 def _payload_score(data: dict | None) -> int:
@@ -32,6 +35,53 @@ def _payload_score(data: dict | None) -> int:
         + len((data.get("sst_med_grid") or {}).get("celdas") or [])
         + min(oce_n, 500)
     )
+
+
+def _parse_generado_en(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _local_is_stale(local: dict | None) -> bool:
+    """True si no hay datos o superan el intervalo de ingesta configurado."""
+    if not isinstance(local, dict) or not local.get("generado_en") or _payload_score(local) <= 0:
+        return True
+    gen = _parse_generado_en(local.get("generado_en"))
+    if not gen:
+        return True
+    max_age_sec = max(float(INGESTA_INTERVAL_MIN), 60) * 60.0
+    return (datetime.now(timezone.utc) - gen).total_seconds() > max_age_sec
+
+
+def _maybe_refresh_snapshot(local: dict | None) -> dict:
+    """Descarga snapshot GitHub si el JSON local falta o está desactualizado."""
+    global _last_snapshot_attempt
+
+    if not _local_is_stale(local):
+        return local if isinstance(local, dict) else {}
+
+    now = time.monotonic()
+    if (now - _last_snapshot_attempt) < _SNAPSHOT_RETRY_SEC and isinstance(local, dict) and local.get("generado_en"):
+        return local
+    _last_snapshot_attempt = now
+
+    if not _restore_snapshot_disk():
+        return local if isinstance(local, dict) else {}
+
+    refreshed = read_dashboard()
+    if not isinstance(refreshed, dict) or not refreshed.get("generado_en"):
+        return local if isinstance(local, dict) else {}
+
+    local_gen = str((local or {}).get("generado_en") or "")
+    new_gen = str(refreshed.get("generado_en") or "")
+    if new_gen > local_gen or _payload_score(refreshed) > _payload_score(local):
+        log.info("Snapshot más reciente: %s → %s", local_gen or "—", new_gen)
+        return refreshed
+    return local if isinstance(local, dict) else refreshed
 
 
 def wake_api(api_base: str, *, attempts: int = 2, timeout: float = 6.0) -> bool:
@@ -99,7 +149,7 @@ def _restore_snapshot_disk() -> bool:
 def bootstrap_dashboard_data(api_base: str) -> dict:
     """Arranque síncrono: disco → snapshot GitHub (antes del primer request Dash)."""
     global _stale
-    local = read_dashboard()
+    local = _maybe_refresh_snapshot(read_dashboard())
     if local.get("generado_en") and _payload_score(local) > 0:
         _stale = local
         log.info(
@@ -108,16 +158,6 @@ def bootstrap_dashboard_data(api_base: str) -> dict:
             _payload_score(local),
         )
         return local
-    if _restore_snapshot_disk():
-        local = read_dashboard()
-        if local.get("generado_en"):
-            _stale = local
-            log.info(
-                "Bootstrap: snapshot GitHub generado_en=%s score=%d",
-                local.get("generado_en"),
-                _payload_score(local),
-            )
-            return local
     log.warning("Bootstrap: sin datos locales ni snapshot (%s)", DATA_FILE)
     return local if isinstance(local, dict) else {}
 
@@ -131,14 +171,9 @@ def load_dashboard_payload(api_base: str) -> dict:
     """
     global _stale
 
-    local = read_dashboard()
-    if local.get("generado_en") and _payload_score(local) > 0:
+    local = _maybe_refresh_snapshot(read_dashboard())
+    if local.get("generado_en"):
         _stale = local
-    elif _restore_snapshot_disk():
-        local = read_dashboard()
-        if local.get("generado_en"):
-            _stale = local
-            log.info("Dashboard desde snapshot GitHub (generado_en=%s)", local.get("generado_en"))
 
     local_score = _payload_score(local)
     fresh = _fetch_dashboard_api(api_base)
@@ -175,13 +210,9 @@ def load_dashboard_payload(api_base: str) -> dict:
 
 def ensure_dashboard_on_disk() -> dict:
     """Disco local o snapshot GitHub, sin bloquear en /api/dashboard."""
-    local = read_dashboard()
-    if local.get("generado_en") and _payload_score(local) > 0:
+    local = _maybe_refresh_snapshot(read_dashboard())
+    if local.get("generado_en"):
         return local
-    if _restore_snapshot_disk():
-        local = read_dashboard()
-        if local.get("generado_en"):
-            return local
     return local if isinstance(local, dict) else {}
 
 
