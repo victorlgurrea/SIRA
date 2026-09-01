@@ -1,9 +1,11 @@
-"""Cuadrícula SST Mediterráneo (Copernicus Marine CMEMS L4 + fallback Open-Meteo)."""
+"""Cuadrícula SST por región (Copernicus Marine CMEMS + fallback Open-Meteo)."""
 from __future__ import annotations
 
 import logging
 import math
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -11,7 +13,18 @@ import numpy as np
 from sira.config.settings import (
     CMEMS_PASSWORD,
     CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK,
+    CMEMS_SST_ATL_LAT_MAX,
+    CMEMS_SST_ATL_LAT_MIN,
+    CMEMS_SST_ATL_LON_MAX,
+    CMEMS_SST_ATL_LON_MIN,
+    CMEMS_SST_ATL_PASO_DEG,
+    CMEMS_SST_CANT_LAT_MAX,
+    CMEMS_SST_CANT_LAT_MIN,
+    CMEMS_SST_CANT_LON_MAX,
+    CMEMS_SST_CANT_LON_MIN,
+    CMEMS_SST_CANT_PASO_DEG,
     CMEMS_SST_DATASET_ID,
+    CMEMS_SST_IBI_DATASET_ID,
     CMEMS_SST_LAT_MAX,
     CMEMS_SST_LAT_MIN,
     CMEMS_SST_LON_MAX,
@@ -21,15 +34,69 @@ from sira.config.settings import (
     CMEMS_USERNAME,
     OPEN_METEO_MARINE_URL,
 )
-from sira.infrastructure.geo.mar_mediterraneo import densificar_celdas_mar, fraccion_mar_celda
+from sira.infrastructure.geo import mar_costa_atlantica as mar_atl
+from sira.infrastructure.geo import mar_mediterraneo as mar_med
 from sira.infrastructure.http.client import fetch_json
 from sira.infrastructure.sources.ocean.sst_transport import limitar_celdas_mapa
 
 log = logging.getLogger(__name__)
 
-_NATIVE_DEG = 0.0625
 _KELVIN_FLOOR = 200.0
 _OM_BATCH = 60
+
+
+@dataclass(frozen=True)
+class SstRegionConfig:
+    key: str
+    dataset_id: str
+    lat_min: float
+    lat_max: float
+    lon_min: float
+    lon_max: float
+    paso_deg: float
+    fuente_cmems: str
+    fraccion_mar: Callable[[float, float, float], float]
+    densificar: Callable[..., list[dict]]
+
+
+REGION_MED = SstRegionConfig(
+    key="med",
+    dataset_id=CMEMS_SST_DATASET_ID,
+    lat_min=CMEMS_SST_LAT_MIN,
+    lat_max=CMEMS_SST_LAT_MAX,
+    lon_min=CMEMS_SST_LON_MIN,
+    lon_max=CMEMS_SST_LON_MAX,
+    paso_deg=CMEMS_SST_PASO_DEG,
+    fuente_cmems="Copernicus Med-Physics SST (ultimo disponible)",
+    fraccion_mar=mar_med.fraccion_mar_celda,
+    densificar=mar_med.densificar_celdas_mar,
+)
+
+REGION_CANT = SstRegionConfig(
+    key="cant",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=CMEMS_SST_CANT_LAT_MIN,
+    lat_max=CMEMS_SST_CANT_LAT_MAX,
+    lon_min=CMEMS_SST_CANT_LON_MIN,
+    lon_max=CMEMS_SST_CANT_LON_MAX,
+    paso_deg=CMEMS_SST_CANT_PASO_DEG,
+    fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=mar_atl.densificar_celdas_mar,
+)
+
+REGION_ATL = SstRegionConfig(
+    key="atl",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=CMEMS_SST_ATL_LAT_MIN,
+    lat_max=CMEMS_SST_ATL_LAT_MAX,
+    lon_min=CMEMS_SST_ATL_LON_MIN,
+    lon_max=CMEMS_SST_ATL_LON_MAX,
+    paso_deg=CMEMS_SST_ATL_PASO_DEG,
+    fuente_cmems="Copernicus IBI-Physics SST Atlántico (ultimo disponible)",
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=mar_atl.densificar_celdas_mar,
+)
 
 
 def _creds_ok() -> bool:
@@ -50,7 +117,6 @@ def _coord_name(da, candidates: tuple[str, ...]) -> str:
 
 
 def _idx_ultimo_disponible(times, ahora: datetime) -> int:
-    """Último timestep disponible <= ahora; si no, el último del dataset."""
     if len(times) == 0:
         return -1
     try:
@@ -64,21 +130,29 @@ def _idx_ultimo_disponible(times, ahora: datetime) -> int:
     return len(times) - 1
 
 
-def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso: float) -> dict:
+def _pack(
+    celdas: list[dict],
+    *,
+    region: SstRegionConfig,
+    fuente: str,
+    fecha: str,
+    paso: float,
+) -> dict:
     if not celdas:
         raise RuntimeError(f"{fuente}: sin celdas válidas en el bbox solicitado")
     celdas = limitar_celdas_mapa(celdas)
     sst_vals = [c["sst_c"] for c in celdas]
     return {
+        "region": region.key,
         "fuente": fuente,
-        "dataset_id": dataset_id,
+        "dataset_id": region.dataset_id,
         "fecha": fecha,
         "paso_deg": round(paso, 4),
         "bbox": {
-            "lat_min": CMEMS_SST_LAT_MIN,
-            "lat_max": CMEMS_SST_LAT_MAX,
-            "lon_min": CMEMS_SST_LON_MIN,
-            "lon_max": CMEMS_SST_LON_MAX,
+            "lat_min": region.lat_min,
+            "lat_max": region.lat_max,
+            "lon_min": region.lon_min,
+            "lon_max": region.lon_max,
         },
         "resumen": {
             "n_celdas": len(celdas),
@@ -90,38 +164,37 @@ def _pack(celdas: list[dict], *, fuente: str, dataset_id: str, fecha: str, paso:
     }
 
 
-def _desde_cmems() -> dict:
+def _desde_cmems(region: SstRegionConfig) -> dict:
     import copernicusmarine
 
     ahora = datetime.now(timezone.utc)
-    # Ventana corta: análisis/previsión horaria actual (Med-Physics).
     inicio = ahora - timedelta(days=2)
-    paso = max(0.042, float(CMEMS_SST_PASO_DEG))
+    paso = max(0.042, float(region.paso_deg))
 
     log.info(
-        "CMEMS SST actual: dataset=%s var=%s bbox=[%.2f,%.2f]×[%.2f,%.2f] paso≈%.3f°",
-        CMEMS_SST_DATASET_ID,
+        "CMEMS SST %s: dataset=%s var=%s bbox=[%.2f,%.2f]×[%.2f,%.2f] paso≈%.3f°",
+        region.key,
+        region.dataset_id,
         CMEMS_SST_VARIABLE,
-        CMEMS_SST_LAT_MIN,
-        CMEMS_SST_LAT_MAX,
-        CMEMS_SST_LON_MIN,
-        CMEMS_SST_LON_MAX,
+        region.lat_min,
+        region.lat_max,
+        region.lon_min,
+        region.lon_max,
         paso,
     )
 
     open_kwargs = dict(
-        dataset_id=CMEMS_SST_DATASET_ID,
+        dataset_id=region.dataset_id,
         variables=[CMEMS_SST_VARIABLE],
-        minimum_longitude=CMEMS_SST_LON_MIN,
-        maximum_longitude=CMEMS_SST_LON_MAX,
-        minimum_latitude=CMEMS_SST_LAT_MIN,
-        maximum_latitude=CMEMS_SST_LAT_MAX,
+        minimum_longitude=region.lon_min,
+        maximum_longitude=region.lon_max,
+        minimum_latitude=region.lat_min,
+        maximum_latitude=region.lat_max,
         start_datetime=inicio.strftime("%Y-%m-%dT00:00:00"),
         end_datetime=ahora.strftime("%Y-%m-%dT23:59:59"),
         username=CMEMS_USERNAME.strip(),
         password=CMEMS_PASSWORD.strip(),
     )
-    # Compatibilidad entre versiones de copernicusmarine.
     try:
         ds = copernicusmarine.open_dataset(**open_kwargs, disable_progress_bar=True)
     except TypeError:
@@ -131,7 +204,6 @@ def _desde_cmems() -> dict:
         raise RuntimeError(f"Dataset CMEMS sin variable {CMEMS_SST_VARIABLE}")
 
     da = ds[CMEMS_SST_VARIABLE]
-    # Productos 3D: quedarnos en superficie (primer nivel de profundidad).
     for depth_name in ("depth", "elevation"):
         if depth_name in da.dims:
             da = da.isel({depth_name: 0})
@@ -156,7 +228,6 @@ def _desde_cmems() -> dict:
     lon_name = _coord_name(da, ("longitude", "lon"))
     lats_all = np.asarray(da[lat_name].values, dtype=float)
     lons_all = np.asarray(da[lon_name].values, dtype=float)
-    # Estimar resolución nativa y remuestrear al paso configurado.
     dlat = float(np.nanmedian(np.abs(np.diff(lats_all)))) if len(lats_all) > 1 else 0.042
     dlon = float(np.nanmedian(np.abs(np.diff(lons_all)))) if len(lons_all) > 1 else 0.042
     native = max(dlat, dlon, 0.01)
@@ -179,7 +250,7 @@ def _desde_cmems() -> dict:
             lat_c = round(float(lat), 4)
             lon_c = round(float(lon), 4)
             half = max(paso * 0.48, 0.06)
-            if fraccion_mar_celda(lat_c, lon_c, half) < 0.9:
+            if region.fraccion_mar(lat_c, lon_c, half) < 0.9:
                 continue
             celdas.append({
                 "lat": lat_c,
@@ -194,25 +265,26 @@ def _desde_cmems() -> dict:
 
     paso_out = stride * native
     out = _pack(
-        densificar_celdas_mar(celdas, paso=paso_out, umbral_mar=0.85),
-        fuente="Copernicus Med-Physics SST (ultimo disponible)",
-        dataset_id=CMEMS_SST_DATASET_ID,
+        region.densificar(celdas, paso=paso_out, umbral_mar=0.85),
+        region=region,
+        fuente=region.fuente_cmems,
         fecha=fecha,
         paso=paso_out,
     )
     log.info(
-        "CMEMS SST: %d celdas · fecha=%s · %.1f–%.1f °C",
+        "CMEMS SST %s: %d celdas · fecha=%s · %.1f–%.1f °C",
+        region.key,
         out["resumen"]["n_celdas"], fecha, out["resumen"]["sst_min_c"], out["resumen"]["sst_max_c"],
     )
     return out
 
 
-def _malla_puntos(paso: float) -> list[tuple[float, float]]:
+def _malla_puntos(region: SstRegionConfig, paso: float) -> list[tuple[float, float]]:
     pts: list[tuple[float, float]] = []
-    lat = float(CMEMS_SST_LAT_MIN)
-    while lat <= float(CMEMS_SST_LAT_MAX) + 1e-9:
-        lon = float(CMEMS_SST_LON_MIN)
-        while lon <= float(CMEMS_SST_LON_MAX) + 1e-9:
+    lat = float(region.lat_min)
+    while lat <= float(region.lat_max) + 1e-9:
+        lon = float(region.lon_min)
+        while lon <= float(region.lon_max) + 1e-9:
             pts.append((round(lat, 4), round(lon, 4)))
             lon += paso
         lat += paso
@@ -220,7 +292,6 @@ def _malla_puntos(paso: float) -> list[tuple[float, float]]:
 
 
 def _sst_actual_serie(temps: list, times: list) -> tuple[float | None, str | None]:
-    """Última temperatura no nula (hora actual / más reciente)."""
     ahora = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
     mejor: tuple[float | None, str | None] = (None, None)
     for ts, val in zip(times, temps):
@@ -240,16 +311,14 @@ def _sst_actual_serie(temps: list, times: list) -> tuple[float | None, str | Non
     return None, None
 
 
-def _desde_open_meteo() -> dict:
-    """SST horaria actual por malla (Open-Meteo marine). Sin cuenta CMEMS."""
-    paso = max(0.08, float(CMEMS_SST_PASO_DEG))
-    puntos = _malla_puntos(paso)
+def _desde_open_meteo(region: SstRegionConfig) -> dict:
+    paso = max(0.08, float(region.paso_deg))
+    puntos = _malla_puntos(region, paso)
     celdas: list[dict] = []
     fecha_ref: str | None = None
     half = max(paso * 0.48, 0.06)
     umbral_mar = 0.85
 
-    data = None
     for i in range(0, len(puntos), _OM_BATCH):
         if i > 0:
             time.sleep(0.9)
@@ -268,13 +337,15 @@ def _desde_open_meteo() -> dict:
                 break
             except Exception as exc:  # noqa: BLE001
                 msg = str(exc).lower()
-                # Backoff específico para rate-limit.
                 if "429" in msg or "too many requests" in msg:
                     sleep_s = 3.0 * (attempt + 1)
-                    log.warning("Open-Meteo 429 lote %s (reintento %s/3): esperando %.1fs", i // _OM_BATCH, attempt + 1, sleep_s)
+                    log.warning(
+                        "Open-Meteo 429 %s lote %s (reintento %s/3): esperando %.1fs",
+                        region.key, i // _OM_BATCH, attempt + 1, sleep_s,
+                    )
                     time.sleep(sleep_s)
                     continue
-                log.warning("Open-Meteo SST lote %s: %s", i // _OM_BATCH, exc)
+                log.warning("Open-Meteo SST %s lote %s: %s", region.key, i // _OM_BATCH, exc)
                 break
         if data is None:
             continue
@@ -292,7 +363,7 @@ def _desde_open_meteo() -> dict:
                 fecha_ref = ts
             lat = round(float(item.get("latitude", batch[idx][0])), 4)
             lon = round(float(item.get("longitude", batch[idx][1])), 4)
-            if fraccion_mar_celda(lat, lon, half) < umbral_mar:
+            if region.fraccion_mar(lat, lon, half) < umbral_mar:
                 continue
             celdas.append({
                 "lat": lat,
@@ -302,29 +373,24 @@ def _desde_open_meteo() -> dict:
 
     fecha = (fecha_ref or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))[:16]
     out = _pack(
-        densificar_celdas_mar(celdas, paso=paso, umbral_mar=umbral_mar),
-        fuente="Open-Meteo marine SST (ultimo disponible)",
-        dataset_id="open-meteo-marine",
+        region.densificar(celdas, paso=paso, umbral_mar=umbral_mar),
+        region=region,
+        fuente=f"Open-Meteo marine SST {region.key} (ultimo disponible)",
         fecha=fecha,
         paso=paso,
     )
     log.info(
-        "Open-Meteo SST: %d celdas · %s · %.1f–%.1f °C",
+        "Open-Meteo SST %s: %d celdas · %s · %.1f–%.1f °C",
+        region.key,
         out["resumen"]["n_celdas"], fecha, out["resumen"]["sst_min_c"], out["resumen"]["sst_max_c"],
     )
     return out
 
 
-def descargar_sst_med_cuadricula() -> dict:
-    """
-    Cuadrícula SST del Mediterráneo para monitorización.
-
-    Prioridad: CMEMS. El fallback Open-Meteo (malla densa) está desactivado por defecto
-    porque agota el cupo diario y deja vacíos los KPIs de SST/corrientes.
-    """
+def _descargar_sst_cuadricula(region: SstRegionConfig) -> dict:
     if _creds_ok():
         try:
-            return _desde_cmems()
+            return _desde_cmems(region)
         except ImportError as exc:
             log.warning("CMEMS no disponible (%s)", exc)
             if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
@@ -333,10 +399,10 @@ def descargar_sst_med_cuadricula() -> dict:
                     "solo si aceptas gastar el cupo Open-Meteo de los KPIs"
                 ) from exc
         except Exception as exc:  # noqa: BLE001
-            log.warning("CMEMS falló (%s)", exc)
+            log.warning("CMEMS %s falló (%s)", region.key, exc)
             if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
                 raise RuntimeError(
-                    f"CMEMS falló ({exc}); fallback Open-Meteo malla desactivado "
+                    f"CMEMS {region.key} falló ({exc}); fallback Open-Meteo malla desactivado "
                     "(protege cupo KPIs). Usa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 para forzar."
                 ) from exc
     elif not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
@@ -346,5 +412,20 @@ def descargar_sst_med_cuadricula() -> dict:
             "o CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1"
         )
     else:
-        log.info("Sin credenciales CMEMS; SST Med vía Open-Meteo (ultimo disponible)")
-    return _desde_open_meteo()
+        log.info("Sin credenciales CMEMS; SST %s vía Open-Meteo (ultimo disponible)", region.key)
+    return _desde_open_meteo(region)
+
+
+def descargar_sst_med_cuadricula() -> dict:
+    """Cuadrícula SST del Mediterráneo para monitorización."""
+    return _descargar_sst_cuadricula(REGION_MED)
+
+
+def descargar_sst_cant_cuadricula() -> dict:
+    """Cuadrícula SST del Cantábrico (IBI-Physics)."""
+    return _descargar_sst_cuadricula(REGION_CANT)
+
+
+def descargar_sst_atl_cuadricula() -> dict:
+    """Cuadrícula SST del Atlántico gallego (IBI-Physics)."""
+    return _descargar_sst_cuadricula(REGION_ATL)

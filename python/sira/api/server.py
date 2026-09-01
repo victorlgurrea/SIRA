@@ -224,6 +224,12 @@ def dashboard():
         out["sst_med_grid"] = grid
     else:
         out = data
+    for key in ("sst_cant_grid", "sst_atl_grid"):
+        slim = slim_sst_grid_for_transport(out.get(key))
+        if slim is not out.get(key):
+            if out is data:
+                out = dict(data)
+            out[key] = slim
     if gen:
         _DASHBOARD_RESP_CACHE["generado_en"] = gen
         _DASHBOARD_RESP_CACHE["payload"] = out

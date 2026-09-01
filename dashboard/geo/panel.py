@@ -229,6 +229,8 @@ def build_mapa_fig(
             mostrar_tsunami="costa" in act,
             map_aspect=map_aspect,
             sst_med_grid=ctx.get("sst_med_grid") if "sst" in act else None,
+            sst_cant_grid=ctx.get("sst_cant_grid") if "sst" in act else None,
+            sst_atl_grid=ctx.get("sst_atl_grid") if "sst" in act else None,
         )
     except Exception:  # noqa: BLE001
         import logging

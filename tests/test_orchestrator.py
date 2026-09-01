@@ -136,6 +136,8 @@ def test_ejecutar_ingesta_mock(monkeypatch):
         "celdas": [{"lat": 39.2, "lon": 0.2, "sst_c": 18.5}],
         "resumen": {"n_celdas": 1, "sst_min_c": 18.5, "sst_max_c": 18.5, "sst_media_c": 18.5},
     })
+    monkeypatch.setattr(orch, "descargar_sst_cant_cuadricula", lambda: {"celdas": []})
+    monkeypatch.setattr(orch, "descargar_sst_atl_cuadricula", lambda: {"celdas": []})
     monkeypatch.setattr(orch, "descargar_meteo", lambda: {
         "fuente": "Open-Meteo", "serie_horaria": [{"temp_c": 20}], "resumen": {},
     })
@@ -153,4 +155,6 @@ def test_ejecutar_ingesta_mock(monkeypatch):
     assert out["fuentes_estado"]["usgs"]["ok"] is True
     assert out["fuentes_estado"]["cmems_sst_med"]["ok"] is True
     assert out["fuentes_estado"]["cmems_sst_med"]["registros"] == 1
+    assert "cmems_sst_cant" in out["fuentes_estado"]
+    assert "cmems_sst_atl" in out["fuentes_estado"]
     assert len(out["sst_med_grid"]["celdas"]) == 1

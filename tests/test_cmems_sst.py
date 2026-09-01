@@ -4,7 +4,6 @@ from __future__ import annotations
 import types
 
 import numpy as np
-import pytest
 
 from sira.infrastructure.sources.ocean import cmems_sst as mod
 
@@ -44,14 +43,28 @@ class _FakeDs(dict):
         return None
 
 
+def _region_test(**overrides):
+    base = dict(
+        key="med",
+        dataset_id="test-dataset",
+        lat_min=38.5,
+        lat_max=40.5,
+        lon_min=1.0,
+        lon_max=4.0,
+        paso_deg=2.0,
+        fuente_cmems="Copernicus test SST",
+        fraccion_mar=lambda *a, **k: 1.0,
+        densificar=lambda c, **k: c,
+    )
+    base.update(overrides)
+    return mod.SstRegionConfig(**base)
+
+
 def test_descargar_sst_sin_creds_usa_open_meteo(monkeypatch):
     monkeypatch.setattr(mod, "CMEMS_USERNAME", "")
     monkeypatch.setattr(mod, "CMEMS_PASSWORD", "")
-    monkeypatch.setattr(mod, "CMEMS_SST_PASO_DEG", 2.0)
-    monkeypatch.setattr(mod, "CMEMS_SST_LAT_MIN", 38.5)
-    monkeypatch.setattr(mod, "CMEMS_SST_LAT_MAX", 40.5)
-    monkeypatch.setattr(mod, "CMEMS_SST_LON_MIN", 1.0)
-    monkeypatch.setattr(mod, "CMEMS_SST_LON_MAX", 4.0)
+    monkeypatch.setattr(mod, "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", True)
+    monkeypatch.setattr(mod, "REGION_MED", _region_test())
 
     def fake_fetch(url, params):
         lats = [float(x) for x in str(params["latitude"]).split(",")]
@@ -79,15 +92,21 @@ def test_descargar_sst_cmems_mock(monkeypatch):
     monkeypatch.setattr(mod, "CMEMS_USERNAME", "user")
     monkeypatch.setattr(mod, "CMEMS_PASSWORD", "pass")
     monkeypatch.setattr(mod, "CMEMS_SST_VARIABLE", "thetao")
-    monkeypatch.setattr(mod, "CMEMS_SST_PASO_DEG", 0.125)
-    monkeypatch.setattr(mod, "CMEMS_SST_LAT_MIN", 39.0)
-    monkeypatch.setattr(mod, "CMEMS_SST_LAT_MAX", 40.0)
-    monkeypatch.setattr(mod, "CMEMS_SST_LON_MIN", 0.0)
-    monkeypatch.setattr(mod, "CMEMS_SST_LON_MAX", 1.0)
+    monkeypatch.setattr(
+        mod,
+        "REGION_MED",
+        _region_test(
+            lat_min=39.0,
+            lat_max=40.0,
+            lon_min=0.0,
+            lon_max=1.0,
+            paso_deg=0.125,
+            fuente_cmems="Copernicus Med-Physics SST (ultimo disponible)",
+        ),
+    )
 
     lats = np.array([39.0, 39.0625, 39.125, 39.1875])
     lons = np.array([0.0, 0.0625, 0.125, 0.1875])
-    # thetao ya viene en °C
     vals = np.full((1, 4, 4), 18.0, dtype=float)
     vals[0, 0, 0] = 20.0
     time_val = np.datetime64("2026-07-28T12:00")
@@ -100,3 +119,35 @@ def test_descargar_sst_cmems_mock(monkeypatch):
     assert "2026-07-28" in out["fecha"]
     assert out["celdas"]
     assert any(abs(c["sst_c"] - 20.0) < 0.01 for c in out["celdas"])
+
+
+def test_descargar_sst_cant_cmems_mock(monkeypatch):
+    monkeypatch.setattr(mod, "CMEMS_USERNAME", "user")
+    monkeypatch.setattr(mod, "CMEMS_PASSWORD", "pass")
+    monkeypatch.setattr(mod, "CMEMS_SST_VARIABLE", "thetao")
+    monkeypatch.setattr(
+        mod,
+        "REGION_CANT",
+        _region_test(
+            key="cant",
+            lat_min=43.0,
+            lat_max=44.0,
+            lon_min=-4.0,
+            lon_max=-3.0,
+            paso_deg=0.5,
+            fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
+        ),
+    )
+
+    lats = np.array([43.0, 43.5, 44.0])
+    lons = np.array([-4.0, -3.5, -3.0])
+    vals = np.full((1, 3, 3), 15.0, dtype=float)
+    time_val = np.datetime64("2026-07-28T12:00")
+    fake_ds = _FakeDs(thetao=_FakeDa(vals, lats, lons, time_val))
+    fake_cm = types.SimpleNamespace(open_dataset=lambda **kwargs: fake_ds)
+    monkeypatch.setitem(__import__("sys").modules, "copernicusmarine", fake_cm)
+
+    out = mod.descargar_sst_cant_cuadricula()
+    assert out["region"] == "cant"
+    assert out["celdas"]
+    assert "Copernicus" in out["fuente"]

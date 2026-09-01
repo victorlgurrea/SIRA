@@ -10,7 +10,11 @@ from sira.infrastructure.sources.meteo.aemet_alerts import deduplicar_alertas
 from sira.infrastructure.sources.hydrology.reservoirs import descargar_embalses
 from sira.infrastructure.sources.hydrology.multi import descargar_aforos_con_estado
 from sira.infrastructure.sources.fire.firms import descargar_incendios
-from sira.infrastructure.sources.ocean.cmems_sst import descargar_sst_med_cuadricula
+from sira.infrastructure.sources.ocean.cmems_sst import (
+    descargar_sst_atl_cuadricula,
+    descargar_sst_cant_cuadricula,
+    descargar_sst_med_cuadricula,
+)
 from sira.config.settings import (
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
@@ -207,25 +211,41 @@ def _sst_cerca_grid(grid: dict | None, lat: float, lon: float) -> float | None:
     return mejor
 
 
-def completar_oceanografia_desde_sst_grid(oceanografia: dict, sst_med_grid: dict | None) -> dict:
-    """Si Mediterráneo viene vacío, rellena SST desde la malla CMEMS."""
+def completar_oceanografia_desde_sst_grid(
+    oceanografia: dict,
+    sst_med_grid: dict | None,
+    *,
+    sst_cant_grid: dict | None = None,
+    sst_atl_grid: dict | None = None,
+) -> dict:
+    """Si un mar viene vacío en Open-Meteo, rellena SST desde la malla CMEMS."""
     if not isinstance(oceanografia, dict):
         oceanografia = {}
-    mar = MARES.get("MEDITERRÁNEO") or {}
-    bloque = oceanografia.get("MEDITERRÁNEO")
-    if isinstance(bloque, dict) and bloque.get("serie_horaria"):
-        return oceanografia
-    sst = _sst_cerca_grid(sst_med_grid, float(mar.get("lat", 39.2)), float(mar.get("lon", 0.2)))
-    if sst is None:
-        return oceanografia
-    serie = _serie_plana_sst(sst, horas=FORECAST_DAYS * 24)
-    oceanografia["MEDITERRÁNEO"] = {
-        "punto": mar.get("punto", "Valencia"),
-        "serie_horaria": serie,
-        "resumen": _resumen_oce(serie),
-        "fuente_fallback": "CMEMS SST malla",
+    grids_por_mar = {
+        "MEDITERRÁNEO": sst_med_grid,
+        "CANTÁBRICO": sst_cant_grid,
+        "ATLÁNTICO": sst_atl_grid,
     }
-    log.info("Oceanografía MEDITERRÁNEO: fallback CMEMS SST=%.2f °C", sst)
+    for clave, grid in grids_por_mar.items():
+        mar = MARES.get(clave) or {}
+        bloque = oceanografia.get(clave)
+        if isinstance(bloque, dict) and bloque.get("serie_horaria"):
+            continue
+        sst = _sst_cerca_grid(
+            grid,
+            float(mar.get("lat", 0)),
+            float(mar.get("lon", 0)),
+        )
+        if sst is None:
+            continue
+        serie = _serie_plana_sst(sst, horas=FORECAST_DAYS * 24)
+        oceanografia[clave] = {
+            "punto": mar.get("punto", clave.title()),
+            "serie_horaria": serie,
+            "resumen": _resumen_oce(serie),
+            "fuente_fallback": "CMEMS SST malla",
+        }
+        log.info("Oceanografía %s: fallback CMEMS SST=%.2f °C", clave, sst)
     return oceanografia
 
 
@@ -353,11 +373,27 @@ def ejecutar_ingesta():
     sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
         "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
     )
-    if isinstance(sst_med_grid, dict):
-        fuentes_estado["cmems_sst_med"]["registros"] = len(sst_med_grid.get("celdas") or [])
+    sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
+        "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
+    )
+    sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
+        "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
+    )
+    for clave, grid in (
+        ("cmems_sst_med", sst_med_grid),
+        ("cmems_sst_cant", sst_cant_grid),
+        ("cmems_sst_atl", sst_atl_grid),
+    ):
+        if isinstance(grid, dict):
+            fuentes_estado[clave]["registros"] = len(grid.get("celdas") or [])
     if not isinstance(oceanografia, dict):
         oceanografia = {}
-    oceanografia = completar_oceanografia_desde_sst_grid(oceanografia, sst_med_grid)
+    oceanografia = completar_oceanografia_desde_sst_grid(
+        oceanografia,
+        sst_med_grid,
+        sst_cant_grid=sst_cant_grid,
+        sst_atl_grid=sst_atl_grid,
+    )
     fuentes_estado["open_meteo_marine"]["registros"] = sum(
         1 for v in oceanografia.values() if isinstance(v, dict) and v.get("serie_horaria")
     )
@@ -404,6 +440,8 @@ def ejecutar_ingesta():
         "termico_ccaa": termico_ccaa,
         "oceanografia": oceanografia,
         "sst_med_grid": sst_med_grid if isinstance(sst_med_grid, dict) else {},
+        "sst_cant_grid": sst_cant_grid if isinstance(sst_cant_grid, dict) else {},
+        "sst_atl_grid": sst_atl_grid if isinstance(sst_atl_grid, dict) else {},
         "meteorologia": meteo,
         "meteo_alertas_cap": deduplicar_alertas(alertas_cap),
         "fuentes_estado": fuentes_estado,

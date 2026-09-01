@@ -196,7 +196,7 @@ app.layout = html.Div(className="sira-page", children=[
                                 {"label": "Aforos", "value": "aforos"},
                                 {"label": "Avisos AEMET", "value": "aemet"},
                                 {"label": "Tsunami", "value": "costa"},
-                                {"label": "SST Mediterráneo", "value": "sst"},
+                                {"label": "SST marítima (Med / Cantábrico / Atlántico)", "value": "sst"},
                             ],
                             value=["sismos", "incendios", "embalses", "aforos", "aemet", "costa", "sst"],
                             inline=True,
@@ -324,7 +324,11 @@ def _data_refresh_token(d: dict, alertas: list[dict] | None = None) -> str:
         for s in d.get("sismos", [])
         if isinstance(s, dict) and s.get("alerta_tsunami")
     )
-    sst_n = len((d.get("sst_med_grid") or {}).get("celdas") or []) if isinstance(d.get("sst_med_grid"), dict) else 0
+    sst_n = sum(
+        len((d.get(key) or {}).get("celdas") or [])
+        for key in ("sst_med_grid", "sst_cant_grid", "sst_atl_grid")
+        if isinstance(d.get(key), dict)
+    )
     oce = d.get("oceanografia") if isinstance(d.get("oceanografia"), dict) else {}
     oce_n = sum(1 for v in oce.values() if isinstance(v, dict) and v.get("serie_horaria"))
     return (
@@ -560,7 +564,11 @@ try:
             "Dashboard listo: generado_en=%s · %d sismos · %d SST",
             _boot.get("generado_en"),
             len(_boot.get("sismos") or []),
-            len((_boot.get("sst_med_grid") or {}).get("celdas") or []),
+            sum(
+                len((_boot.get(key) or {}).get("celdas") or [])
+                for key in ("sst_med_grid", "sst_cant_grid", "sst_atl_grid")
+                if isinstance(_boot.get(key), dict)
+            ),
         )
     else:
         log.warning("Dashboard arrancó sin datos (esperando snapshot/API)")

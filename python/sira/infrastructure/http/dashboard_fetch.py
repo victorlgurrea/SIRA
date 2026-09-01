@@ -33,6 +33,8 @@ def _payload_score(data: dict | None) -> int:
         + len(data.get("incendios") or [])
         + len(data.get("embalses") or [])
         + len((data.get("sst_med_grid") or {}).get("celdas") or [])
+        + len((data.get("sst_cant_grid") or {}).get("celdas") or [])
+        + len((data.get("sst_atl_grid") or {}).get("celdas") or [])
         + min(oce_n, 500)
     )
 

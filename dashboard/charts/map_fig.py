@@ -166,6 +166,8 @@ def fig_mapa(
     mostrar_tsunami: bool = True,
     map_aspect: float | None = None,
     sst_med_grid: dict | None = None,
+    sst_cant_grid: dict | None = None,
+    sst_atl_grid: dict | None = None,
 ) -> go.Figure:
     fig = go.Figure()
     estilo_aemet = bool(provincia_id)
@@ -174,23 +176,42 @@ def fig_mapa(
         color="#6b7280" if estilo_aemet else "#94a3b8",
         width=0.9 if estilo_aemet else 0.8,
     )
-    grid = sst_med_grid if isinstance(sst_med_grid, dict) else {}
-    sst_activo = bool(grid.get("celdas"))
-    if sst_activo:
+    from charts.map_layers import add_capa_sst_grid
+
+    from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica
+    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
+
+    sst_capas = [
+        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),
+        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica, "sst_cant"),
+        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica, "sst_atl"),
+    ]
+    sst_activo = False
+    leyenda_pintada = False
+    for etiqueta, grid_raw, filtro_mar, grupo in sst_capas:
+        grid = grid_raw if isinstance(grid_raw, dict) else {}
+        celdas = grid.get("celdas") or []
+        if not celdas:
+            continue
         try:
-            add_capa_sst_med(
+            add_capa_sst_grid(
                 fig,
-                grid.get("celdas") or [],
+                celdas,
+                region_label=etiqueta,
+                punto_en_mar=filtro_mar,
                 fecha=str(grid.get("fecha") or "") or None,
                 paso_deg=grid.get("paso_deg"),
                 fuente=str(grid.get("fuente") or "") or None,
                 theme=theme,
+                legendgroup=grupo,
+                show_legend=not leyenda_pintada,
             )
+            leyenda_pintada = True
+            sst_activo = True
         except Exception:  # noqa: BLE001
             import logging
 
-            logging.getLogger(__name__).exception("Capa SST Med falló; mapa sin SST")
-            sst_activo = False
+            logging.getLogger(__name__).exception("Capa SST %s falló; omitiendo", etiqueta)
     if provincia_id:
         add_capa_aemet_zonas(
             fig, str(provincia_id).zfill(2), alertas_meteo or [],

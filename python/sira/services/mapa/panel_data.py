@@ -164,6 +164,8 @@ def datos_mapa(geo: dict, d: dict, *, geo_resolver=None) -> dict:
         "aforos_mapa": aforos_mapa,
         "alertas_mapa_hoy": alertas_mapa_hoy,
         "sst_med_grid": d.get("sst_med_grid") if isinstance(d.get("sst_med_grid"), dict) else {},
+        "sst_cant_grid": d.get("sst_cant_grid") if isinstance(d.get("sst_cant_grid"), dict) else {},
+        "sst_atl_grid": d.get("sst_atl_grid") if isinstance(d.get("sst_atl_grid"), dict) else {},
     }
 
 

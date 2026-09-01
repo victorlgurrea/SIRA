@@ -145,6 +145,22 @@ CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
     "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", "0"
 ).strip().lower() in {"1", "true", "yes", "on"}
 
+# Cuadrícula SST Cantábrico / Atlántico (Copernicus IBI-Physics, misma familia que Portus ODYSSEA)
+CMEMS_SST_IBI_DATASET_ID = os.getenv(
+    "CMEMS_SST_IBI_DATASET_ID",
+    "cmems_mod_ibi_phy-tem_anfc_4.2km-2D_PT1H-m",
+)
+CMEMS_SST_CANT_LAT_MIN = _f("CMEMS_SST_CANT_LAT_MIN", "42.60")
+CMEMS_SST_CANT_LAT_MAX = _f("CMEMS_SST_CANT_LAT_MAX", "44.30")
+CMEMS_SST_CANT_LON_MIN = _f("CMEMS_SST_CANT_LON_MIN", "-9.80")
+CMEMS_SST_CANT_LON_MAX = _f("CMEMS_SST_CANT_LON_MAX", "-1.50")
+CMEMS_SST_CANT_PASO_DEG = _f("CMEMS_SST_CANT_PASO_DEG", "0.12")
+CMEMS_SST_ATL_LAT_MIN = _f("CMEMS_SST_ATL_LAT_MIN", "41.80")
+CMEMS_SST_ATL_LAT_MAX = _f("CMEMS_SST_ATL_LAT_MAX", "43.60")
+CMEMS_SST_ATL_LON_MIN = _f("CMEMS_SST_ATL_LON_MIN", "-11.00")
+CMEMS_SST_ATL_LON_MAX = _f("CMEMS_SST_ATL_LON_MAX", "-8.20")
+CMEMS_SST_ATL_PASO_DEG = _f("CMEMS_SST_ATL_PASO_DEG", "0.12")
+
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
 # EMSC (cubre sismos ibéricos que USGS a menudo no publica, p.ej. Murcia M4.1)
 EMSC_URL = os.getenv(

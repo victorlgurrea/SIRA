@@ -310,16 +310,20 @@ def add_leyenda_sst_med(
     )
 
 
-def add_capa_sst_med(
+def add_capa_sst_grid(
     fig: go.Figure,
     celdas: list[dict] | None,
     *,
+    region_label: str,
+    punto_en_mar,
     fecha: str | None = None,
     paso_deg: float | None = None,
     fuente: str | None = None,
     theme: str = "dark",
+    show_legend: bool = True,
+    legendgroup: str = "sst",
 ) -> None:
-    """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom (sin huecos)."""
+    """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom."""
     if not celdas:
         return
     from charts.figures import (
@@ -327,7 +331,6 @@ def add_capa_sst_med(
         SST_MED_LEYENDA_MAX,
         SST_MED_LEYENDA_MIN,
     )
-    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
     paso = float(paso_deg or 0.12)
     lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
@@ -335,8 +338,6 @@ def add_capa_sst_med(
         diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
         if diffs:
             paso = max(paso, sorted(diffs)[len(diffs) // 2])
-    # No densificar ni fraccion_mar en el paint (PRO Free: timeout/OOM → 500 en mapa).
-    # El filtro de tierra va en ingesta + centro con Natural Earth.
     size = max(9, min(14, round(paso * 90)))
     fecha_txt = f" · {fecha}" if fecha else ""
 
@@ -354,13 +355,13 @@ def add_capa_sst_med(
             temp = float(c["sst_c"])
         except (TypeError, ValueError, KeyError):
             continue
-        if not punto_en_mar_mediterraneo(lat, lon):
+        if not punto_en_mar(lat, lon):
             continue
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)
         hovers.append(
-            f"SST Mediterráneo{fecha_txt}<br>"
+            f"SST {region_label}{fecha_txt}<br>"
             f"<b>{temp:.1f} °C</b><br>"
             f"Zona {lat:.2f}°N, {lon:.2f}°E"
         )
@@ -374,8 +375,8 @@ def add_capa_sst_med(
             lon=lons,
             mode="markers",
             showlegend=False,
-            legendgroup="sst_med",
-            name="sst_med_cells",
+            legendgroup=legendgroup,
+            name=f"sst_{legendgroup}",
             marker=dict(
                 symbol="square",
                 size=size,
@@ -388,11 +389,38 @@ def add_capa_sst_med(
             ),
             text=hovers,
             hovertemplate="%{text}<extra></extra>",
-            meta={"sira_layer": "sst_med", "paso_deg": paso, "base_size": size},
+            meta={"sira_layer": legendgroup, "paso_deg": paso, "base_size": size},
         )
     )
 
-    add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
+    if show_legend:
+        add_leyenda_sst_med(fig, fecha=fecha, fuente=fuente, theme=theme)
+
+
+def add_capa_sst_med(
+    fig: go.Figure,
+    celdas: list[dict] | None,
+    *,
+    fecha: str | None = None,
+    paso_deg: float | None = None,
+    fuente: str | None = None,
+    theme: str = "dark",
+    show_legend: bool = True,
+) -> None:
+    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
+
+    add_capa_sst_grid(
+        fig,
+        celdas,
+        region_label="Mediterráneo",
+        punto_en_mar=punto_en_mar_mediterraneo,
+        fecha=fecha,
+        paso_deg=paso_deg,
+        fuente=fuente,
+        theme=theme,
+        show_legend=show_legend,
+        legendgroup="sst_med",
+    )
 
 
 def add_capa_aemet_zonas(
