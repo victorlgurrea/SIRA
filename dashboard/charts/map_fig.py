@@ -249,27 +249,10 @@ def fig_mapa(
 
     if not df.empty and "perceptible_local" in df.columns:
         en_mar_col = df["en_mar"].fillna(False) if "en_mar" in df.columns else False
-        perceptible_tierra = df["perceptible_local"].fillna(False)
-        tsunami_mar = (
-            df["alerta_tsunami"].fillna(False) & en_mar_col
-            if "alerta_tsunami" in df.columns
-            else False
-        )
-        hoy_col = (
-            df["timestamp"].map(es_sismo_hoy)
-            if "timestamp" in df.columns
-            else pd.Series([False] * len(df), index=df.index)
-        )
-        radio_col = (
-            df["radio_perceptible_km"].fillna(0)
-            if "radio_perceptible_km" in df.columns
-            else pd.Series([0.0] * len(df), index=df.index)
-        )
-        hoy_tierra_zona = hoy_col & ~en_mar_col & (radio_col > 0)
-        mask_mapa = perceptible_tierra | tsunami_mar | hoy_tierra_zona
-        df_per = df[mask_mapa]
+        perceptible_tierra = df["perceptible_local"].fillna(False) & ~en_mar_col
+        df_circulos_perceptibles = df[perceptible_tierra]
     else:
-        df_per = df
+        df_circulos_perceptibles = df
 
     inc_list = incendios or []
     if inc_list:
@@ -282,7 +265,7 @@ def fig_mapa(
             leyenda_inc = True
 
     for nivel, color in COLORES.items():
-        sub = df_per[df_per["nivel_local"] == nivel] if not df_per.empty else pd.DataFrame()
+        sub = df[df["nivel_local"] == nivel] if not df.empty else pd.DataFrame()
         if sub.empty:
             continue
         reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
@@ -304,45 +287,39 @@ def fig_mapa(
             hovertemplate="%{text}<extra></extra>",
         ))
 
-    if not df_per.empty and "timestamp" in df_per.columns:
-        hoy_df = df_per[df_per["timestamp"].map(es_sismo_hoy)]
-    else:
-        hoy_df = pd.DataFrame()
-
-    if not hoy_df.empty:
-        if "en_mar" in hoy_df.columns:
-            hoy_perceptible = hoy_df[~hoy_df["en_mar"].fillna(False)]
-        else:
-            hoy_perceptible = hoy_df
-        if not hoy_perceptible.empty:
+    if not df_circulos_perceptibles.empty and "timestamp" in df_circulos_perceptibles.columns:
+        hoy_per = df_circulos_perceptibles[df_circulos_perceptibles["timestamp"].map(es_sismo_hoy)]
+        if not hoy_per.empty:
             add_circulos_perceptibles(
-                fig, _con_hover_sismos(hoy_perceptible),
+                fig, _con_hover_sismos(hoy_per),
                 legend_name="Zona perceptible (hoy)", legendgroup="hoy", period_ms=1600,
             )
-        if "alerta_tsunami" in hoy_df.columns and mostrar_tsunami:
-            mask_tsunami = hoy_df["alerta_tsunami"].fillna(False)
-            if "en_mar" in hoy_df.columns:
-                mask_tsunami = mask_tsunami & hoy_df["en_mar"].fillna(False)
-            df_tsunami = hoy_df[mask_tsunami].copy()
-            if not df_tsunami.empty:
-                hover_rows = []
-                for row in df_tsunami.itertuples(index=False):
-                    r = float(getattr(row, "radio_tsunami_km", 0) or 0)
-                    mag = getattr(row, "magnitud", None)
-                    lugar = getattr(row, "lugar", None) or "epicentro en el mar"
-                    mag_txt = f"Mag {mag}" if mag is not None else "Magnitud —"
-                    hover_rows.append(
-                        "Alerta tsunami (sismo en el mar)<br>"
-                        f"Radio aproximado de impacto del agua ~{r:.0f} km<br>"
-                        f"{mag_txt} · {lugar}"
-                    )
-                df_tsunami["hover_html"] = hover_rows
-                add_circulos_perceptibles(
-                    fig, df_tsunami,
-                    legend_name="Alerta tsunami (hoy)", legendgroup="tsunami", period_ms=1800,
-                    fill_rgb="96, 165, 250", border_rgb="37, 99, 235",
-                    radio_col="radio_tsunami_km", hover_label="Alerta tsunami",
+
+    if not df.empty and "timestamp" in df.columns and mostrar_tsunami and "alerta_tsunami" in df.columns:
+        hoy_all = df[df["timestamp"].map(es_sismo_hoy)]
+        mask_tsunami = hoy_all["alerta_tsunami"].fillna(False)
+        if "en_mar" in hoy_all.columns:
+            mask_tsunami = mask_tsunami & hoy_all["en_mar"].fillna(False)
+        df_tsunami = hoy_all[mask_tsunami].copy()
+        if not df_tsunami.empty:
+            hover_rows = []
+            for row in df_tsunami.itertuples(index=False):
+                r = float(getattr(row, "radio_tsunami_km", 0) or 0)
+                mag = getattr(row, "magnitud", None)
+                lugar = getattr(row, "lugar", None) or "epicentro en el mar"
+                mag_txt = f"Mag {mag}" if mag is not None else "Magnitud —"
+                hover_rows.append(
+                    "Alerta tsunami (sismo en el mar)<br>"
+                    f"Radio aproximado de impacto del agua ~{r:.0f} km<br>"
+                    f"{mag_txt} · {lugar}"
                 )
+            df_tsunami["hover_html"] = hover_rows
+            add_circulos_perceptibles(
+                fig, df_tsunami,
+                legend_name="Alerta tsunami (hoy)", legendgroup="tsunami", period_ms=1800,
+                fill_rgb="96, 165, 250", border_rgb="37, 99, 235",
+                radio_col="radio_tsunami_km", hover_label="Alerta tsunami",
+            )
 
     if embalses_mapa:
         add_marcadores_embalses(fig, embalses_mapa)
