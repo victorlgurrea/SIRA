@@ -64,6 +64,34 @@ def _sismos_mapa_df(df: pd.DataFrame) -> pd.DataFrame:
     return df[mask]
 
 
+def _ajustar_viewport_sst(
+    vp: dict | None,
+    sst_cant_grid: dict | None,
+    sst_atl_grid: dict | None,
+) -> dict | None:
+    """Amplía el encuadre al oeste/norte si hay malla Cantábrico/Atlántico."""
+    if not vp:
+        return vp
+    celdas: list[dict] = []
+    for grid in (sst_cant_grid, sst_atl_grid):
+        if isinstance(grid, dict):
+            celdas.extend(c for c in (grid.get("celdas") or []) if c.get("sst_c") is not None)
+    if not celdas:
+        return vp
+    out = dict(vp)
+    margin = 0.3
+    lat_min = min(float(c["lat"]) for c in celdas) - margin
+    lat_max = max(float(c["lat"]) for c in celdas) + margin
+    lon_min = min(float(c["lon"]) for c in celdas) - margin
+    out["lat_min"] = min(float(out.get("lat_min", lat_min)), lat_min)
+    out["lat_max"] = max(float(out.get("lat_max", lat_max)), lat_max)
+    out["lon_min"] = min(float(out.get("lon_min", lon_min)), lon_min)
+    out["lat_centro"] = (float(out["lat_min"]) + float(out["lat_max"])) / 2
+    out["lon_centro"] = (float(out["lon_min"]) + float(out.get("lon_max", 8))) / 2
+    out.pop("centrar_obs", None)
+    return out
+
+
 def fmt_sismo_fecha(ts) -> str:
     try:
         dt = pd.to_datetime(ts, utc=True).to_pydatetime().astimezone(_HORA_ES)
@@ -391,6 +419,7 @@ def fig_mapa(
             lat=[lat], lon=[lon], mode="markers+text", text=[name], showlegend=False,
             marker=dict(size=10, color=color, symbol="star"),
         ))
+    viewport = _ajustar_viewport_sst(viewport, sst_cant_grid, sst_atl_grid)
     geo_layout(
         fig, viewport,
         uirevision=map_uirevision,

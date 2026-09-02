@@ -35,7 +35,7 @@
     for (let i = 0; i < gd.data.length; i++) {
       const tr = gd.data[i];
       const meta = tr && tr.meta;
-      if (!meta || meta.sira_layer !== "sst_med") continue;
+      if (!meta || !String(meta.sira_layer || "").startsWith("sst_")) continue;
       const base = Number(meta.base_size) || 12;
       const factor = Math.min(2.2, Math.max(1, scale / baseScale));
       const size = Math.min(28, Math.max(base, Math.round(base * factor)));

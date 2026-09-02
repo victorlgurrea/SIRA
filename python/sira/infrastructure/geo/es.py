@@ -409,17 +409,17 @@ def es_ccaa_valenciana(provincia_id: str | None) -> bool:
 
 def viewport_mediterraneo_valencia(*, aspect: float = 1.65) -> dict[str, float]:
     """
-    Encuadre por defecto Comunidad Valenciana + Mediterráneo occidental (capa SST).
+    Encuadre Comunidad Valenciana + mares (Med occidental, Cantábrico y Atlántico NW).
 
-    Misma idea que la vista de producción: península a la izquierda y mar amplio a la derecha.
+    lon_min hasta ~-11° para que la malla SST IBI (Galicia/Cantábrico) no quede fuera del recorte.
     """
     vp = {
-        "lat_centro": 39.35,
-        "lon_centro": 0.35,
+        "lat_centro": 39.65,
+        "lon_centro": -2.25,
         "lat_min": 35.80,
-        "lat_max": 43.90,
-        "lon_min": -8.40,
-        "lon_max": 7.95,
+        "lat_max": 44.35,
+        "lon_min": -11.15,
+        "lon_max": 8.20,
         "nivel": "ccaa",
     }
     return viewport_fit_contenedor(_clip_viewport(vp), aspect=aspect)
