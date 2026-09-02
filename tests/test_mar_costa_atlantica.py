@@ -7,6 +7,18 @@ from sira.infrastructure.geo.mar_costa_atlantica import (
 )
 
 
+def test_gibraltar_mar_abierto(monkeypatch):
+    monkeypatch.setattr(
+        "sira.infrastructure.geo.mar_costa_atlantica.ensure_tierra_atlantico",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "sira.infrastructure.geo.mar_costa_atlantica.anillos_tierra_atlantico",
+        lambda: [],
+    )
+    assert punto_en_mar_costa_atlantica(36.05, -6.10)
+
+
 def test_portugal_mar_abierto(monkeypatch):
     monkeypatch.setattr(
         "sira.infrastructure.geo.mar_costa_atlantica.ensure_tierra_atlantico",

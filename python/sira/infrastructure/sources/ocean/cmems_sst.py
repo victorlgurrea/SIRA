@@ -18,6 +18,7 @@ from sira.config.settings import (
     CMEMS_SST_ATL_LAT_MIN,
     CMEMS_SST_ATL_LON_MAX,
     CMEMS_SST_ATL_LON_MIN,
+    CMEMS_SST_ATL_MAP_MAX_CELDAS,
     CMEMS_SST_ATL_PASO_DEG,
     CMEMS_SST_CANT_LAT_MAX,
     CMEMS_SST_CANT_LAT_MIN,
@@ -31,6 +32,7 @@ from sira.config.settings import (
     CMEMS_SST_LON_MAX,
     CMEMS_SST_LON_MIN,
     CMEMS_SST_PASO_DEG,
+    CMEMS_SST_MAP_MAX_CELDAS,
     CMEMS_SST_VARIABLE,
     CMEMS_USERNAME,
     OPEN_METEO_MARINE_URL,
@@ -58,6 +60,8 @@ class SstRegionConfig:
     fuente_cmems: str
     fraccion_mar: Callable[[float, float, float], float]
     densificar: Callable[..., list[dict]]
+    map_max_celdas: int | None = None
+    umbral_mar: float = 0.85
 
 
 REGION_MED = SstRegionConfig(
@@ -74,10 +78,15 @@ REGION_MED = SstRegionConfig(
 )
 
 _VECINOS_CARDINAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
-_densificar_ibi = partial(
+_densificar_cant = partial(
     mar_atl.densificar_celdas_mar,
     vecinos=_VECINOS_CARDINAL,
     max_pasadas=3,
+)
+_densificar_atl = partial(
+    mar_atl.densificar_celdas_mar,
+    vecinos=_VECINOS_CARDINAL,
+    max_pasadas=6,
 )
 
 REGION_CANT = SstRegionConfig(
@@ -90,7 +99,7 @@ REGION_CANT = SstRegionConfig(
     paso_deg=CMEMS_SST_CANT_PASO_DEG,
     fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
     fraccion_mar=mar_atl.fraccion_mar_celda,
-    densificar=_densificar_ibi,
+    densificar=_densificar_cant,
 )
 
 REGION_ATL = SstRegionConfig(
@@ -103,7 +112,9 @@ REGION_ATL = SstRegionConfig(
     paso_deg=CMEMS_SST_ATL_PASO_DEG,
     fuente_cmems="Copernicus IBI-Physics SST Atlántico (ultimo disponible)",
     fraccion_mar=mar_atl.fraccion_mar_celda,
-    densificar=_densificar_ibi,
+    densificar=_densificar_atl,
+    map_max_celdas=CMEMS_SST_ATL_MAP_MAX_CELDAS,
+    umbral_mar=0.82,
 )
 
 
@@ -148,7 +159,8 @@ def _pack(
 ) -> dict:
     if not celdas:
         raise RuntimeError(f"{fuente}: sin celdas válidas en el bbox solicitado")
-    celdas = limitar_celdas_mapa(celdas)
+    limite = region.map_max_celdas if region.map_max_celdas and region.map_max_celdas > 0 else CMEMS_SST_MAP_MAX_CELDAS
+    celdas = limitar_celdas_mapa(celdas, max_n=limite)
     sst_vals = [c["sst_c"] for c in celdas]
     return {
         "region": region.key,
@@ -258,7 +270,7 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
             lat_c = round(float(lat), 4)
             lon_c = round(float(lon), 4)
             half = max(paso * 0.48, 0.06)
-            if region.fraccion_mar(lat_c, lon_c, half) < 0.9:
+            if region.fraccion_mar(lat_c, lon_c, half) < region.umbral_mar:
                 continue
             celdas.append({
                 "lat": lat_c,
@@ -273,7 +285,7 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
 
     paso_out = stride * native
     out = _pack(
-        region.densificar(celdas, paso=paso_out, umbral_mar=0.85),
+        region.densificar(celdas, paso=paso_out, umbral_mar=region.umbral_mar),
         region=region,
         fuente=region.fuente_cmems,
         fecha=fecha,
