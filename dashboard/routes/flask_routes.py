@@ -31,6 +31,8 @@ _FUENTE_ETIQUETAS = {
     "aemet_cap": "AEMET CAP",
     "open_meteo_marine": "Open-Meteo marine",
     "cmems_sst_med": "CMEMS SST Mediterráneo",
+    "cmems_sst_cant": "CMEMS SST Cantábrico",
+    "cmems_sst_atl": "CMEMS SST Atlántico",
     "open_meteo_weather": "Open-Meteo weather",
     "firms": "NASA FIRMS",
     "embals_es": "embals.es",
@@ -46,6 +48,8 @@ _FUENTE_DESCRIPCIONES = {
     "aemet_cap": "Avisos Meteoalerta CAP por zona (temperatura, viento, lluvia, costa, tormentas, etc.).",
     "open_meteo_marine": "Temperatura superficial del mar y corrientes (Mediterráneo, Cantábrico, Atlántico).",
     "cmems_sst_med": "Cuadrícula SST satélite del Mediterráneo occidental (Copernicus Marine L4).",
+    "cmems_sst_cant": "Cuadrícula SST del Cantábrico (Copernicus IBI-Physics; misma familia ODYSSEA que Portus).",
+    "cmems_sst_atl": "Cuadrícula SST Atlántico ibérico y golfo de Cádiz (Copernicus IBI-Physics; misma familia ODYSSEA que Portus).",
     "open_meteo_weather": "Previsión horaria de precipitación (respaldo cuando AEMET no está disponible).",
     "firms": "Puntos de calor e incendios activos detectados por satélite en territorio español.",
     "embals_es": "Niveles, capacidad y riesgo hidrológico de embalses (cuencas Júcar, Segura y Ebro).",
@@ -247,7 +251,9 @@ def register_routes(
         ingesta_fin = fmt_ingesta_local(ingesta.get("finished_at"))
         ingesta_err = ingesta.get("last_error") or "—"
         filas = []
+        vistos: set[str] = set()
         for clave, etiqueta in _FUENTE_ETIQUETAS.items():
+            vistos.add(clave)
             raw = fuentes.get(clave, {})
             info = raw if isinstance(raw, dict) else {}
             desc = _FUENTE_DESCRIPCIONES.get(clave, "—")
@@ -268,6 +274,25 @@ def register_routes(
                     estado = '<span class="sira-status-warn">pendiente</span> <span class="sira-status-meta">(ingesta en curso)</span>'
                 else:
                     estado = '<span class="sira-status-warn">sin datos</span>'
+            else:
+                err = info.get("error") or "error"
+                estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'
+            filas.append(
+                f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
+            )
+        for clave in sorted(fuentes.keys()):
+            if clave in vistos:
+                continue
+            etiqueta = clave.replace("_", " ").upper()
+            raw = fuentes.get(clave, {})
+            info = raw if isinstance(raw, dict) else {}
+            desc = _FUENTE_DESCRIPCIONES.get(clave, "Fuente adicional de la ingesta.")
+            ok = info.get("ok")
+            if ok:
+                n = info.get("registros", "—")
+                estado = f'<span class="sira-status-ok">OK</span> <span class="sira-status-meta">({n} registros)</span>'
+            elif not info:
+                estado = '<span class="sira-status-warn">sin datos</span>'
             else:
                 err = info.get("error") or "error"
                 estado = f'<span class="sira-status-fail">ERROR</span> <span class="sira-status-meta">{err}</span>'
