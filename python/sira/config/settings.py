@@ -148,7 +148,7 @@ CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
 # Cuadrícula SST Cantábrico / Atlántico (Copernicus IBI-Physics, misma familia que Portus ODYSSEA)
 CMEMS_SST_IBI_DATASET_ID = os.getenv(
     "CMEMS_SST_IBI_DATASET_ID",
-    "cmems_mod_ibi_phy-tem_anfc_4.2km-2D_PT1H-m",
+    "cmems_mod_ibi_phy_anfc_0.027deg-2D_PT1H-m",
 )
 CMEMS_SST_CANT_LAT_MIN = _f("CMEMS_SST_CANT_LAT_MIN", "42.60")
 CMEMS_SST_CANT_LAT_MAX = _f("CMEMS_SST_CANT_LAT_MAX", "44.30")

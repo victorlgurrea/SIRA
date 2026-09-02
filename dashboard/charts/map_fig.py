@@ -205,6 +205,7 @@ def fig_mapa(
                 theme=theme,
                 legendgroup=grupo,
                 show_legend=not leyenda_pintada,
+                filtrar_tierra_al_pintar=(grupo == "sst_med"),
             )
             leyenda_pintada = True
             sst_activo = True

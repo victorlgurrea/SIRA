@@ -322,6 +322,7 @@ def add_capa_sst_grid(
     theme: str = "dark",
     show_legend: bool = True,
     legendgroup: str = "sst",
+    filtrar_tierra_al_pintar: bool = True,
 ) -> None:
     """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom."""
     if not celdas:
@@ -355,8 +356,10 @@ def add_capa_sst_grid(
             temp = float(c["sst_c"])
         except (TypeError, ValueError, KeyError):
             continue
-        if not punto_en_mar(lat, lon):
-            continue
+        # Mediterráneo: refuerzo costa al pintar; IBI ya filtrado en ingesta.
+        if filtrar_tierra_al_pintar and punto_en_mar is not None:
+            if not punto_en_mar(lat, lon):
+                continue
         lats.append(lat)
         lons.append(lon)
         temps.append(temp)
