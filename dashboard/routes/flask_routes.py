@@ -64,6 +64,23 @@ _ANDROID_SHA256_DEBUG = (
 )
 
 
+def _desc_fuente(clave: str, info: dict) -> str:
+    base = _FUENTE_DESCRIPCIONES.get(clave, "—")
+    if not clave.startswith("cmems_sst_"):
+        return base
+    partes = [base]
+    dataset = info.get("dataset_id")
+    if dataset:
+        partes.append(f"Dataset: {dataset}")
+    fecha = info.get("fecha_dato")
+    if fecha:
+        partes.append(f"Último dato: {fecha}")
+    fuente = info.get("fuente")
+    if fuente and fuente not in base:
+        partes.append(str(fuente))
+    return "<br>".join(partes)
+
+
 def status_snapshot() -> dict:
     """Lee estado desde API; fallback local / snapshot si no responde. Nunca lanza."""
     empty = {
@@ -256,7 +273,7 @@ def register_routes(
             vistos.add(clave)
             raw = fuentes.get(clave, {})
             info = raw if isinstance(raw, dict) else {}
-            desc = _FUENTE_DESCRIPCIONES.get(clave, "—")
+            desc = _desc_fuente(clave, info)
             ok = info.get("ok")
             if info.get("omitido"):
                 estado = '<span class="sira-status-warn">omitido</span>'
@@ -286,7 +303,7 @@ def register_routes(
             etiqueta = clave.replace("_", " ").upper()
             raw = fuentes.get(clave, {})
             info = raw if isinstance(raw, dict) else {}
-            desc = _FUENTE_DESCRIPCIONES.get(clave, "Fuente adicional de la ingesta.")
+            desc = _desc_fuente(clave, info) if clave.startswith("cmems_sst_") else _FUENTE_DESCRIPCIONES.get(clave, "Fuente adicional de la ingesta.")
             ok = info.get("ok")
             if ok:
                 n = info.get("registros", "—")

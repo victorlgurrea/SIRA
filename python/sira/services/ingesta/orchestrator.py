@@ -384,8 +384,19 @@ def ejecutar_ingesta():
         ("cmems_sst_cant", sst_cant_grid),
         ("cmems_sst_atl", sst_atl_grid),
     ):
-        if isinstance(grid, dict):
-            fuentes_estado[clave]["registros"] = len(grid.get("celdas") or [])
+        if not isinstance(grid, dict):
+            continue
+        resumen = grid.get("resumen") if isinstance(grid.get("resumen"), dict) else {}
+        fuentes_estado[clave].update({
+            "registros": len(grid.get("celdas") or []),
+            "fuente": grid.get("fuente"),
+            "dataset_id": grid.get("dataset_id"),
+            "fecha_dato": grid.get("fecha"),
+            "paso_deg": grid.get("paso_deg"),
+            "bbox": grid.get("bbox"),
+            "sst_min_c": resumen.get("sst_min_c"),
+            "sst_max_c": resumen.get("sst_max_c"),
+        })
     if not isinstance(oceanografia, dict):
         oceanografia = {}
     oceanografia = completar_oceanografia_desde_sst_grid(
