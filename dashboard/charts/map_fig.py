@@ -234,13 +234,13 @@ def fig_mapa(
     from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
     sst_capas = [
-        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),
-        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica, "sst_cant"),
-        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica, "sst_atl"),
+        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med", 1.0),
+        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica, "sst_cant", 0.72),
+        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica, "sst_atl", 0.72),
     ]
     sst_activo = False
     leyenda_pintada = False
-    for etiqueta, grid_raw, filtro_mar, grupo in sst_capas:
+    for etiqueta, grid_raw, filtro_mar, grupo, escala_marcador in sst_capas:
         grid = grid_raw if isinstance(grid_raw, dict) else {}
         celdas = grid.get("celdas") or []
         if not celdas:
@@ -258,6 +258,7 @@ def fig_mapa(
                 legendgroup=grupo,
                 show_legend=not leyenda_pintada,
                 filtrar_tierra_al_pintar=(grupo == "sst_med"),
+                marker_scale=escala_marcador,
             )
             leyenda_pintada = True
             sst_activo = True

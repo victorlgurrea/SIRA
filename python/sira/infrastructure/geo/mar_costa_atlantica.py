@@ -170,6 +170,11 @@ def densificar_celdas_mar(
     paso: float,
     umbral_mar: float = 0.85,
     max_celdas: int | None = None,
+    vecinos: tuple[tuple[int, int], ...] = (
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (-1, 1), (1, -1), (1, 1),
+    ),
+    max_pasadas: int = 10,
 ) -> list[dict]:
     """Rellena huecos de mar en la malla Cantábrico/Atlántico."""
     step = round(float(paso), 4)
@@ -189,12 +194,12 @@ def densificar_celdas_mar(
         return []
 
     tope = int(max_celdas) if max_celdas and max_celdas > 0 else None
-    for _ in range(10):
+    for _ in range(max(1, int(max_pasadas))):
         if tope is not None and len(idx) >= tope:
             break
         candidatos: dict[tuple[float, float], list[tuple[float, float]]] = {}
         for la, lo in list(idx.keys()):
-            for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            for di, dj in vecinos:
                 nk = (round(la + di * step, 4), round(lo + dj * step, 4))
                 if nk in idx:
                     continue

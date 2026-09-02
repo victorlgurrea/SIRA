@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import partial
 
 import numpy as np
 
@@ -72,6 +73,13 @@ REGION_MED = SstRegionConfig(
     densificar=mar_med.densificar_celdas_mar,
 )
 
+_VECINOS_CARDINAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
+_densificar_ibi = partial(
+    mar_atl.densificar_celdas_mar,
+    vecinos=_VECINOS_CARDINAL,
+    max_pasadas=3,
+)
+
 REGION_CANT = SstRegionConfig(
     key="cant",
     dataset_id=CMEMS_SST_IBI_DATASET_ID,
@@ -82,7 +90,7 @@ REGION_CANT = SstRegionConfig(
     paso_deg=CMEMS_SST_CANT_PASO_DEG,
     fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
     fraccion_mar=mar_atl.fraccion_mar_celda,
-    densificar=mar_atl.densificar_celdas_mar,
+    densificar=_densificar_ibi,
 )
 
 REGION_ATL = SstRegionConfig(
@@ -95,7 +103,7 @@ REGION_ATL = SstRegionConfig(
     paso_deg=CMEMS_SST_ATL_PASO_DEG,
     fuente_cmems="Copernicus IBI-Physics SST Atlántico (ultimo disponible)",
     fraccion_mar=mar_atl.fraccion_mar_celda,
-    densificar=mar_atl.densificar_celdas_mar,
+    densificar=_densificar_ibi,
 )
 
 

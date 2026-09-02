@@ -323,6 +323,7 @@ def add_capa_sst_grid(
     show_legend: bool = True,
     legendgroup: str = "sst",
     filtrar_tierra_al_pintar: bool = True,
+    marker_scale: float = 1.0,
 ) -> None:
     """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom."""
     if not celdas:
@@ -339,7 +340,7 @@ def add_capa_sst_grid(
         diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
         if diffs:
             paso = max(paso, sorted(diffs)[len(diffs) // 2])
-    size = max(9, min(14, round(paso * 90)))
+    size = max(9, min(14, round(paso * 90 * float(marker_scale))))
     fecha_txt = f" · {fecha}" if fecha else ""
 
     lats: list[float] = []
