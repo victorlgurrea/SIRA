@@ -17,8 +17,8 @@ log = logging.getLogger(__name__)
 TIERRA_FILE = ROOT / "data" / "geo" / "mundo_tierra_atlantico.json"
 LAND_URL = "https://unpkg.com/world-atlas@2/land-50m.json"
 
-# lon_min, lat_min, lon_max, lat_max — costa atlántica y cantábrica + margen.
-BBOX: tuple[float, float, float, float] = (-11.5, 41.5, 1.0, 44.8)
+# lon_min, lat_min, lon_max, lat_max — costa atlántica PT/ES + Cantábrico.
+BBOX: tuple[float, float, float, float] = (-11.5, 36.5, 1.0, 45.0)
 
 _BANDA_DEG = 0.25
 
@@ -126,12 +126,12 @@ def _anillos_ign() -> list[list[list[float]]]:
 
 
 def _en_bbox_mar_atlantico(lat: float, lon: float) -> bool:
-    """Envolvente laxa Cantábrico + Atlántico NW (sin comer interior peninsular)."""
-    # Cantábrico (Asturias → País Vasco).
-    if 42.55 <= lat <= 44.35 and -9.85 <= lon <= -1.45:
+    """Envolvente laxa Atlántico PT/ES + Cantábrico."""
+    # Portugal y Galicia (Atlántico).
+    if 36.95 <= lat <= 42.35 and -10.95 <= lon <= -8.00:
         return True
-    # Atlántico gallego / Finisterre.
-    if 41.75 <= lat <= 43.65 and -11.05 <= lon <= -8.15:
+    # Cantábrico (Rías Altas → País Vasco).
+    if 42.10 <= lat <= 44.55 and -10.95 <= lon <= -1.15:
         return True
     return False
 
