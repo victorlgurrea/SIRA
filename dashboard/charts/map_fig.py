@@ -1,7 +1,7 @@
 """Figura principal del mapa geográfico SIRA y layout geo."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -21,6 +21,7 @@ from charts.map_layers import (
 from sira.config.settings import (
     INCENDIO_MAP_MAX,
     MAPA,
+    SISMO_MAPA_HORAS,
     ZONA,
 )
 from sira.domain.geo import distancia_km
@@ -33,11 +34,34 @@ from sira.infrastructure.geo.es import (
 from ui.theme import C_CYAN, C_NAVY, COLORES, plotly_bg
 
 
+def es_sismo_reciente(ts, horas: int | None = None) -> bool:
+    """True si el sismo ocurrió en las últimas N horas (mapa)."""
+    ventana = SISMO_MAPA_HORAS if horas is None else int(horas)
+    if ventana <= 0:
+        return True
+    try:
+        t = pd.to_datetime(ts, utc=True).to_pydatetime()
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - t <= timedelta(hours=ventana)
+    except (ValueError, TypeError):
+        return False
+
+
 def es_sismo_hoy(ts) -> bool:
+    """True si el timestamp cae en el día UTC actual (compatibilidad)."""
     try:
         return pd.to_datetime(ts, utc=True).date() == datetime.now(timezone.utc).date()
     except (ValueError, TypeError):
         return False
+
+
+def _sismos_mapa_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Sismos visibles en el mapa: ventana reciente (p. ej. 24 h)."""
+    if df.empty or "timestamp" not in df.columns:
+        return df
+    mask = df["timestamp"].map(es_sismo_reciente)
+    return df[mask]
 
 
 def fmt_sismo_fecha(ts) -> str:
@@ -255,6 +279,9 @@ def fig_mapa(
     else:
         df_circulos_perceptibles = df
 
+    df_mapa = _sismos_mapa_df(df)
+    df_circulos_perceptibles = _sismos_mapa_df(df_circulos_perceptibles)
+
     inc_list = incendios or []
     if inc_list:
         leyenda_inc = False
@@ -266,42 +293,37 @@ def fig_mapa(
             leyenda_inc = True
 
     for nivel, color in COLORES.items():
-        sub = df[df["nivel_local"] == nivel] if not df.empty else pd.DataFrame()
+        sub = df_mapa[df_mapa["nivel_local"] == nivel] if not df_mapa.empty else pd.DataFrame()
         if sub.empty:
             continue
         reg_col = sub["region"] if "region" in sub.columns else [""] * len(sub)
         fechas = [fmt_sismo_fecha(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else ["—"] * len(sub)
         dist_loc = sub["dist_local_km"] if "dist_local_km" in sub.columns else [""] * len(sub)
-        hoy_mask = [es_sismo_hoy(ts) for ts in sub["timestamp"]] if "timestamp" in sub.columns else [False] * len(sub)
         base = sub["magnitud"] * 2 + 5
-        sizes = [9 if h else b for b, h in zip(base, hoy_mask)]
-        borders = [("white", 1) if h else ("white", 0.5) for h in hoy_mask]
+        sizes = [max(9, float(b)) for b in base]
         hover_txt = [fmt_sismo_linea(row) for row in sub.itertuples(index=False)]
         fig.add_trace(go.Scattergeo(
             lat=sub["lat"], lon=sub["lon"], mode="markers", name=nivel,
             marker=dict(
                 size=sizes, color=color,
-                line=dict(width=[b[1] for b in borders], color=[b[0] for b in borders]),
+                line=dict(width=1, color="white"),
             ),
             text=hover_txt,
             customdata=list(zip(sub["magnitud"], sub["score_local"], reg_col, fechas, dist_loc)),
             hovertemplate="%{text}<extra></extra>",
         ))
 
-    if not df_circulos_perceptibles.empty and "timestamp" in df_circulos_perceptibles.columns:
-        hoy_per = df_circulos_perceptibles[df_circulos_perceptibles["timestamp"].map(es_sismo_hoy)]
-        if not hoy_per.empty:
-            add_circulos_perceptibles(
-                fig, _con_hover_sismos(hoy_per),
-                legend_name="Zona perceptible (hoy)", legendgroup="hoy", period_ms=1600,
-            )
+    if not df_circulos_perceptibles.empty:
+        add_circulos_perceptibles(
+            fig, _con_hover_sismos(df_circulos_perceptibles),
+            legend_name=f"Zona perceptible ({SISMO_MAPA_HORAS} h)", legendgroup="hoy", period_ms=1600,
+        )
 
-    if not df.empty and "timestamp" in df.columns and mostrar_tsunami and "alerta_tsunami" in df.columns:
-        hoy_all = df[df["timestamp"].map(es_sismo_hoy)]
-        mask_tsunami = hoy_all["alerta_tsunami"].fillna(False)
-        if "en_mar" in hoy_all.columns:
-            mask_tsunami = mask_tsunami & hoy_all["en_mar"].fillna(False)
-        df_tsunami = hoy_all[mask_tsunami].copy()
+    if not df_mapa.empty and mostrar_tsunami and "alerta_tsunami" in df_mapa.columns:
+        mask_tsunami = df_mapa["alerta_tsunami"].fillna(False)
+        if "en_mar" in df_mapa.columns:
+            mask_tsunami = mask_tsunami & df_mapa["en_mar"].fillna(False)
+        df_tsunami = df_mapa[mask_tsunami].copy()
         if not df_tsunami.empty:
             hover_rows = []
             for row in df_tsunami.itertuples(index=False):
@@ -317,7 +339,7 @@ def fig_mapa(
             df_tsunami["hover_html"] = hover_rows
             add_circulos_perceptibles(
                 fig, df_tsunami,
-                legend_name="Alerta tsunami (hoy)", legendgroup="tsunami", period_ms=1800,
+                legend_name=f"Alerta tsunami ({SISMO_MAPA_HORAS} h)", legendgroup="tsunami", period_ms=1800,
                 fill_rgb="96, 165, 250", border_rgb="37, 99, 235",
                 radio_col="radio_tsunami_km", hover_label="Alerta tsunami",
             )
@@ -328,39 +350,35 @@ def fig_mapa(
         add_marcadores_aforos(fig, aforos_mapa)
 
     if not df_prueba.empty:
-        reg_col = df_prueba["region"] if "region" in df_prueba.columns else [""] * len(df_prueba)
-        fechas = [fmt_sismo_fecha(ts) for ts in df_prueba["timestamp"]] if "timestamp" in df_prueba.columns else ["—"] * len(df_prueba)
-        dist_loc = df_prueba["dist_local_km"] if "dist_local_km" in df_prueba.columns else [""] * len(df_prueba)
-        hoy_mask_prueba = (
-            [es_sismo_hoy(ts) for ts in df_prueba["timestamp"]]
-            if "timestamp" in df_prueba.columns
-            else [False] * len(df_prueba)
-        )
-        df_prueba_hoy = df_prueba[hoy_mask_prueba] if len(hoy_mask_prueba) else pd.DataFrame()
-        if not df_prueba_hoy.empty:
+        df_prueba_mapa = _sismos_mapa_df(df_prueba)
+        if df_prueba_mapa.empty:
+            df_prueba_mapa = df_prueba.iloc[0:0]
+        reg_col = df_prueba_mapa["region"] if "region" in df_prueba_mapa.columns else [""] * len(df_prueba_mapa)
+        fechas = [fmt_sismo_fecha(ts) for ts in df_prueba_mapa["timestamp"]] if "timestamp" in df_prueba_mapa.columns else ["—"] * len(df_prueba_mapa)
+        dist_loc = df_prueba_mapa["dist_local_km"] if "dist_local_km" in df_prueba_mapa.columns else [""] * len(df_prueba_mapa)
+        if not df_prueba_mapa.empty:
             add_circulos_perceptibles(
-                fig, _con_hover_sismos(df_prueba_hoy),
+                fig, _con_hover_sismos(df_prueba_mapa),
                 legend_name="Zona perceptible (prueba)", legendgroup="prueba", period_ms=1400,
                 show_legend=False,
             )
-        prueba_sizes = [9 if h else (m * 2 + 8) for m, h in zip(df_prueba["magnitud"], hoy_mask_prueba)]
-        prueba_borders = [("white", 1) if h else ("#f87171", 2) for h in hoy_mask_prueba]
-        fig.add_trace(go.Scattergeo(
-            lat=df_prueba["lat"], lon=df_prueba["lon"], mode="markers", name="Prueba",
-            marker=dict(
-                size=prueba_sizes, color="rgba(239, 68, 68, 0.9)", symbol="circle",
-                line=dict(width=[b[1] for b in prueba_borders], color=[b[0] for b in prueba_borders]),
-            ),
-            text=df_prueba["lugar"],
-            customdata=list(zip(df_prueba["magnitud"], df_prueba["score_local"], reg_col, fechas, dist_loc)),
-            hovertemplate=(
-                "🧪 %{text}<br>"
-                "Fecha: %{customdata[3]}<br>"
-                "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
-                "Distancia: %{customdata[4]} km"
-                "<extra></extra>"
-            ),
-        ))
+            prueba_sizes = [max(9, float(m * 2 + 8)) for m in df_prueba_mapa["magnitud"]]
+            fig.add_trace(go.Scattergeo(
+                lat=df_prueba_mapa["lat"], lon=df_prueba_mapa["lon"], mode="markers", name="Prueba",
+                marker=dict(
+                    size=prueba_sizes, color="rgba(239, 68, 68, 0.9)", symbol="circle",
+                    line=dict(width=1, color="white"),
+                ),
+                text=df_prueba_mapa["lugar"],
+                customdata=list(zip(df_prueba_mapa["magnitud"], df_prueba_mapa["score_local"], reg_col, fechas, dist_loc)),
+                hovertemplate=(
+                    "🧪 %{text}<br>"
+                    "Fecha: %{customdata[3]}<br>"
+                    "Mag %{customdata[0]} · Score local %{customdata[1]} · %{customdata[2]}<br>"
+                    "Distancia: %{customdata[4]} km"
+                    "<extra></extra>"
+                ),
+            ))
 
     add_marcador_observacion(fig, lat_obs, lon_obs, obs_nombre)
 

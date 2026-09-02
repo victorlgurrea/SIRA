@@ -61,6 +61,9 @@ SISMO_PERCEPCION = {
     "max_km": _f("SISMO_PERCEPTIBLE_MAX_KM", "450"),
 }
 
+# Ventana de sismos pintados en el mapa (horas). La tarjeta usa DIAS_ATRAS (30 días).
+SISMO_MAPA_HORAS = _i("SISMO_MAPA_HORAS", "24")
+
 # Radio de aviso tsunami (km) · solo sismos con epicentro en el mar
 # radio ≈ TSUNAMI_FACTOR × 10^(TSUNAMI_EXP_MAG × (M − TSUNAMI_MAG_REF))
 TSUNAMI = {
