@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from sira.config.settings import MAP_CIRCLE_POINTS
+from sira.config.settings import CMEMS_SST_PASO_DEG, MAP_CIRCLE_POINTS
 from sira.domain.geo import circle_disk_polygon, circle_perimeter
 from sira.infrastructure.geo.aemet_zonas import aviso_maximo_zona, color_nivel, es_zona_costera, zonas_ccaa_pintado
 from sira.infrastructure.http.client import fmt_hora_espana
@@ -310,6 +310,41 @@ def add_leyenda_sst_med(
     )
 
 
+def rejilla_visual_sst(celdas: list[dict], paso: float | None = None) -> list[dict]:
+    """Agrupa celdas en buckets de paso fijo (mismo aspecto que Mediterráneo en mapa)."""
+    step = max(float(paso or CMEMS_SST_PASO_DEG), 0.08)
+    buckets: dict[tuple[int, int], dict] = {}
+    counts: dict[tuple[int, int], int] = {}
+    for c in celdas:
+        if c.get("sst_c") is None:
+            continue
+        try:
+            lat = float(c["lat"])
+            lon = float(c["lon"])
+            temp = float(c["sst_c"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        key = (int(round(lat / step)), int(round(lon / step)))
+        prev = buckets.get(key)
+        if prev is None:
+            buckets[key] = {"lat": lat, "lon": lon, "sst_c": temp}
+            counts[key] = 1
+            continue
+        n = counts[key] + 1
+        counts[key] = n
+        prev["lat"] = (prev["lat"] * (n - 1) + lat) / n
+        prev["lon"] = (prev["lon"] * (n - 1) + lon) / n
+        prev["sst_c"] = (float(prev["sst_c"]) * (n - 1) + temp) / n
+    return [
+        {
+            "lat": round(v["lat"], 4),
+            "lon": round(v["lon"], 4),
+            "sst_c": round(float(v["sst_c"]), 2),
+        }
+        for v in buckets.values()
+    ]
+
+
 def add_capa_sst_grid(
     fig: go.Figure,
     celdas: list[dict] | None,
@@ -324,6 +359,8 @@ def add_capa_sst_grid(
     legendgroup: str = "sst",
     filtrar_tierra_al_pintar: bool = True,
     marker_scale: float = 1.0,
+    paso_marcador: float | None = None,
+    submuestrear_paso: float | None = None,
 ) -> None:
     """Malla SST solo-mar. Marcadores con meta de paso para escalar al zoom."""
     if not celdas:
@@ -334,12 +371,16 @@ def add_capa_sst_grid(
         SST_MED_LEYENDA_MIN,
     )
 
-    paso = float(paso_deg or 0.12)
-    lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
-    if len(lats_u) >= 2:
-        diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
-        if diffs:
-            paso = max(paso, sorted(diffs)[len(diffs) // 2])
+    if submuestrear_paso is not None and submuestrear_paso > 0:
+        celdas = rejilla_visual_sst(celdas, paso=submuestrear_paso)
+
+    paso = float(paso_marcador or paso_deg or CMEMS_SST_PASO_DEG)
+    if paso_marcador is None:
+        lats_u = sorted({round(float(c["lat"]), 4) for c in celdas if c.get("sst_c") is not None})
+        if len(lats_u) >= 2:
+            diffs = [lats_u[i + 1] - lats_u[i] for i in range(len(lats_u) - 1) if lats_u[i + 1] > lats_u[i]]
+            if diffs:
+                paso = max(paso, sorted(diffs)[len(diffs) // 2])
     size = max(9, min(14, round(paso * 90 * float(marker_scale))))
     fecha_txt = f" · {fecha}" if fecha else ""
 
