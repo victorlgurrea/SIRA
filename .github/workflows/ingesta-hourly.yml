@@ -100,13 +100,14 @@ jobs:
             gen=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('generado_en') or '')" 2>/dev/null || echo "")
             err=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ingesta',{}).get('last_error') or '')" 2>/dev/null || echo "")
             echo "  check $i: running=$running generado_en=$gen err=${err:0:80}"
-            if [ "$running" = "False" ] && [ -n "$gen" ] && [ "$gen" != "$gen_before" ]; then
+            if [ "$running" = "False" ] && [ -n "$gen" ] && [ "$gen" \> "$gen_before" ]; then
               echo "Ingesta completa."
               break
             fi
           done
-          if [ -z "$gen" ] || [ "$gen" = "$gen_before" ]; then
-            echo "La ingesta no produjo un generado_en nuevo; no se sube snapshot viejo"
+          if [ -z "$gen" ] || [ ! "$gen" \> "$gen_before" ]; then
+            echo "La ingesta no produjo un generado_en más reciente (antes=$gen_before ahora=$gen); no se sube snapshot"
+            echo "$body" | head -c 800 || true
             exit 1
           fi
 
@@ -128,6 +129,10 @@ jobs:
             exit 1
           fi
           echo "generado_en=$gen"
+          if [ ! "$gen" \> "$gen_before" ]; then
+            echo "El JSON de la API no es más nuevo que el previo ($gen_before); no se sube"
+            exit 1
+          fi
 
           # Comprimir UNA vez
           gzip -9 -k -f /tmp/dashboard_data.json

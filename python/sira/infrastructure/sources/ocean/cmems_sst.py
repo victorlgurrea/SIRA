@@ -412,14 +412,17 @@ def _desde_open_meteo(region: SstRegionConfig) -> dict:
 
 def _desde_cmems_con_timeout(region: SstRegionConfig) -> dict:
     timeout = max(30, int(CMEMS_SST_TIMEOUT_SEC))
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        fut = pool.submit(_desde_cmems, region)
-        try:
-            return fut.result(timeout=timeout)
-        except FuturesTimeout as exc:
-            raise RuntimeError(
-                f"CMEMS {region.key} superó {timeout}s (open_dataset colgado o muy lento)"
-            ) from exc
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(_desde_cmems, region)
+    try:
+        return fut.result(timeout=timeout)
+    except FuturesTimeout as exc:
+        raise RuntimeError(
+            f"CMEMS {region.key} superó {timeout}s (open_dataset colgado o muy lento)"
+        ) from exc
+    finally:
+        # wait=False: si Copernicus está colgado, no bloquear el resto de la ingesta.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _descargar_sst_cuadricula(region: SstRegionConfig) -> dict:

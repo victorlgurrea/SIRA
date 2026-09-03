@@ -72,13 +72,15 @@ def _run_ingesta_job() -> None:
         from sira.services.push.web import notify_new_alerts
 
         timeout = max(120, int(INGESTA_MAX_SEC))
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(ejecutar_ingesta)
-            try:
-                fut.result(timeout=timeout)
-            except FuturesTimeout as exc:
-                _ingesta_state["last_error"] = f"Ingesta timeout {timeout}s"
-                raise RuntimeError(_ingesta_state["last_error"]) from exc
+        pool = ThreadPoolExecutor(max_workers=1)
+        fut = pool.submit(ejecutar_ingesta)
+        try:
+            fut.result(timeout=timeout)
+        except FuturesTimeout as exc:
+            _ingesta_state["last_error"] = f"Ingesta timeout {timeout}s"
+            raise RuntimeError(_ingesta_state["last_error"]) from exc
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         _DASHBOARD_RESP_CACHE["generado_en"] = None
         _DASHBOARD_RESP_CACHE["payload"] = None
         dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
