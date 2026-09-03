@@ -114,7 +114,7 @@ REGION_ATL = SstRegionConfig(
     fraccion_mar=mar_atl.fraccion_mar_celda,
     densificar=_densificar_atl,
     map_max_celdas=CMEMS_SST_ATL_MAP_MAX_CELDAS,
-    umbral_mar=0.82,
+    umbral_mar=0.75,
 )
 
 

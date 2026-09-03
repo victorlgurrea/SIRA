@@ -126,9 +126,9 @@ def _anillos_ign() -> list[list[list[float]]]:
 
 
 def _en_bbox_mar_atlantico(lat: float, lon: float) -> bool:
-    """Envolvente laxa Atlántico PT/ES + Cantábrico + golfo Cádiz."""
-    # Costa atlántica PT/ES (Gibraltar → Galicia).
-    if 35.95 <= lat <= 42.35 and -10.95 <= lon <= -5.55:
+    """Envolvente laxa Atlántico PT/ES + Cantábrico + golfo Cádiz / Estrecho."""
+    # Costa atlántica PT/ES (Galicia → Estrecho de Gibraltar).
+    if 35.85 <= lat <= 42.35 and -10.95 <= lon <= -4.95:
         return True
     # Cantábrico (Rías Altas → País Vasco).
     if 42.10 <= lat <= 44.55 and -10.95 <= lon <= -1.15:

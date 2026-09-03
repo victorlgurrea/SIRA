@@ -111,7 +111,15 @@ def status_snapshot() -> dict:
             1 for v in api_fuentes.values() if isinstance(v, dict) and v.get("ok")
         )
 
-        if isinstance(payload, dict) and payload.get("generado_en") and api_fuentes_ok > 0 and local_score == 0:
+        api_gen = str(payload.get("generado_en") or "") if isinstance(payload, dict) else ""
+        local_gen = str(data.get("generado_en") or "") if isinstance(data, dict) else ""
+        # Preferir el más reciente entre API y disco/snapshot.
+        if (
+            isinstance(payload, dict)
+            and api_fuentes_ok > 0
+            and api_gen
+            and (local_score == 0 or api_gen >= local_gen)
+        ):
             return payload
 
         if isinstance(data, dict) and data.get("generado_en") and local_score > 0:

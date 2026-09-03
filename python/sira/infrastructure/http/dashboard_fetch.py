@@ -187,29 +187,40 @@ def bootstrap_dashboard_data(api_base: str) -> dict:
     return local if isinstance(local, dict) else {}
 
 
+def _pick_fresher(a: dict | None, b: dict | None) -> dict:
+    """Elige el payload con generado_en más reciente (y score > 0)."""
+    cand = []
+    for d in (a, b):
+        if isinstance(d, dict) and d.get("generado_en") and _payload_score(d) > 0:
+            cand.append(d)
+    if not cand:
+        return a if isinstance(a, dict) else (b if isinstance(b, dict) else {})
+    if len(cand) == 1:
+        return cand[0]
+    return max(cand, key=lambda d: str(d.get("generado_en") or ""))
+
+
 def load_dashboard_payload(api_base: str) -> dict:
     """
-    Fuente de verdad en PRO: snapshot GitHub (actualizado por el workflow cada 3h).
-    La API tiene su propio disco y puede quedar desfasada; no usarla para pintar el dashboard.
+    Prefiere el payload más reciente entre snapshot GitHub y API.
+    Así, tras una ingesta, el mapa no se queda en un snapshot viejo si la API ya avanzó.
     """
     global _stale
 
     local = _maybe_refresh_snapshot(read_dashboard())
-    if local.get("generado_en") and _payload_score(local) > 0:
-        _stale = local
-        return local
-
-    # Sin snapshot: último recurso API (arranque en frío sin release).
     fresh = _fetch_dashboard_api(api_base)
-    if fresh and fresh.get("generado_en") and _payload_score(fresh) > 0:
-        _stale = fresh
-        try:
-            write_dashboard(fresh)
-        except OSError as exc:
-            log.warning("No se pudo cachear dashboard en disco: %s", exc)
-            return fresh
-        cached = read_dashboard()
-        return cached if cached.get("generado_en") else fresh
+    chosen = _pick_fresher(local, fresh)
+
+    if chosen.get("generado_en") and _payload_score(chosen) > 0:
+        # Si ganó la API y es más nueva que el disco, cachear para siguientes lecturas.
+        local_gen = str((local or {}).get("generado_en") or "")
+        if fresh is chosen and str(fresh.get("generado_en") or "") > local_gen:
+            try:
+                write_dashboard(fresh)
+            except OSError as exc:
+                log.warning("No se pudo cachear dashboard en disco: %s", exc)
+        _stale = chosen
+        return chosen
 
     if _stale and _stale.get("generado_en"):
         log.warning("Usando datos en memoria (sin snapshot ni API)")

@@ -158,13 +158,14 @@ CMEMS_SST_CANT_LAT_MAX = _f("CMEMS_SST_CANT_LAT_MAX", "44.50")
 CMEMS_SST_CANT_LON_MIN = _f("CMEMS_SST_CANT_LON_MIN", "-10.95")
 CMEMS_SST_CANT_LON_MAX = _f("CMEMS_SST_CANT_LON_MAX", "-1.20")
 CMEMS_SST_CANT_PASO_DEG = _f("CMEMS_SST_CANT_PASO_DEG", "0.10")
-CMEMS_SST_ATL_LAT_MIN = _f("CMEMS_SST_ATL_LAT_MIN", "36.00")
+CMEMS_SST_ATL_LAT_MIN = _f("CMEMS_SST_ATL_LAT_MIN", "35.90")
 CMEMS_SST_ATL_LAT_MAX = _f("CMEMS_SST_ATL_LAT_MAX", "42.30")
 CMEMS_SST_ATL_LON_MIN = _f("CMEMS_SST_ATL_LON_MIN", "-10.95")
-CMEMS_SST_ATL_LON_MAX = _f("CMEMS_SST_ATL_LON_MAX", "-5.60")
+# Hasta ~estrecho de Gibraltar (solapa con Mediterráneo).
+CMEMS_SST_ATL_LON_MAX = _f("CMEMS_SST_ATL_LON_MAX", "-5.00")
 # Paso menor → más puntos CMEMS (nativo IBI ≈0.027°; 0.08° ≈ stride 3).
 CMEMS_SST_ATL_PASO_DEG = _f("CMEMS_SST_ATL_PASO_DEG", "0.08")
-CMEMS_SST_ATL_MAP_MAX_CELDAS = _i("CMEMS_SST_ATL_MAP_MAX_CELDAS", "3200")
+CMEMS_SST_ATL_MAP_MAX_CELDAS = _i("CMEMS_SST_ATL_MAP_MAX_CELDAS", "3600")
 
 USGS_URL = os.getenv("USGS_URL", "https://earthquake.usgs.gov/fdsnws/event/1/query")
 # EMSC (cubre sismos ibéricos que USGS a menudo no publica, p.ej. Murcia M4.1)
