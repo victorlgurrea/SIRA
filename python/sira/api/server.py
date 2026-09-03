@@ -26,6 +26,7 @@ from sira.config.settings import (
     CRON_SECRET,
     ENABLE_API_DOCS,
     HISTORIAL_DIAS_DEFAULT,
+    INGESTA_MAX_SEC,
     RATE_LIMIT_SEC,
 )
 from sira.infrastructure.http.client import read_dashboard
@@ -64,17 +65,28 @@ def _run_ingesta_job() -> None:
     _ingesta_state["started_at"] = datetime.now(timezone.utc).isoformat()
     _ingesta_state["last_error"] = None
     try:
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
+
         from sira.services.ingesta.orchestrator import ejecutar_ingesta
         from sira.services.push.web import notify_new_alerts
 
-        ejecutar_ingesta()
+        timeout = max(120, int(INGESTA_MAX_SEC))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fut = pool.submit(ejecutar_ingesta)
+            try:
+                fut.result(timeout=timeout)
+            except FuturesTimeout as exc:
+                _ingesta_state["last_error"] = f"Ingesta timeout {timeout}s"
+                raise RuntimeError(_ingesta_state["last_error"]) from exc
         _DASHBOARD_RESP_CACHE["generado_en"] = None
         _DASHBOARD_RESP_CACHE["payload"] = None
         dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
         n = notify_new_alerts(dashboard_url)
         log.info("Ingesta cron completada; push_enviados=%s", n)
-    except Exception:  # noqa: BLE001
-        _ingesta_state["last_error"] = "Fallo en ingesta cron"
+    except Exception as exc:  # noqa: BLE001
+        if not _ingesta_state.get("last_error"):
+            _ingesta_state["last_error"] = str(exc)[:240] or "Fallo en ingesta cron"
         log.exception("Fallo en ingesta cron en segundo plano")
     finally:
         _ingesta_state["running"] = False

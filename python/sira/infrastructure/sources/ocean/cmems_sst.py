@@ -5,6 +5,8 @@ import logging
 import math
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
@@ -33,6 +35,7 @@ from sira.config.settings import (
     CMEMS_SST_LON_MIN,
     CMEMS_SST_PASO_DEG,
     CMEMS_SST_MAP_MAX_CELDAS,
+    CMEMS_SST_TIMEOUT_SEC,
     CMEMS_SST_VARIABLE,
     CMEMS_USERNAME,
     OPEN_METEO_MARINE_URL,
@@ -407,10 +410,22 @@ def _desde_open_meteo(region: SstRegionConfig) -> dict:
     return out
 
 
+def _desde_cmems_con_timeout(region: SstRegionConfig) -> dict:
+    timeout = max(30, int(CMEMS_SST_TIMEOUT_SEC))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_desde_cmems, region)
+        try:
+            return fut.result(timeout=timeout)
+        except FuturesTimeout as exc:
+            raise RuntimeError(
+                f"CMEMS {region.key} superó {timeout}s (open_dataset colgado o muy lento)"
+            ) from exc
+
+
 def _descargar_sst_cuadricula(region: SstRegionConfig) -> dict:
     if _creds_ok():
         try:
-            return _desde_cmems(region)
+            return _desde_cmems_con_timeout(region)
         except ImportError as exc:
             log.warning("CMEMS no disponible (%s)", exc)
             if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
