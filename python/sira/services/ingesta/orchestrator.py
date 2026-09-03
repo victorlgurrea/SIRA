@@ -26,7 +26,7 @@ from sira.config.settings import (
     USGS_URL,
     ZONA,
 )
-from sira.infrastructure.http.client import fetch_aemet, fetch_json, write_dashboard
+from sira.infrastructure.http.client import fetch_aemet, fetch_json, read_dashboard, write_dashboard
 from sira.infrastructure.parsers.fuentes import parse_emsc_feature, parse_usgs_feature
 from sira.services.historial.snapshots import guardar_snapshots_diarios
 from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly
@@ -39,6 +39,22 @@ from sira.services.overlays.sismo import clear_test_overlay
 
 log = logging.getLogger(__name__)
 VACIO_OCE = {"serie_horaria": [], "resumen": {}}
+
+
+def _sst_grid_o_previo(nuevo: object, previo: object, etiqueta: str) -> dict:
+    """Si CMEMS falla ({}), conserva la malla anterior para no vaciar el mapa."""
+    if isinstance(nuevo, dict) and (nuevo.get("celdas") or []):
+        return nuevo
+    if isinstance(previo, dict) and (previo.get("celdas") or []):
+        log.warning(
+            "SST %s: sin datos nuevos; se conserva malla previa (%d celdas)",
+            etiqueta,
+            len(previo.get("celdas") or []),
+        )
+        out = dict(previo)
+        out["retenido"] = True
+        return out
+    return nuevo if isinstance(nuevo, dict) else {}
 
 
 def _region(lat: float, lon: float) -> str:
@@ -370,15 +386,23 @@ def ejecutar_ingesta():
     oceanografia, fuentes_estado["open_meteo_marine"] = estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
-    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
-        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
-    )
+    # IBI (cant/atl) antes que Med: en Render Free med suele agotar el timeout
+    # y si va primero deja atl sin celdas.
+    prev = read_dashboard()
+    if not isinstance(prev, dict):
+        prev = {}
     sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
         "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
     )
     sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
         "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
     )
+    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
+        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
+    )
+    sst_cant_grid = _sst_grid_o_previo(sst_cant_grid, prev.get("sst_cant_grid"), "cant")
+    sst_atl_grid = _sst_grid_o_previo(sst_atl_grid, prev.get("sst_atl_grid"), "atl")
+    sst_med_grid = _sst_grid_o_previo(sst_med_grid, prev.get("sst_med_grid"), "med")
     for clave, grid in (
         ("cmems_sst_med", sst_med_grid),
         ("cmems_sst_cant", sst_cant_grid),
@@ -387,8 +411,9 @@ def ejecutar_ingesta():
         if not isinstance(grid, dict):
             continue
         resumen = grid.get("resumen") if isinstance(grid.get("resumen"), dict) else {}
+        n = len(grid.get("celdas") or [])
         fuentes_estado[clave].update({
-            "registros": len(grid.get("celdas") or []),
+            "registros": n,
             "fuente": grid.get("fuente"),
             "dataset_id": grid.get("dataset_id"),
             "fecha_dato": grid.get("fecha"),
@@ -396,7 +421,14 @@ def ejecutar_ingesta():
             "bbox": grid.get("bbox"),
             "sst_min_c": resumen.get("sst_min_c"),
             "sst_max_c": resumen.get("sst_max_c"),
+            "retenido": bool(grid.get("retenido")),
         })
+        if n and grid.get("retenido"):
+            fuentes_estado[clave]["ok"] = True
+            err = fuentes_estado[clave].get("error")
+            fuentes_estado[clave]["error"] = (
+                f"Retenido (previo). {err}" if err else "Retenido (previo)"
+            )
     if not isinstance(oceanografia, dict):
         oceanografia = {}
     oceanografia = completar_oceanografia_desde_sst_grid(

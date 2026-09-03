@@ -144,8 +144,8 @@ CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "36.29")
 CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.12")
 CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "2000")
 # Tope por región CMEMS (Render Free se queda colgado en open_dataset).
-CMEMS_SST_TIMEOUT_SEC = _i("CMEMS_SST_TIMEOUT_SEC", "180")
-INGESTA_MAX_SEC = _i("INGESTA_MAX_SEC", "720")
+CMEMS_SST_TIMEOUT_SEC = _i("CMEMS_SST_TIMEOUT_SEC", "240")
+INGESTA_MAX_SEC = _i("INGESTA_MAX_SEC", "900")
 # La malla Open-Meteo gasta el cupo diario y deja vacíos los KPIs SST/corrientes.
 CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
     "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", "0"
