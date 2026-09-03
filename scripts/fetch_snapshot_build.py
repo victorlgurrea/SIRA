@@ -15,8 +15,9 @@ def main() -> int:
     if ok:
         print("Snapshot listo para el deploy")
         return 0
-    print("ERROR: build sin snapshot latest-data", file=sys.stderr)
-    return 1
+    # No tumbar el deploy de Render: la API puede arrancar y reingestar.
+    print("AVISO: build sin snapshot latest-data (la API arrancará igual)", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":

@@ -9,7 +9,6 @@ import io
 import json
 import logging
 import os
-import time
 from pathlib import Path
 
 import requests
@@ -179,9 +178,8 @@ def download_snapshot(token: str | None = None) -> bool:
         if not url:
             continue
         try:
-            bust = f"{url}?t={int(time.time())}"
             r = requests.get(
-                bust,
+                url,
                 headers={"User-Agent": hdr["User-Agent"], "Cache-Control": "no-cache"},
                 timeout=120,
                 allow_redirects=True,
