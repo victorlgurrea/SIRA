@@ -24,7 +24,7 @@ permissions:
 jobs:
   ingesta:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Despertar API y disparar ingesta
         env:
@@ -84,19 +84,30 @@ jobs:
           API_URL="${API_URL%/}"
           GITHUB_API_URL="https://api.github.com"
 
-          echo "Esperando a que la ingesta termine…"
-          for i in $(seq 1 30); do
+          echo "Leyendo generado_en previo…"
+          body0=$(curl -sS --max-time 30 "${API_URL}/api/status" \
+            -H "X-Cron-Secret: ${CRON_SECRET}" 2>/dev/null || echo '{}')
+          gen_before=$(echo "$body0" | python3 -c "import sys,json; print(json.load(sys.stdin).get('generado_en') or '')" 2>/dev/null || echo "")
+          echo "generado_en previo=$gen_before"
+
+          echo "Esperando a que la ingesta termine con un generado_en NUEVO…"
+          gen=""
+          for i in $(seq 1 60); do
             sleep 20
             body=$(curl -sS --max-time 30 "${API_URL}/api/status" \
               -H "X-Cron-Secret: ${CRON_SECRET}" 2>/dev/null || echo '{}')
             running=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ingesta',{}).get('running',True))" 2>/dev/null || echo "True")
-            gen=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('generado_en',''))" 2>/dev/null || echo "")
+            gen=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('generado_en') or '')" 2>/dev/null || echo "")
             echo "  check $i: running=$running generado_en=$gen"
-            if [ -n "$gen" ] && [ "$running" = "False" ]; then
+            if [ "$running" = "False" ] && [ -n "$gen" ] && [ "$gen" != "$gen_before" ]; then
               echo "Ingesta completa."
               break
             fi
           done
+          if [ -z "$gen" ] || [ "$gen" = "$gen_before" ]; then
+            echo "La ingesta no produjo un generado_en nuevo; no se sube snapshot viejo"
+            exit 1
+          fi
 
           echo "Descargando dashboard JSON del API…"
           # --compressed: curl descomprime Content-Encoding (si no, se sube doble gzip).
@@ -159,12 +170,6 @@ jobs:
             --data-binary @/tmp/dashboard_data.json.gz \
             "${upload_url}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Asset:', d.get('name'), d.get('size'), 'bytes')"
           echo "Snapshot subido ✓"
-
-          echo "Forzando restore-snapshot en la API…"
-          code=$(curl -sS -o /tmp/sira_restore.txt -w "%{http_code}" --max-time 120 \
-            -X POST "${API_URL}/api/cron/restore-snapshot" \
-            -H "X-Cron-Secret: ${CRON_SECRET}" || true)
-          echo "  restore API → HTTP $code $(head -c 200 /tmp/sira_restore.txt || true)"
 
           DASHBOARD_URL="${SIRA_DASHBOARD_URL:-https://sira-dashboard.onrender.com}"
           DASHBOARD_URL="${DASHBOARD_URL%/}"

@@ -128,11 +128,33 @@ def _gunzip_until_json(raw: bytes) -> tuple[bytes, dict] | tuple[None, None]:
     return None, None
 
 
+def _local_generado_en() -> str:
+    if not DATA_FILE.is_file():
+        return ""
+    try:
+        current = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(current, dict):
+        return ""
+    return str(current.get("generado_en") or "")
+
+
 def _save_snapshot_bytes(raw: bytes) -> bool:
     decompressed, data = _gunzip_until_json(raw)
     if not decompressed or not data:
         log.warning("Snapshot no es JSON válido tras descomprimir")
         return False
+    incoming = str(data.get("generado_en") or "")
+    local = _local_generado_en()
+    # Nunca pisar una ingesta más nueva con un release GitHub viejo/cacheado.
+    if local and incoming and incoming < local:
+        log.warning(
+            "Snapshot GitHub más viejo (%s) que disco (%s); no se restaura",
+            incoming,
+            local,
+        )
+        return True
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     DATA_FILE.write_bytes(decompressed)
     log.info(
