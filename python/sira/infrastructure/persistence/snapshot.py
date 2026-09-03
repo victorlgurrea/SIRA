@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import requests
@@ -156,7 +157,13 @@ def download_snapshot(token: str | None = None) -> bool:
         if not url:
             continue
         try:
-            r = requests.get(url, headers={"User-Agent": hdr["User-Agent"]}, timeout=120, allow_redirects=True)
+            bust = f"{url}?t={int(time.time())}"
+            r = requests.get(
+                bust,
+                headers={"User-Agent": hdr["User-Agent"], "Cache-Control": "no-cache"},
+                timeout=120,
+                allow_redirects=True,
+            )
             r.raise_for_status()
             if _save_snapshot_bytes(r.content):
                 return True

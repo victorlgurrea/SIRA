@@ -68,6 +68,8 @@ def _run_ingesta_job() -> None:
         from sira.services.push.web import notify_new_alerts
 
         ejecutar_ingesta()
+        _DASHBOARD_RESP_CACHE["generado_en"] = None
+        _DASHBOARD_RESP_CACHE["payload"] = None
         dashboard_url = CORS_ORIGINS[0] if CORS_ORIGINS else "https://sira-dashboard.onrender.com"
         n = notify_new_alerts(dashboard_url)
         log.info("Ingesta cron completada; push_enviados=%s", n)
