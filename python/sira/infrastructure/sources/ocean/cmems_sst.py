@@ -8,7 +8,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import partial
 
 import numpy as np
@@ -196,7 +196,6 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
     import xarray as xr
 
     ahora = datetime.now(timezone.utc)
-    inicio = ahora - timedelta(days=2)
     paso = max(0.042, float(region.paso_deg))
 
     log.info(
@@ -218,8 +217,15 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
         maximum_longitude=region.lon_max,
         minimum_latitude=region.lat_min,
         maximum_latitude=region.lat_max,
-        start_datetime=inicio.strftime("%Y-%m-%dT00:00:00"),
-        end_datetime=ahora.strftime("%Y-%m-%dT23:59:59"),
+        # Un solo instante (el más cercano a "ahora"), no un rango de 2 días:
+        # pedir el rango completo descargaba TODAS las horas intermedias
+        # (p. ej. 106 MB para el Mediterráneo) aunque solo usamos la última
+        # disponible; eso disparó el límite de memoria de Render (sira-api
+        # reiniciado por "exceeded its memory limit"). Con nearest+instante
+        # único el Mediterráneo baja a ~1.5 MB.
+        start_datetime=ahora.strftime("%Y-%m-%dT%H:%M:%S"),
+        end_datetime=ahora.strftime("%Y-%m-%dT%H:%M:%S"),
+        coordinates_selection_method="nearest",
         username=CMEMS_USERNAME.strip(),
         password=CMEMS_PASSWORD.strip(),
         file_format="netcdf",
