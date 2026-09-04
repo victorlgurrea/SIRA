@@ -386,19 +386,20 @@ def ejecutar_ingesta():
     oceanografia, fuentes_estado["open_meteo_marine"] = estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
-    # IBI (cant/atl) antes que Med: en Render Free med suele agotar el timeout
-    # y si va primero deja atl sin celdas.
+    # Mediterráneo primero: es la región prioritaria para SIRA (Comunidad
+    # Valenciana). Si algo falla a mitad de ingesta (timeout, memoria...) que
+    # se quede sin celdas Atlántico/Cantábrico antes que Mediterráneo.
     prev = read_dashboard()
     if not isinstance(prev, dict):
         prev = {}
+    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
+        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
+    )
     sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
         "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
     )
     sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
         "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
-    )
-    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
-        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
     )
     sst_cant_grid = _sst_grid_o_previo(sst_cant_grid, prev.get("sst_cant_grid"), "cant")
     sst_atl_grid = _sst_grid_o_previo(sst_atl_grid, prev.get("sst_atl_grid"), "atl")
