@@ -188,7 +188,12 @@ def _pack(
 
 
 def _desde_cmems(region: SstRegionConfig) -> dict:
+    import shutil
+    import tempfile
+    from pathlib import Path
+
     import copernicusmarine
+    import xarray as xr
 
     ahora = datetime.now(timezone.utc)
     inicio = ahora - timedelta(days=2)
@@ -206,7 +211,7 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
         paso,
     )
 
-    open_kwargs = dict(
+    subset_kwargs = dict(
         dataset_id=region.dataset_id,
         variables=[CMEMS_SST_VARIABLE],
         minimum_longitude=region.lon_min,
@@ -217,54 +222,70 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
         end_datetime=ahora.strftime("%Y-%m-%dT23:59:59"),
         username=CMEMS_USERNAME.strip(),
         password=CMEMS_PASSWORD.strip(),
+        file_format="netcdf",
+        disable_progress_bar=True,
+        overwrite=True,
     )
+
+    tmpdir = tempfile.mkdtemp(prefix=f"sira_cmems_{region.key}_")
+    ds = None
     try:
-        ds = copernicusmarine.open_dataset(**open_kwargs, disable_progress_bar=True)
-    except TypeError:
-        ds = copernicusmarine.open_dataset(**open_kwargs)
+        # subset() recorta server-side (bbox+fecha+variable) y descarga UN
+        # único fichero pequeño ya listo; open_dataset() en cambio abre el
+        # ARCO remoto perezoso y .values() acaba pidiendo chunk a chunk por
+        # red, lo que en Render Free (red/CPU limitadas) se colgaba >240s
+        # para bboxes grandes (Mediterráneo/Atlántico). subset() tarda
+        # unos segundos incluso para el Mediterráneo completo (~100 MB).
+        resp = copernicusmarine.subset(output_directory=tmpdir, **subset_kwargs)
+        nc_path = Path(resp.output_directory) / resp.filename
+        ds = xr.open_dataset(nc_path, engine="h5netcdf")
 
-    if CMEMS_SST_VARIABLE not in ds:
-        raise RuntimeError(f"Dataset CMEMS sin variable {CMEMS_SST_VARIABLE}")
+        if CMEMS_SST_VARIABLE not in ds:
+            raise RuntimeError(f"Dataset CMEMS sin variable {CMEMS_SST_VARIABLE}")
 
-    da = ds[CMEMS_SST_VARIABLE]
-    for depth_name in ("depth", "elevation"):
-        if depth_name in da.dims:
-            da = da.isel({depth_name: 0})
-            break
+        da = ds[CMEMS_SST_VARIABLE]
+        for depth_name in ("depth", "elevation"):
+            if depth_name in da.dims:
+                da = da.isel({depth_name: 0})
+                break
 
-    if "time" in da.dims:
-        times = da["time"].values
-        try:
-            idx = _idx_ultimo_disponible(times, ahora)
-        except Exception:  # noqa: BLE001
-            idx = -1
-        da = da.isel(time=idx)
-        fecha_raw = da.coords["time"].values
-        try:
-            fecha = np.datetime_as_string(fecha_raw, unit="m").replace("T", " ")
-        except Exception:  # noqa: BLE001
-            fecha = str(fecha_raw)[:16]
-    else:
-        fecha = ahora.strftime("%Y-%m-%d %H:%M")
+        if "time" in da.dims:
+            times = da["time"].values
+            try:
+                idx = _idx_ultimo_disponible(times, ahora)
+            except Exception:  # noqa: BLE001
+                idx = -1
+            da = da.isel(time=idx)
+            fecha_raw = da.coords["time"].values
+            try:
+                fecha = np.datetime_as_string(fecha_raw, unit="m").replace("T", " ")
+            except Exception:  # noqa: BLE001
+                fecha = str(fecha_raw)[:16]
+        else:
+            fecha = ahora.strftime("%Y-%m-%d %H:%M")
 
-    lat_name = _coord_name(da, ("latitude", "lat"))
-    lon_name = _coord_name(da, ("longitude", "lon"))
-    lats_all = np.asarray(da[lat_name].values, dtype=float)
-    lons_all = np.asarray(da[lon_name].values, dtype=float)
-    dlat = float(np.nanmedian(np.abs(np.diff(lats_all)))) if len(lats_all) > 1 else 0.042
-    dlon = float(np.nanmedian(np.abs(np.diff(lons_all)))) if len(lons_all) > 1 else 0.042
-    native = max(dlat, dlon, 0.01)
-    stride = max(1, int(round(paso / native)))
-    # Selección perezosa ANTES de materializar (.values): si el backend es lazy
-    # (dask/zarr, como el ARCO de Copernicus), esto evita descargar la malla
-    # completa a resolución nativa cuando solo necesitamos 1 de cada `stride`
-    # puntos. Crítico para el Mediterráneo (bbox completo ~31x más grande que
-    # antes de la ampliación a todo el basin): sin esto, open_dataset+.values
-    # tarda minutos en Render free y supera CMEMS_SST_TIMEOUT_SEC.
-    da = da.isel({lat_name: slice(0, None, stride), lon_name: slice(0, None, stride)})
-    lats = np.asarray(da[lat_name].values, dtype=float)
-    lons = np.asarray(da[lon_name].values, dtype=float)
-    grid = np.asarray(da.values, dtype=float)
+        lat_name = _coord_name(da, ("latitude", "lat"))
+        lon_name = _coord_name(da, ("longitude", "lon"))
+        lats_all = np.asarray(da[lat_name].values, dtype=float)
+        lons_all = np.asarray(da[lon_name].values, dtype=float)
+        dlat = float(np.nanmedian(np.abs(np.diff(lats_all)))) if len(lats_all) > 1 else 0.042
+        dlon = float(np.nanmedian(np.abs(np.diff(lons_all)))) if len(lons_all) > 1 else 0.042
+        native = max(dlat, dlon, 0.01)
+        stride = max(1, int(round(paso / native)))
+        # El fichero ya está en disco (descarga local), así que este isel ya
+        # no ahorra red; se mantiene para reducir memoria/CPU al densificar
+        # y para respetar el `paso_deg` configurado por región.
+        da = da.isel({lat_name: slice(0, None, stride), lon_name: slice(0, None, stride)})
+        lats = np.asarray(da[lat_name].values, dtype=float)
+        lons = np.asarray(da[lon_name].values, dtype=float)
+        grid = np.asarray(da.values, dtype=float)
+    finally:
+        if ds is not None:
+            try:
+                ds.close()
+            except Exception:  # noqa: BLE001
+                pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     celdas: list[dict] = []
     for i, lat in enumerate(lats):
@@ -287,11 +308,6 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
                 "lon": lon_c,
                 "sst_c": round(_to_celsius(raw), 2),
             })
-
-    try:
-        ds.close()
-    except Exception:  # noqa: BLE001
-        pass
 
     paso_out = stride * native
     out = _pack(

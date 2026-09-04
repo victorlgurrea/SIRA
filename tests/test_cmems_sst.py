@@ -1,62 +1,33 @@
 """Tests de cuadrícula SST CMEMS / Open-Meteo (sin red real)."""
 from __future__ import annotations
 
+import os
 import types
 
 import numpy as np
+import xarray as xr
 
 from sira.infrastructure.sources.ocean import cmems_sst as mod
 
 
-class _FakeDa:
-    def __init__(self, values, lats, lons, time_val):
-        self.values = values
-        self.dims = ("time", "latitude", "longitude")
-        self.coords = {
-            "time": types.SimpleNamespace(values=time_val),
-            "latitude": types.SimpleNamespace(values=lats),
-            "longitude": types.SimpleNamespace(values=lons),
-        }
-        self._lats = lats
-        self._lons = lons
-        self._time = time_val
-        self._vals = values
+def _fake_subset(var, vals, lats, lons, time_val):
+    """Simula copernicusmarine.subset(): escribe un netCDF real en
+    output_directory y devuelve un objeto con .output_directory/.filename,
+    igual que ResponseSubset. Así el test ejerce también xr.open_dataset()."""
 
-    def __getitem__(self, key):
-        if key == "latitude":
-            return types.SimpleNamespace(values=self._lats)
-        if key == "longitude":
-            return types.SimpleNamespace(values=self._lons)
-        if key == "time":
-            return types.SimpleNamespace(values=self._time)
-        raise KeyError(key)
+    def _subset(**kwargs):
+        output_directory = kwargs["output_directory"]
+        os.makedirs(output_directory, exist_ok=True)
+        ds = xr.Dataset(
+            {var: (("time", "latitude", "longitude"), vals)},
+            coords={"time": [time_val], "latitude": lats, "longitude": lons},
+        )
+        filename = "fake.nc"
+        ds.to_netcdf(os.path.join(output_directory, filename), engine="h5netcdf")
+        ds.close()
+        return types.SimpleNamespace(output_directory=output_directory, filename=filename)
 
-    def isel(self, indexers=None, **kwargs):
-        """Soporta isel(time=idx) (colapsa dim) e isel({lat: slice, lon: slice})
-        (mantiene dims, para el stride perezoso lat/lon antes de .values)."""
-        idx = dict(indexers or {})
-        idx.update(kwargs)
-        dims = list(self.dims)
-        slicer = [slice(None)] * len(dims)
-        for name, sel in idx.items():
-            slicer[dims.index(name)] = sel
-        vals = self._vals[tuple(slicer)]
-        lats = self._lats
-        lons = self._lons
-        for name, sel in idx.items():
-            if name in ("latitude", "lat"):
-                lats = lats[sel]
-            elif name in ("longitude", "lon"):
-                lons = lons[sel]
-        new_dims = tuple(d for d, sel in zip(dims, slicer) if isinstance(sel, slice))
-        out = _FakeDa(vals, lats, lons, self._time)
-        out.dims = new_dims
-        return out
-
-
-class _FakeDs(dict):
-    def close(self):
-        return None
+    return _subset
 
 
 def _region_test(**overrides):
@@ -126,8 +97,9 @@ def test_descargar_sst_cmems_mock(monkeypatch):
     vals = np.full((1, 4, 4), 18.0, dtype=float)
     vals[0, 0, 0] = 20.0
     time_val = np.datetime64("2026-07-28T12:00")
-    fake_ds = _FakeDs(thetao=_FakeDa(vals, lats, lons, time_val))
-    fake_cm = types.SimpleNamespace(open_dataset=lambda **kwargs: fake_ds)
+    fake_cm = types.SimpleNamespace(
+        subset=_fake_subset("thetao", vals, lats, lons, time_val)
+    )
     monkeypatch.setitem(__import__("sys").modules, "copernicusmarine", fake_cm)
 
     out = mod.descargar_sst_med_cuadricula()
@@ -159,8 +131,9 @@ def test_descargar_sst_cant_cmems_mock(monkeypatch):
     lons = np.array([-4.0, -3.5, -3.0])
     vals = np.full((1, 3, 3), 15.0, dtype=float)
     time_val = np.datetime64("2026-07-28T12:00")
-    fake_ds = _FakeDs(thetao=_FakeDa(vals, lats, lons, time_val))
-    fake_cm = types.SimpleNamespace(open_dataset=lambda **kwargs: fake_ds)
+    fake_cm = types.SimpleNamespace(
+        subset=_fake_subset("thetao", vals, lats, lons, time_val)
+    )
     monkeypatch.setitem(__import__("sys").modules, "copernicusmarine", fake_cm)
 
     out = mod.descargar_sst_cant_cuadricula()
