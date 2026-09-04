@@ -150,6 +150,14 @@ INGESTA_MAX_SEC = _i("INGESTA_MAX_SEC", "900")
 CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
     "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", "0"
 ).strip().lower() in {"1", "true", "yes", "on"}
+# Regiones SST a ingerir, separadas por coma (med, cant, atl). En Render Free
+# la memoria es muy ajustada; por defecto solo Mediterráneo (prioritario para
+# SIRA) hasta confirmar que el plan Free aguanta las 3 regiones sin OOM.
+CMEMS_SST_REGIONS = {
+    r.strip().lower()
+    for r in os.getenv("CMEMS_SST_REGIONS", "med").split(",")
+    if r.strip()
+}
 
 # Cuadrícula SST Cantábrico / Atlántico (Copernicus IBI-Physics, misma familia que Portus ODYSSEA)
 CMEMS_SST_IBI_DATASET_ID = os.getenv(

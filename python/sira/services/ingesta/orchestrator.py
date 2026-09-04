@@ -18,6 +18,7 @@ from sira.infrastructure.sources.ocean.cmems_sst import (
 from sira.config.settings import (
     AEMET_API_KEY,
     AEMET_MUNICIPIO,
+    CMEMS_SST_REGIONS,
     EMSC_URL,
     FORECAST_DAYS,
     MAPA,
@@ -389,17 +390,29 @@ def ejecutar_ingesta():
     # Mediterráneo primero: es la región prioritaria para SIRA (Comunidad
     # Valenciana). Si algo falla a mitad de ingesta (timeout, memoria...) que
     # se quede sin celdas Atlántico/Cantábrico antes que Mediterráneo.
+    #
+    # CMEMS_SST_REGIONS controla qué regiones se piden (por defecto solo
+    # "med"): Render Free tiene muy poca memoria y pedir las 3 regiones cada
+    # ciclo ha provocado varios reinicios por "exceeded its memory limit".
+    # Cant/Atl quedan detrás de esta flag hasta confirmar que el plan Free
+    # aguanta sin OOM (o hasta subir de plan).
     prev = read_dashboard()
     if not isinstance(prev, dict):
         prev = {}
-    sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
-        "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
+
+    def _sst_o_omitido(key: str, nombre: str, fn) -> tuple[dict, dict]:
+        if key not in CMEMS_SST_REGIONS:
+            return {}, {"ok": True, "registros": 0, "error": None, "omitido": True}
+        return estado_fuente(nombre, fn, default={})
+
+    sst_med_grid, fuentes_estado["cmems_sst_med"] = _sst_o_omitido(
+        "med", "CMEMS SST Med", descargar_sst_med_cuadricula,
     )
-    sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
-        "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
+    sst_cant_grid, fuentes_estado["cmems_sst_cant"] = _sst_o_omitido(
+        "cant", "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula,
     )
-    sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
-        "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
+    sst_atl_grid, fuentes_estado["cmems_sst_atl"] = _sst_o_omitido(
+        "atl", "CMEMS SST Atlántico", descargar_sst_atl_cuadricula,
     )
     sst_cant_grid = _sst_grid_o_previo(sst_cant_grid, prev.get("sst_cant_grid"), "cant")
     sst_atl_grid = _sst_grid_o_previo(sst_atl_grid, prev.get("sst_atl_grid"), "atl")
