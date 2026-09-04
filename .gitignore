@@ -18,3 +18,8 @@ data/processed/graficos/
 .Rhistory
 .RData
 r_analysis/Rplots.pdf
+
+# Artefactos de pytest (ver pytest.ini: --basetemp=.pytest_tmp)
+.pytest_cache/
+.pytest_cache_local/
+.pytest_tmp/
