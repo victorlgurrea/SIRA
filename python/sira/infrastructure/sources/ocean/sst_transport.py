@@ -9,28 +9,10 @@ from sira.config.settings import CMEMS_SST_MAP_MAX_CELDAS
 log = logging.getLogger(__name__)
 
 
-def limitar_celdas_mapa(celdas: list[dict], max_n: int | None = None) -> list[dict]:
-    """Reduce celdas con malla espacial (sin agujeros de muestreo cada N)."""
-    limite = CMEMS_SST_MAP_MAX_CELDAS if max_n is None else int(max_n)
-    if limite <= 0 or len(celdas) <= limite:
-        return celdas
-
-    lats = [float(c["lat"]) for c in celdas if c.get("sst_c") is not None]
-    lons = [float(c["lon"]) for c in celdas if c.get("sst_c") is not None]
-    if not lats:
-        return celdas[:limite]
-
-    lat_span = max(max(lats) - min(lats), 1e-3)
-    lon_span = max(max(lons) - min(lons), 1e-3)
-    # Paso ~uniforme para ~limite celdas en el bbox.
-    paso = math.sqrt((lat_span * lon_span) / float(limite))
-    paso = max(paso, 1e-3)
-
+def _bucketizar(validos: list[dict], paso: float) -> list[dict]:
     buckets: dict[tuple[int, int], dict] = {}
     counts: dict[tuple[int, int], int] = {}
-    for c in celdas:
-        if c.get("sst_c") is None:
-            continue
+    for c in validos:
         lat = float(c["lat"])
         lon = float(c["lon"])
         key = (int(round(lat / paso)), int(round(lon / paso)))
@@ -49,16 +31,52 @@ def limitar_celdas_mapa(celdas: list[dict], max_n: int | None = None) -> list[di
             prev["lat"] = (prev["lat"] * (n - 1) + lat) / n
             prev["lon"] = (prev["lon"] * (n - 1) + lon) / n
             prev["sst_c"] = (float(prev["sst_c"]) * (n - 1) + float(c["sst_c"])) / n
+    return list(buckets.values())
 
-    out = list(buckets.values())
+
+def limitar_celdas_mapa(celdas: list[dict], max_n: int | None = None) -> list[dict]:
+    """Reduce celdas con malla espacial (sin agujeros de muestreo cada N)."""
+    limite = CMEMS_SST_MAP_MAX_CELDAS if max_n is None else int(max_n)
+    if limite <= 0 or len(celdas) <= limite:
+        return celdas
+
+    validos = [c for c in celdas if c.get("sst_c") is not None]
+    if not validos:
+        return celdas[:limite]
+
+    lats = [float(c["lat"]) for c in validos]
+    lons = [float(c["lon"]) for c in validos]
+    lat_span = max(max(lats) - min(lats), 1e-3)
+    lon_span = max(max(lons) - min(lons), 1e-3)
+    # Paso ~uniforme para ~limite celdas en el bbox rectangular de las celdas.
+    # OJO: esta primera estimación asume densidad uniforme en todo el
+    # rectángulo lat/lon; para mares alargados/estrechos dentro de un
+    # rectángulo mucho mayor (p. ej. el Mediterráneo completo, que ocupa una
+    # fracción pequeña de su propio bbox Europa–Magreb–Levante) sale
+    # demasiado gruesa y colapsa muchas más celdas de las previstas. Por eso
+    # se reescala iterativamente contra el recuento real de buckets.
+    paso = math.sqrt((lat_span * lon_span) / float(limite))
+    paso = max(paso, 1e-4)
+
+    out = _bucketizar(validos, paso)
+    for _ in range(10):
+        n = len(out)
+        if n == 0:
+            paso *= 0.5
+        elif n > limite:
+            paso *= math.sqrt(n / float(limite)) * 1.02
+        elif n < limite * 0.92:
+            # Undershoot (mar con forma irregular, p. ej. una franja estrecha
+            # dentro de un bbox mucho mayor): afinar en vez de dejar huecos
+            # enormes en el mapa. Converge en 1-2 iteraciones en la práctica.
+            paso *= math.sqrt(n / float(limite))
+        else:
+            break
+        paso = max(paso, 1e-4)
+        out = _bucketizar(validos, paso)
+
     if len(out) > limite:
-        # Fallback: no crear agujeros regulares; recorta tras otro bin más grueso.
-        paso2 = paso * math.sqrt(len(out) / float(limite)) * 1.05
-        buckets2: dict[tuple[int, int], dict] = {}
-        for c in out:
-            key = (int(round(float(c["lat"]) / paso2)), int(round(float(c["lon"]) / paso2)))
-            buckets2.setdefault(key, c)
-        out = list(buckets2.values())[:limite]
+        out = out[:limite]
 
     log.info(
         "SST mapa: limitando celdas %d → %d (max=%d, paso≈%.3f°)",

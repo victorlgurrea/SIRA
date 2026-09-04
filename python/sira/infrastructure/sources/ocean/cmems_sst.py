@@ -255,9 +255,16 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
     dlon = float(np.nanmedian(np.abs(np.diff(lons_all)))) if len(lons_all) > 1 else 0.042
     native = max(dlat, dlon, 0.01)
     stride = max(1, int(round(paso / native)))
-    lats = lats_all[::stride]
-    lons = lons_all[::stride]
-    grid = np.asarray(da.values, dtype=float)[::stride, ::stride]
+    # Selección perezosa ANTES de materializar (.values): si el backend es lazy
+    # (dask/zarr, como el ARCO de Copernicus), esto evita descargar la malla
+    # completa a resolución nativa cuando solo necesitamos 1 de cada `stride`
+    # puntos. Crítico para el Mediterráneo (bbox completo ~31x más grande que
+    # antes de la ampliación a todo el basin): sin esto, open_dataset+.values
+    # tarda minutos en Render free y supera CMEMS_SST_TIMEOUT_SEC.
+    da = da.isel({lat_name: slice(0, None, stride), lon_name: slice(0, None, stride)})
+    lats = np.asarray(da[lat_name].values, dtype=float)
+    lons = np.asarray(da[lon_name].values, dtype=float)
+    grid = np.asarray(da.values, dtype=float)
 
     celdas: list[dict] = []
     for i, lat in enumerate(lats):

@@ -31,10 +31,26 @@ class _FakeDa:
             return types.SimpleNamespace(values=self._time)
         raise KeyError(key)
 
-    def isel(self, **kwargs):
-        assert "time" in kwargs
-        out = _FakeDa(self._vals[kwargs["time"]], self._lats, self._lons, self._time)
-        out.dims = ("latitude", "longitude")
+    def isel(self, indexers=None, **kwargs):
+        """Soporta isel(time=idx) (colapsa dim) e isel({lat: slice, lon: slice})
+        (mantiene dims, para el stride perezoso lat/lon antes de .values)."""
+        idx = dict(indexers or {})
+        idx.update(kwargs)
+        dims = list(self.dims)
+        slicer = [slice(None)] * len(dims)
+        for name, sel in idx.items():
+            slicer[dims.index(name)] = sel
+        vals = self._vals[tuple(slicer)]
+        lats = self._lats
+        lons = self._lons
+        for name, sel in idx.items():
+            if name in ("latitude", "lat"):
+                lats = lats[sel]
+            elif name in ("longitude", "lon"):
+                lons = lons[sel]
+        new_dims = tuple(d for d, sel in zip(dims, slicer) if isinstance(sel, slice))
+        out = _FakeDa(vals, lats, lons, self._time)
+        out.dims = new_dims
         return out
 
 
