@@ -167,3 +167,95 @@ def test_ejecutar_ingesta_mock(monkeypatch):
     assert "cmems_sst_cant" in out["fuentes_estado"]
     assert "cmems_sst_atl" in out["fuentes_estado"]
     assert len(out["sst_med_grid"]["celdas"]) == 1
+
+
+def test_sst_atl_no_retiene_bbox_obsoleto():
+    estrecho = {
+        "bbox": {"lat_min": 37.0, "lat_max": 42.3, "lon_min": -10.95, "lon_max": -8.0},
+        "celdas": [{"lat": 40.0, "lon": -9.0, "sst_c": 18.0}],
+    }
+    out = orch._sst_grid_o_previo({}, estrecho, "atl")
+    assert out == {}
+
+    completo = {
+        "bbox": {"lat_min": 35.9, "lat_max": 42.3, "lon_min": -10.95, "lon_max": -5.0},
+        "celdas": [{"lat": 36.2, "lon": -5.5, "sst_c": 19.0}],
+    }
+    out2 = orch._sst_grid_o_previo({}, completo, "atl")
+    assert out2.get("retenido") is True
+    assert len(out2["celdas"]) == 1
+
+
+def test_ibi_timeout_reintenta_atl_separado(monkeypatch):
+    monkeypatch.setattr(orch, "CMEMS_SST_REGIONS", {"med", "cant", "atl"})
+    monkeypatch.setattr(orch, "clear_test_overlay", lambda: None)
+    monkeypatch.setattr(orch, "descargar_sismos", lambda: [])
+    monkeypatch.setattr(orch, "descargar_incendios", lambda: [])
+    monkeypatch.setattr(orch, "descargar_embalses", lambda: [])
+    monkeypatch.setattr(orch, "_descargar_alertas_cap", lambda: [])
+    monkeypatch.setattr(
+        orch,
+        "descargar_aforos_con_estado",
+        lambda alertas, ef: ([], {
+            "saih_chj": {"ok": True, "registros": 0, "error": None},
+            "saih_che": {"ok": True, "registros": 0, "error": None},
+            "saih_chs": {"ok": True, "registros": 0, "error": None},
+        }),
+    )
+    monkeypatch.setattr(
+        orch,
+        "construir_termico_ccaa",
+        lambda *a, **k: {"generado_en": None, "provincias": [], "ccaa": []},
+    )
+    monkeypatch.setattr(orch, "descargar_oceanografia", lambda: {})
+    monkeypatch.setattr(orch, "descargar_sst_med_cuadricula", lambda: {
+        "fuente": "CMEMS", "fecha": "2026-01-01", "paso_deg": 0.25,
+        "celdas": [{"lat": 39.2, "lon": 0.2, "sst_c": 18.5}],
+        "resumen": {"n_celdas": 1, "sst_min_c": 18.5, "sst_max_c": 18.5, "sst_media_c": 18.5},
+    })
+
+    def boom_ibi():
+        raise RuntimeError("CMEMS ibi (cant+atl) superó 240s")
+
+    monkeypatch.setattr(orch, "descargar_sst_cant_atl_cuadriculas", boom_ibi)
+    monkeypatch.setattr(
+        orch,
+        "descargar_sst_atl_cuadricula",
+        lambda: {
+            "region": "atl",
+            "fuente": "CMEMS",
+            "fecha": "2026-01-01",
+            "paso_deg": 0.08,
+            "bbox": {"lat_min": 35.9, "lat_max": 42.3, "lon_min": -10.95, "lon_max": -5.0},
+            "celdas": [
+                {"lat": 38.7, "lon": -9.5, "sst_c": 17.0},
+                {"lat": 36.2, "lon": -5.5, "sst_c": 19.0},
+            ],
+            "resumen": {"n_celdas": 2, "sst_min_c": 17.0, "sst_max_c": 19.0, "sst_media_c": 18.0},
+        },
+    )
+    monkeypatch.setattr(
+        orch,
+        "descargar_sst_cant_cuadricula",
+        lambda: {
+            "region": "cant",
+            "fuente": "CMEMS",
+            "fecha": "2026-01-01",
+            "celdas": [{"lat": 43.4, "lon": -3.8, "sst_c": 16.0}],
+            "resumen": {"n_celdas": 1, "sst_min_c": 16.0, "sst_max_c": 16.0, "sst_media_c": 16.0},
+        },
+    )
+    monkeypatch.setattr(orch, "read_dashboard", lambda: {})
+    monkeypatch.setattr(orch, "descargar_meteo", lambda: {
+        "fuente": "Open-Meteo", "serie_horaria": [{"temp_c": 20}], "resumen": {},
+    })
+    written: list = []
+    monkeypatch.setattr(orch, "write_dashboard", lambda payload: written.append(payload) or "mock.json")
+    monkeypatch.setattr(orch, "guardar_snapshots_diarios", lambda *a, **k: None)
+
+    orch.ejecutar_ingesta()
+    out = written[0]
+    assert out["fuentes_estado"]["cmems_sst_atl"]["ok"] is True
+    assert out["fuentes_estado"]["cmems_sst_atl"].get("ibi_fallback_separado") is True
+    assert len(out["sst_atl_grid"]["celdas"]) == 2
+    assert max(c["lon"] for c in out["sst_atl_grid"]["celdas"]) >= -5.5

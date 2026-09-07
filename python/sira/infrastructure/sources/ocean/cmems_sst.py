@@ -29,6 +29,7 @@ from sira.config.settings import (
     CMEMS_SST_CANT_PASO_DEG,
     CMEMS_SST_DATASET_ID,
     CMEMS_SST_IBI_DATASET_ID,
+    CMEMS_SST_IBI_TIMEOUT_SEC,
     CMEMS_SST_LAT_MAX,
     CMEMS_SST_LAT_MIN,
     CMEMS_SST_LON_MAX,
@@ -526,7 +527,7 @@ def _desde_cmems_ibi_split() -> tuple[dict, dict]:
 
 
 def _desde_cmems_ibi_split_con_timeout() -> tuple[dict, dict]:
-    timeout = max(30, int(CMEMS_SST_TIMEOUT_SEC))
+    timeout = max(30, int(CMEMS_SST_IBI_TIMEOUT_SEC), int(CMEMS_SST_TIMEOUT_SEC))
     pool = ThreadPoolExecutor(max_workers=1)
     fut = pool.submit(_desde_cmems_ibi_split)
     try:

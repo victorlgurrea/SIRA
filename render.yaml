@@ -49,6 +49,12 @@ services:
       # reduce los "despertares" de Render Free ~3x (ver notas de cuota).
       - key: INGESTA_INTERVAL_MIN
         value: "180"
+      - key: CMEMS_SST_REGIONS
+        value: "med,cant,atl"
+      - key: CMEMS_SST_TIMEOUT_SEC
+        value: "300"
+      - key: CMEMS_SST_IBI_TIMEOUT_SEC
+        value: "480"
       - key: CORS_ORIGINS
         fromService:
           type: web

@@ -44,10 +44,21 @@ VACIO_OCE = {"serie_horaria": [], "resumen": {}}
 
 
 def _sst_grid_o_previo(nuevo: object, previo: object, etiqueta: str) -> dict:
-    """Si CMEMS falla ({}), conserva la malla anterior para no vaciar el mapa."""
+    """Si CMEMS falla ({}), conserva la malla anterior para no vaciar el mapa.
+
+    No retiene mallas Atlántico con bbox obsoleto (p. ej. lon_max=-8) que
+    dejan Portugal/Golfo de Cádiz sin pintar tras ampliar cobertura.
+    """
     if isinstance(nuevo, dict) and (nuevo.get("celdas") or []):
         return nuevo
     if isinstance(previo, dict) and (previo.get("celdas") or []):
+        if etiqueta == "atl" and not _atl_previo_cubre_portugal_gibraltar(previo):
+            log.warning(
+                "SST atl: malla previa con bbox incompleto (%s); no se retiene "
+                "(hace falta reingesta Portugal→Gibraltar)",
+                (previo.get("bbox") or {}),
+            )
+            return nuevo if isinstance(nuevo, dict) else {}
         log.warning(
             "SST %s: sin datos nuevos; se conserva malla previa (%d celdas)",
             etiqueta,
@@ -57,6 +68,27 @@ def _sst_grid_o_previo(nuevo: object, previo: object, etiqueta: str) -> dict:
         out["retenido"] = True
         return out
     return nuevo if isinstance(nuevo, dict) else {}
+
+
+def _atl_previo_cubre_portugal_gibraltar(previo: dict) -> bool:
+    """True si el bbox/celdas del atl previo llegan al Algarve y cerca del Estrecho."""
+    bbox = previo.get("bbox") if isinstance(previo.get("bbox"), dict) else {}
+    try:
+        lat_min = float(bbox.get("lat_min", 99))
+        lon_max = float(bbox.get("lon_max", -99))
+    except (TypeError, ValueError):
+        return False
+    # Defaults actuales: lat_min=35.90, lon_max=-5.00. Mallas antiguas: 37/-8.
+    if lat_min <= 36.2 and lon_max >= -5.5:
+        return True
+    celdas = previo.get("celdas") or []
+    if not celdas:
+        return False
+    lats = [float(c["lat"]) for c in celdas if c.get("lat") is not None]
+    lons = [float(c["lon"]) for c in celdas if c.get("lon") is not None]
+    if not lats or not lons:
+        return False
+    return min(lats) <= 36.5 and max(lons) >= -6.0
 
 
 def _region(lat: float, lon: float) -> str:
@@ -418,11 +450,29 @@ def ejecutar_ingesta():
                 "ok": True, "registros": 0, "error": None, "ibi_conjunto": True,
             }
         except Exception as exc:  # noqa: BLE001
-            log.warning("CMEMS SST IBI cant+atl: %s", exc)
-            sst_cant_grid, sst_atl_grid = {}, {}
-            err = {"ok": False, "registros": 0, "error": str(exc), "ibi_conjunto": True}
-            fuentes_estado["cmems_sst_cant"] = dict(err)
-            fuentes_estado["cmems_sst_atl"] = dict(err)
+            # El bbox IBI unificado a veces supera el timeout en Render Free.
+            # Reintento por separado (Atlántico primero: Portugal→Gibraltar).
+            log.warning(
+                "CMEMS SST IBI cant+atl falló (%s); reintento atl/cant separados",
+                exc,
+            )
+            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
+                "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
+            )
+            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
+                "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
+            )
+            for clave in ("cmems_sst_atl", "cmems_sst_cant"):
+                st = fuentes_estado[clave]
+                st["ibi_conjunto"] = False
+                st["ibi_fallback_separado"] = True
+                if not st.get("ok"):
+                    prev_err = st.get("error")
+                    st["error"] = (
+                        f"{prev_err} (tras IBI conjunto: {exc})"
+                        if prev_err
+                        else f"Tras IBI conjunto ({exc})"
+                    )
     else:
         if want_cant:
             sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
