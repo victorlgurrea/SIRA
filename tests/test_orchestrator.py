@@ -136,8 +136,17 @@ def test_ejecutar_ingesta_mock(monkeypatch):
         "celdas": [{"lat": 39.2, "lon": 0.2, "sst_c": 18.5}],
         "resumen": {"n_celdas": 1, "sst_min_c": 18.5, "sst_max_c": 18.5, "sst_media_c": 18.5},
     })
+    monkeypatch.setattr(
+        orch,
+        "descargar_sst_cant_atl_cuadriculas",
+        lambda: (
+            {"celdas": [], "resumen": {"n_celdas": 0}},
+            {"celdas": [], "resumen": {"n_celdas": 0}},
+        ),
+    )
     monkeypatch.setattr(orch, "descargar_sst_cant_cuadricula", lambda: {"celdas": []})
     monkeypatch.setattr(orch, "descargar_sst_atl_cuadricula", lambda: {"celdas": []})
+    monkeypatch.setattr(orch, "read_dashboard", lambda: {})
     monkeypatch.setattr(orch, "descargar_meteo", lambda: {
         "fuente": "Open-Meteo", "serie_horaria": [{"temp_c": 20}], "resumen": {},
     })

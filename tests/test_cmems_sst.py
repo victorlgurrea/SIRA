@@ -140,3 +140,78 @@ def test_descargar_sst_cant_cmems_mock(monkeypatch):
     assert out["region"] == "cant"
     assert out["celdas"]
     assert "Copernicus" in out["fuente"]
+
+
+def test_descargar_sst_cant_atl_una_descarga_ibi(monkeypatch):
+    """Una sola subset IBI se parte en cant + atl (sin 2ª llamada CMEMS)."""
+    monkeypatch.setattr(mod, "CMEMS_USERNAME", "user")
+    monkeypatch.setattr(mod, "CMEMS_PASSWORD", "pass")
+    monkeypatch.setattr(mod, "CMEMS_SST_VARIABLE", "thetao")
+    monkeypatch.setattr(
+        mod,
+        "REGION_IBI",
+        _region_test(
+            key="ibi",
+            lat_min=35.0,
+            lat_max=44.0,
+            lon_min=-10.0,
+            lon_max=-2.0,
+            paso_deg=1.0,
+            fuente_cmems="Copernicus IBI test",
+            umbral_mar=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "REGION_CANT",
+        _region_test(
+            key="cant",
+            lat_min=42.0,
+            lat_max=44.0,
+            lon_min=-5.0,
+            lon_max=-3.0,
+            paso_deg=1.0,
+            fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
+            umbral_mar=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "REGION_ATL",
+        _region_test(
+            key="atl",
+            lat_min=36.0,
+            lat_max=41.0,
+            lon_min=-10.0,
+            lon_max=-6.0,
+            paso_deg=1.0,
+            fuente_cmems="Copernicus IBI-Physics SST Atlántico (ultimo disponible)",
+            umbral_mar=0.0,
+        ),
+    )
+
+    # Puntos en cant (43,-4) y atl (38,-8); uno fuera de ambas costas.
+    lats = np.array([38.0, 43.0, 40.0])
+    lons = np.array([-8.0, -4.0, -1.0])
+    vals = np.zeros((1, 3, 3), dtype=float)
+    vals[0, 0, 0] = 18.0  # atl
+    vals[0, 1, 1] = 15.0  # cant
+    vals[0, 2, 2] = 16.0  # fuera
+    time_val = np.datetime64("2026-07-28T12:00")
+    calls = {"n": 0}
+    base_subset = _fake_subset("thetao", vals, lats, lons, time_val)
+
+    def counting_subset(**kwargs):
+        calls["n"] += 1
+        return base_subset(**kwargs)
+
+    fake_cm = types.SimpleNamespace(subset=counting_subset)
+    monkeypatch.setitem(__import__("sys").modules, "copernicusmarine", fake_cm)
+
+    cant, atl = mod.descargar_sst_cant_atl_cuadriculas()
+    assert calls["n"] == 1
+    assert cant["region"] == "cant"
+    assert atl["region"] == "atl"
+    assert any(abs(c["sst_c"] - 15.0) < 0.01 for c in cant["celdas"])
+    assert any(abs(c["sst_c"] - 18.0) < 0.01 for c in atl["celdas"])
+    assert not any(abs(c["lon"] + 1.0) < 0.01 for c in cant["celdas"] + atl["celdas"])

@@ -120,6 +120,22 @@ REGION_ATL = SstRegionConfig(
     umbral_mar=0.75,
 )
 
+# Una sola descarga IBI (Cantábrico + Atlántico Portugal→Gibraltar).
+REGION_IBI = SstRegionConfig(
+    key="ibi",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=min(CMEMS_SST_ATL_LAT_MIN, CMEMS_SST_CANT_LAT_MIN),
+    lat_max=max(CMEMS_SST_ATL_LAT_MAX, CMEMS_SST_CANT_LAT_MAX),
+    lon_min=min(CMEMS_SST_ATL_LON_MIN, CMEMS_SST_CANT_LON_MIN),
+    lon_max=max(CMEMS_SST_ATL_LON_MAX, CMEMS_SST_CANT_LON_MAX),
+    paso_deg=min(CMEMS_SST_ATL_PASO_DEG, CMEMS_SST_CANT_PASO_DEG),
+    fuente_cmems="Copernicus IBI-Physics SST Cantábrico/Atlántico (ultimo disponible)",
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=lambda c, **k: c,
+    map_max_celdas=None,
+    umbral_mar=0.75,
+)
+
 
 def _creds_ok() -> bool:
     return bool(CMEMS_USERNAME and CMEMS_PASSWORD)
@@ -187,7 +203,8 @@ def _pack(
     }
 
 
-def _desde_cmems(region: SstRegionConfig) -> dict:
+def _desde_cmems_celdas(region: SstRegionConfig) -> tuple[list[dict], str, float]:
+    """Descarga CMEMS y devuelve (celdas crudas, fecha, paso_out) sin densificar/pack."""
     import shutil
     import tempfile
     from pathlib import Path
@@ -316,6 +333,11 @@ def _desde_cmems(region: SstRegionConfig) -> dict:
             })
 
     paso_out = stride * native
+    return celdas, fecha, paso_out
+
+
+def _desde_cmems(region: SstRegionConfig) -> dict:
+    celdas, fecha, paso_out = _desde_cmems_celdas(region)
     out = _pack(
         region.densificar(celdas, paso=paso_out, umbral_mar=region.umbral_mar),
         region=region,
@@ -454,6 +476,69 @@ def _desde_cmems_con_timeout(region: SstRegionConfig) -> dict:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _celda_en_region(celda: dict, region: SstRegionConfig) -> bool:
+    return (
+        region.lat_min <= float(celda["lat"]) <= region.lat_max
+        and region.lon_min <= float(celda["lon"]) <= region.lon_max
+    )
+
+
+def _pack_cant_atl_desde_celdas(
+    celdas: list[dict],
+    *,
+    fecha: str,
+    paso: float,
+) -> tuple[dict, dict]:
+    """Parte celdas IBI en cant/atl y densifica/packea cada costa."""
+    cant_raw = [c for c in celdas if _celda_en_region(c, REGION_CANT)]
+    atl_raw = [c for c in celdas if _celda_en_region(c, REGION_ATL)]
+
+    def _pack_o_vacio(raw: list[dict], region: SstRegionConfig) -> dict:
+        dens = region.densificar(raw, paso=paso, umbral_mar=region.umbral_mar)
+        if not dens:
+            return {}
+        return _pack(
+            dens,
+            region=region,
+            fuente=region.fuente_cmems,
+            fecha=fecha,
+            paso=paso,
+        )
+
+    cant = _pack_o_vacio(cant_raw, REGION_CANT)
+    atl = _pack_o_vacio(atl_raw, REGION_ATL)
+    if not cant and not atl:
+        raise RuntimeError(
+            f"{REGION_IBI.fuente_cmems}: sin celdas válidas en cant/atl tras partición IBI"
+        )
+    log.info(
+        "CMEMS SST ibi→cant/atl: cant=%d atl=%d · fecha=%s",
+        (cant.get("resumen") or {}).get("n_celdas", 0),
+        (atl.get("resumen") or {}).get("n_celdas", 0),
+        fecha,
+    )
+    return cant, atl
+
+
+def _desde_cmems_ibi_split() -> tuple[dict, dict]:
+    celdas, fecha, paso_out = _desde_cmems_celdas(REGION_IBI)
+    return _pack_cant_atl_desde_celdas(celdas, fecha=fecha, paso=paso_out)
+
+
+def _desde_cmems_ibi_split_con_timeout() -> tuple[dict, dict]:
+    timeout = max(30, int(CMEMS_SST_TIMEOUT_SEC))
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(_desde_cmems_ibi_split)
+    try:
+        return fut.result(timeout=timeout)
+    except FuturesTimeout as exc:
+        raise RuntimeError(
+            f"CMEMS ibi (cant+atl) superó {timeout}s (subset colgado o muy lento)"
+        ) from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def _descargar_sst_cuadricula(region: SstRegionConfig) -> dict:
     if _creds_ok():
         try:
@@ -489,10 +574,50 @@ def descargar_sst_med_cuadricula() -> dict:
 
 
 def descargar_sst_cant_cuadricula() -> dict:
-    """Cuadrícula SST del Cantábrico (IBI-Physics)."""
+    """Cuadrícula SST del Cantábrico (IBI-Physics). Preferir descargar_sst_cant_atl_cuadriculas()."""
     return _descargar_sst_cuadricula(REGION_CANT)
 
 
 def descargar_sst_atl_cuadricula() -> dict:
-    """Cuadrícula SST del Atlántico gallego (IBI-Physics)."""
+    """Cuadrícula SST del Atlántico (IBI-Physics). Preferir descargar_sst_cant_atl_cuadriculas()."""
     return _descargar_sst_cuadricula(REGION_ATL)
+
+
+def descargar_sst_cant_atl_cuadriculas() -> tuple[dict, dict]:
+    """Una sola descarga IBI → (cant, atl). Óptimo frente a 2 subset() separados.
+
+    Mediterráneo usa otro dataset (Med-Physics) y sigue siendo una llamada aparte.
+    """
+    if _creds_ok():
+        try:
+            return _desde_cmems_ibi_split_con_timeout()
+        except ImportError as exc:
+            log.warning("CMEMS no disponible (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    "CMEMS no disponible; activa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 "
+                    "solo si aceptas gastar el cupo Open-Meteo de los KPIs"
+                ) from exc
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CMEMS ibi (cant+atl) falló (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    f"CMEMS ibi falló ({exc}); fallback Open-Meteo malla desactivado "
+                    "(protege cupo KPIs). Usa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 para forzar."
+                ) from exc
+    elif not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+        raise RuntimeError(
+            "Sin credenciales CMEMS; fallback Open-Meteo malla desactivado "
+            "(protege cupo KPIs). Configura COPERNICUSMARINE_SERVICE_* "
+            "o CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1"
+        )
+    else:
+        log.info("Sin credenciales CMEMS; SST cant+atl vía Open-Meteo (ultimo disponible)")
+
+    # Fallback: una malla Open-Meteo del bbox IBI y partición cant/atl.
+    om = _desde_open_meteo(REGION_IBI)
+    return _pack_cant_atl_desde_celdas(
+        list(om.get("celdas") or []),
+        fecha=str(om.get("fecha") or ""),
+        paso=float(om.get("paso_deg") or REGION_IBI.paso_deg),
+    )

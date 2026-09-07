@@ -12,6 +12,7 @@ from sira.infrastructure.sources.hydrology.multi import descargar_aforos_con_est
 from sira.infrastructure.sources.fire.firms import descargar_incendios
 from sira.infrastructure.sources.ocean.cmems_sst import (
     descargar_sst_atl_cuadricula,
+    descargar_sst_cant_atl_cuadriculas,
     descargar_sst_cant_cuadricula,
     descargar_sst_med_cuadricula,
 )
@@ -387,33 +388,54 @@ def ejecutar_ingesta():
     oceanografia, fuentes_estado["open_meteo_marine"] = estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
-    # Mediterráneo primero: es la región prioritaria para SIRA (Comunidad
-    # Valenciana). Si algo falla a mitad de ingesta (timeout, memoria...) que
-    # se quede sin celdas Atlántico/Cantábrico antes que Mediterráneo.
-    #
-    # CMEMS_SST_REGIONS controla qué regiones se piden (por defecto solo
-    # "med"): Render Free tiene muy poca memoria y pedir las 3 regiones cada
-    # ciclo ha provocado varios reinicios por "exceeded its memory limit".
-    # Cant/Atl quedan detrás de esta flag hasta confirmar que el plan Free
-    # aguanta sin OOM (o hasta subir de plan).
+    # Óptimo CMEMS: 2 subset() — Med-Physics (med) + IBI (cant+atl juntos).
+    # Mediterráneo primero (prioridad SIRA). Cant/Atl comparten dataset IBI;
+    # una sola descarga y partición en memoria evita el doble round-trip.
+    # CMEMS_SST_REGIONS: med,cant,atl (o "ibi" ≡ cant+atl).
     prev = read_dashboard()
     if not isinstance(prev, dict):
         prev = {}
 
-    def _sst_o_omitido(key: str, nombre: str, fn) -> tuple[dict, dict]:
-        if key not in CMEMS_SST_REGIONS:
-            return {}, {"ok": True, "registros": 0, "error": None, "omitido": True}
-        return estado_fuente(nombre, fn, default={})
+    want_med = "med" in CMEMS_SST_REGIONS
+    want_cant = "cant" in CMEMS_SST_REGIONS or "ibi" in CMEMS_SST_REGIONS
+    want_atl = "atl" in CMEMS_SST_REGIONS or "ibi" in CMEMS_SST_REGIONS
+    omitido = {"ok": True, "registros": 0, "error": None, "omitido": True}
 
-    sst_med_grid, fuentes_estado["cmems_sst_med"] = _sst_o_omitido(
-        "med", "CMEMS SST Med", descargar_sst_med_cuadricula,
-    )
-    sst_cant_grid, fuentes_estado["cmems_sst_cant"] = _sst_o_omitido(
-        "cant", "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula,
-    )
-    sst_atl_grid, fuentes_estado["cmems_sst_atl"] = _sst_o_omitido(
-        "atl", "CMEMS SST Atlántico", descargar_sst_atl_cuadricula,
-    )
+    if want_med:
+        sst_med_grid, fuentes_estado["cmems_sst_med"] = estado_fuente(
+            "CMEMS SST Med", descargar_sst_med_cuadricula, default={},
+        )
+    else:
+        sst_med_grid, fuentes_estado["cmems_sst_med"] = {}, omitido
+
+    if want_cant and want_atl:
+        try:
+            sst_cant_grid, sst_atl_grid = descargar_sst_cant_atl_cuadriculas()
+            fuentes_estado["cmems_sst_cant"] = {
+                "ok": True, "registros": 0, "error": None, "ibi_conjunto": True,
+            }
+            fuentes_estado["cmems_sst_atl"] = {
+                "ok": True, "registros": 0, "error": None, "ibi_conjunto": True,
+            }
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CMEMS SST IBI cant+atl: %s", exc)
+            sst_cant_grid, sst_atl_grid = {}, {}
+            err = {"ok": False, "registros": 0, "error": str(exc), "ibi_conjunto": True}
+            fuentes_estado["cmems_sst_cant"] = dict(err)
+            fuentes_estado["cmems_sst_atl"] = dict(err)
+    else:
+        if want_cant:
+            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
+                "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
+            )
+        else:
+            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = {}, omitido
+        if want_atl:
+            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
+                "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
+            )
+        else:
+            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = {}, omitido
     sst_cant_grid = _sst_grid_o_previo(sst_cant_grid, prev.get("sst_cant_grid"), "cant")
     sst_atl_grid = _sst_grid_o_previo(sst_atl_grid, prev.get("sst_atl_grid"), "atl")
     sst_med_grid = _sst_grid_o_previo(sst_med_grid, prev.get("sst_med_grid"), "med")
