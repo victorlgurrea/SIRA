@@ -12,7 +12,6 @@ from sira.infrastructure.sources.hydrology.multi import descargar_aforos_con_est
 from sira.infrastructure.sources.fire.firms import descargar_incendios
 from sira.infrastructure.sources.ocean.cmems_sst import (
     descargar_sst_atl_cuadricula,
-    descargar_sst_cant_atl_cuadriculas,
     descargar_sst_cant_cuadricula,
     descargar_sst_med_cuadricula,
 )
@@ -420,9 +419,8 @@ def ejecutar_ingesta():
     oceanografia, fuentes_estado["open_meteo_marine"] = estado_fuente(
         "Open-Meteo marine", descargar_oceanografia, default={},
     )
-    # Óptimo CMEMS: 2 subset() — Med-Physics (med) + IBI (cant+atl juntos).
-    # Mediterráneo primero (prioridad SIRA). Cant/Atl comparten dataset IBI;
-    # una sola descarga y partición en memoria evita el doble round-trip.
+    # CMEMS en Render Free: 3 descargas — Med, Cant, Atl(mosaico 2 tiles).
+    # El bbox atl completo y el IBI unificado hacen timeout; no se intentan primero.
     # CMEMS_SST_REGIONS: med,cant,atl (o "ibi" ≡ cant+atl).
     prev = read_dashboard()
     if not isinstance(prev, dict):
@@ -440,52 +438,19 @@ def ejecutar_ingesta():
     else:
         sst_med_grid, fuentes_estado["cmems_sst_med"] = {}, omitido
 
-    if want_cant and want_atl:
-        try:
-            sst_cant_grid, sst_atl_grid = descargar_sst_cant_atl_cuadriculas()
-            fuentes_estado["cmems_sst_cant"] = {
-                "ok": True, "registros": 0, "error": None, "ibi_conjunto": True,
-            }
-            fuentes_estado["cmems_sst_atl"] = {
-                "ok": True, "registros": 0, "error": None, "ibi_conjunto": True,
-            }
-        except Exception as exc:  # noqa: BLE001
-            # El bbox IBI unificado a veces supera el timeout en Render Free.
-            # Reintento por separado (Atlántico primero: Portugal→Gibraltar).
-            log.warning(
-                "CMEMS SST IBI cant+atl falló (%s); reintento atl/cant separados",
-                exc,
-            )
-            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
-                "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
-            )
-            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
-                "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
-            )
-            for clave in ("cmems_sst_atl", "cmems_sst_cant"):
-                st = fuentes_estado[clave]
-                st["ibi_conjunto"] = False
-                st["ibi_fallback_separado"] = True
-                if not st.get("ok"):
-                    prev_err = st.get("error")
-                    st["error"] = (
-                        f"{prev_err} (tras IBI conjunto: {exc})"
-                        if prev_err
-                        else f"Tras IBI conjunto ({exc})"
-                    )
+    if want_cant:
+        sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
+            "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
+        )
     else:
-        if want_cant:
-            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = estado_fuente(
-                "CMEMS SST Cantábrico", descargar_sst_cant_cuadricula, default={},
-            )
-        else:
-            sst_cant_grid, fuentes_estado["cmems_sst_cant"] = {}, omitido
-        if want_atl:
-            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
-                "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
-            )
-        else:
-            sst_atl_grid, fuentes_estado["cmems_sst_atl"] = {}, omitido
+        sst_cant_grid, fuentes_estado["cmems_sst_cant"] = {}, omitido
+
+    if want_atl:
+        sst_atl_grid, fuentes_estado["cmems_sst_atl"] = estado_fuente(
+            "CMEMS SST Atlántico", descargar_sst_atl_cuadricula, default={},
+        )
+    else:
+        sst_atl_grid, fuentes_estado["cmems_sst_atl"] = {}, omitido
     sst_cant_grid = _sst_grid_o_previo(sst_cant_grid, prev.get("sst_cant_grid"), "cant")
     sst_atl_grid = _sst_grid_o_previo(sst_atl_grid, prev.get("sst_atl_grid"), "atl")
     sst_med_grid = _sst_grid_o_previo(sst_med_grid, prev.get("sst_med_grid"), "med")
@@ -509,6 +474,11 @@ def ejecutar_ingesta():
             "sst_max_c": resumen.get("sst_max_c"),
             "retenido": bool(grid.get("retenido")),
         })
+        if grid.get("mosaico_tiles"):
+            fuentes_estado[clave]["mosaico_tiles"] = grid.get("mosaico_tiles")
+        if grid.get("mosaico_parcial"):
+            fuentes_estado[clave]["mosaico_parcial"] = True
+            fuentes_estado[clave]["mosaico_errores"] = grid.get("mosaico_errores")
         if n and grid.get("retenido"):
             fuentes_estado[clave]["ok"] = True
             err = fuentes_estado[clave].get("error")

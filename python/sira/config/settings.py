@@ -152,8 +152,8 @@ INGESTA_MAX_SEC = _i("INGESTA_MAX_SEC", "900")
 CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK = os.getenv(
     "CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK", "0"
 ).strip().lower() in {"1", "true", "yes", "on"}
-# Regiones SST a ingerir, separadas por coma (med, cant, atl; "ibi" ≡ cant+atl).
-# Óptimo: med + una sola descarga IBI para cant/atl (2 subset CMEMS).
+# Óptimo en Render Free: med + cant + atl(mosaico 2 tiles).
+# El bbox atl completo (Portugal→Gibraltar) hace timeout; se parte en 2 subset().
 CMEMS_SST_REGIONS = {
     r.strip().lower()
     for r in os.getenv("CMEMS_SST_REGIONS", "med,cant,atl").split(",")

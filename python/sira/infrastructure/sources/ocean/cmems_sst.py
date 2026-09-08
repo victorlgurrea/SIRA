@@ -121,7 +121,7 @@ REGION_ATL = SstRegionConfig(
     umbral_mar=0.75,
 )
 
-# Una sola descarga IBI (Cantábrico + Atlántico Portugal→Gibraltar).
+# Una sola descarga IBI (legacy; en PRO el bbox unificado suele timeout).
 REGION_IBI = SstRegionConfig(
     key="ibi",
     dataset_id=CMEMS_SST_IBI_DATASET_ID,
@@ -135,6 +135,37 @@ REGION_IBI = SstRegionConfig(
     densificar=lambda c, **k: c,
     map_max_celdas=None,
     umbral_mar=0.75,
+)
+
+# Atlántico en 2 tiles (Render Free no aguanta el bbox completo en un subset).
+# Oeste≈malla que ya funcionó; sur=Algarve+Cádiz→Estrecho.
+REGION_ATL_OESTE = SstRegionConfig(
+    key="atl_oeste",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=max(CMEMS_SST_ATL_LAT_MIN, 37.00),
+    lat_max=CMEMS_SST_ATL_LAT_MAX,
+    lon_min=CMEMS_SST_ATL_LON_MIN,
+    lon_max=min(CMEMS_SST_ATL_LON_MAX, -8.00),
+    paso_deg=CMEMS_SST_ATL_PASO_DEG,
+    fuente_cmems=REGION_ATL.fuente_cmems,
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=lambda c, **k: c,
+    map_max_celdas=None,
+    umbral_mar=REGION_ATL.umbral_mar,
+)
+REGION_ATL_SUR = SstRegionConfig(
+    key="atl_sur",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=CMEMS_SST_ATL_LAT_MIN,
+    lat_max=min(CMEMS_SST_ATL_LAT_MAX, 37.80),
+    lon_min=CMEMS_SST_ATL_LON_MIN,
+    lon_max=CMEMS_SST_ATL_LON_MAX,
+    paso_deg=CMEMS_SST_ATL_PASO_DEG,
+    fuente_cmems=REGION_ATL.fuente_cmems,
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=lambda c, **k: c,
+    map_max_celdas=None,
+    umbral_mar=REGION_ATL.umbral_mar,
 )
 
 
@@ -470,11 +501,81 @@ def _desde_cmems_con_timeout(region: SstRegionConfig) -> dict:
         return fut.result(timeout=timeout)
     except FuturesTimeout as exc:
         raise RuntimeError(
-            f"CMEMS {region.key} superó {timeout}s (open_dataset colgado o muy lento)"
+            f"CMEMS {region.key} superó {timeout}s (subset colgado o muy lento)"
         ) from exc
     finally:
         # wait=False: si Copernicus está colgado, no bloquear el resto de la ingesta.
         pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _desde_cmems_celdas_con_timeout(region: SstRegionConfig) -> tuple[list[dict], str, float]:
+    timeout = max(30, int(CMEMS_SST_TIMEOUT_SEC))
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(_desde_cmems_celdas, region)
+    try:
+        return fut.result(timeout=timeout)
+    except FuturesTimeout as exc:
+        raise RuntimeError(
+            f"CMEMS {region.key} superó {timeout}s (subset colgado o muy lento)"
+        ) from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _fusionar_celdas_sst(celdas: list[dict]) -> list[dict]:
+    """Deduplica celdas por (lat,lon) redondeados tras un mosaico de tiles."""
+    by_key: dict[tuple[float, float], dict] = {}
+    for c in celdas:
+        key = (round(float(c["lat"]), 4), round(float(c["lon"]), 4))
+        by_key[key] = c
+    return list(by_key.values())
+
+
+def _desde_cmems_atl_mosaico() -> dict:
+    """Portugal→Gibraltar en 2 subset IBI (oeste + sur) y fusión."""
+    tiles = (REGION_ATL_OESTE, REGION_ATL_SUR)
+    merged: list[dict] = []
+    fechas: list[str] = []
+    pasos: list[float] = []
+    errores: list[str] = []
+    for tile in tiles:
+        try:
+            celdas, fecha, paso = _desde_cmems_celdas_con_timeout(tile)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CMEMS SST %s falló (%s)", tile.key, exc)
+            errores.append(f"{tile.key}: {exc}")
+            continue
+        merged.extend(celdas)
+        fechas.append(fecha)
+        pasos.append(paso)
+        log.info("CMEMS SST %s: %d celdas crudas · fecha=%s", tile.key, len(celdas), fecha)
+
+    if not merged:
+        detalle = "; ".join(errores) if errores else "sin celdas"
+        raise RuntimeError(f"CMEMS atl mosaico sin datos ({detalle})")
+
+    celdas = _fusionar_celdas_sst(merged)
+    fecha = max(fechas)
+    paso_out = min(pasos) if pasos else float(REGION_ATL.paso_deg)
+    out = _pack(
+        REGION_ATL.densificar(celdas, paso=paso_out, umbral_mar=REGION_ATL.umbral_mar),
+        region=REGION_ATL,
+        fuente=REGION_ATL.fuente_cmems,
+        fecha=fecha,
+        paso=paso_out,
+    )
+    out["mosaico_tiles"] = [t.key for t in tiles]
+    if errores:
+        out["mosaico_parcial"] = True
+        out["mosaico_errores"] = errores
+    log.info(
+        "CMEMS SST atl mosaico: %d celdas · fecha=%s · tiles_ok=%d/%d",
+        out["resumen"]["n_celdas"],
+        fecha,
+        len(fechas),
+        len(tiles),
+    )
+    return out
 
 
 def _celda_en_region(celda: dict, region: SstRegionConfig) -> bool:
@@ -575,20 +676,42 @@ def descargar_sst_med_cuadricula() -> dict:
 
 
 def descargar_sst_cant_cuadricula() -> dict:
-    """Cuadrícula SST del Cantábrico (IBI-Physics). Preferir descargar_sst_cant_atl_cuadriculas()."""
+    """Cuadrícula SST del Cantábrico (IBI-Physics)."""
     return _descargar_sst_cuadricula(REGION_CANT)
 
 
 def descargar_sst_atl_cuadricula() -> dict:
-    """Cuadrícula SST del Atlántico (IBI-Physics). Preferir descargar_sst_cant_atl_cuadriculas()."""
-    return _descargar_sst_cuadricula(REGION_ATL)
+    """Cuadrícula SST Atlántico Portugal→Gibraltar (2 tiles IBI fusionados)."""
+    if _creds_ok():
+        try:
+            return _desde_cmems_atl_mosaico()
+        except ImportError as exc:
+            log.warning("CMEMS no disponible (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    "CMEMS no disponible; activa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 "
+                    "solo si aceptas gastar el cupo Open-Meteo de los KPIs"
+                ) from exc
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CMEMS atl mosaico falló (%s)", exc)
+            if not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+                raise RuntimeError(
+                    f"CMEMS atl falló ({exc}); fallback Open-Meteo malla desactivado "
+                    "(protege cupo KPIs). Usa CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1 para forzar."
+                ) from exc
+    elif not CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK:
+        raise RuntimeError(
+            "Sin credenciales CMEMS; fallback Open-Meteo malla desactivado "
+            "(protege cupo KPIs). Configura COPERNICUSMARINE_SERVICE_* "
+            "o CMEMS_SST_ALLOW_OPEN_METEO_FALLBACK=1"
+        )
+    else:
+        log.info("Sin credenciales CMEMS; SST atl vía Open-Meteo (ultimo disponible)")
+    return _desde_open_meteo(REGION_ATL)
 
 
 def descargar_sst_cant_atl_cuadriculas() -> tuple[dict, dict]:
-    """Una sola descarga IBI → (cant, atl). Óptimo frente a 2 subset() separados.
-
-    Mediterráneo usa otro dataset (Med-Physics) y sigue siendo una llamada aparte.
-    """
+    """Legacy: una sola descarga IBI → (cant, atl). Preferir descargas separadas."""
     if _creds_ok():
         try:
             return _desde_cmems_ibi_split_con_timeout()
@@ -615,7 +738,6 @@ def descargar_sst_cant_atl_cuadriculas() -> tuple[dict, dict]:
     else:
         log.info("Sin credenciales CMEMS; SST cant+atl vía Open-Meteo (ultimo disponible)")
 
-    # Fallback: una malla Open-Meteo del bbox IBI y partición cant/atl.
     om = _desde_open_meteo(REGION_IBI)
     return _pack_cant_atl_desde_celdas(
         list(om.get("celdas") or []),

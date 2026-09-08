@@ -142,76 +142,67 @@ def test_descargar_sst_cant_cmems_mock(monkeypatch):
     assert "Copernicus" in out["fuente"]
 
 
-def test_descargar_sst_cant_atl_una_descarga_ibi(monkeypatch):
-    """Una sola subset IBI se parte en cant + atl (sin 2ª llamada CMEMS)."""
+def test_descargar_sst_atl_mosaico_dos_tiles(monkeypatch):
+    """Atlántico = 2 subset (oeste+sur), no un bbox único."""
     monkeypatch.setattr(mod, "CMEMS_USERNAME", "user")
     monkeypatch.setattr(mod, "CMEMS_PASSWORD", "pass")
     monkeypatch.setattr(mod, "CMEMS_SST_VARIABLE", "thetao")
-    monkeypatch.setattr(
-        mod,
-        "REGION_IBI",
-        _region_test(
-            key="ibi",
-            lat_min=35.0,
-            lat_max=44.0,
-            lon_min=-10.0,
-            lon_max=-2.0,
-            paso_deg=1.0,
-            fuente_cmems="Copernicus IBI test",
-            umbral_mar=0.0,
-        ),
-    )
-    monkeypatch.setattr(
-        mod,
-        "REGION_CANT",
-        _region_test(
-            key="cant",
-            lat_min=42.0,
-            lat_max=44.0,
-            lon_min=-5.0,
-            lon_max=-3.0,
-            paso_deg=1.0,
-            fuente_cmems="Copernicus IBI-Physics SST Cantábrico (ultimo disponible)",
-            umbral_mar=0.0,
-        ),
-    )
+    monkeypatch.setattr(mod, "CMEMS_SST_TIMEOUT_SEC", 60)
     monkeypatch.setattr(
         mod,
         "REGION_ATL",
         _region_test(
             key="atl",
-            lat_min=36.0,
-            lat_max=41.0,
-            lon_min=-10.0,
-            lon_max=-6.0,
+            lat_min=35.9,
+            lat_max=42.3,
+            lon_min=-10.95,
+            lon_max=-5.0,
             paso_deg=1.0,
             fuente_cmems="Copernicus IBI-Physics SST Atlántico (ultimo disponible)",
             umbral_mar=0.0,
         ),
     )
+    monkeypatch.setattr(
+        mod,
+        "REGION_ATL_OESTE",
+        _region_test(
+            key="atl_oeste",
+            lat_min=37.0,
+            lat_max=42.3,
+            lon_min=-10.95,
+            lon_max=-8.0,
+            paso_deg=1.0,
+            umbral_mar=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "REGION_ATL_SUR",
+        _region_test(
+            key="atl_sur",
+            lat_min=35.9,
+            lat_max=37.8,
+            lon_min=-10.95,
+            lon_max=-5.0,
+            paso_deg=1.0,
+            umbral_mar=0.0,
+        ),
+    )
 
-    # Puntos en cant (43,-4) y atl (38,-8); uno fuera de ambas costas.
-    lats = np.array([38.0, 43.0, 40.0])
-    lons = np.array([-8.0, -4.0, -1.0])
-    vals = np.zeros((1, 3, 3), dtype=float)
-    vals[0, 0, 0] = 18.0  # atl
-    vals[0, 1, 1] = 15.0  # cant
-    vals[0, 2, 2] = 16.0  # fuera
-    time_val = np.datetime64("2026-07-28T12:00")
-    calls = {"n": 0}
-    base_subset = _fake_subset("thetao", vals, lats, lons, time_val)
+    calls: list[str] = []
 
-    def counting_subset(**kwargs):
-        calls["n"] += 1
-        return base_subset(**kwargs)
+    def fake_celdas(region):
+        calls.append(region.key)
+        if region.key == "atl_oeste":
+            return [{"lat": 40.0, "lon": -9.0, "sst_c": 17.0}], "2026-07-28 12:00", 1.0
+        if region.key == "atl_sur":
+            return [{"lat": 36.2, "lon": -5.5, "sst_c": 19.0}], "2026-07-28 12:00", 1.0
+        raise AssertionError(f"tile inesperado {region.key}")
 
-    fake_cm = types.SimpleNamespace(subset=counting_subset)
-    monkeypatch.setitem(__import__("sys").modules, "copernicusmarine", fake_cm)
-
-    cant, atl = mod.descargar_sst_cant_atl_cuadriculas()
-    assert calls["n"] == 1
-    assert cant["region"] == "cant"
-    assert atl["region"] == "atl"
-    assert any(abs(c["sst_c"] - 15.0) < 0.01 for c in cant["celdas"])
-    assert any(abs(c["sst_c"] - 18.0) < 0.01 for c in atl["celdas"])
-    assert not any(abs(c["lon"] + 1.0) < 0.01 for c in cant["celdas"] + atl["celdas"])
+    monkeypatch.setattr(mod, "_desde_cmems_celdas_con_timeout", fake_celdas)
+    out = mod.descargar_sst_atl_cuadricula()
+    assert calls == ["atl_oeste", "atl_sur"]
+    assert out["region"] == "atl"
+    assert out.get("mosaico_tiles") == ["atl_oeste", "atl_sur"]
+    assert len(out["celdas"]) == 2
+    assert any(abs(c["lon"] + 5.5) < 0.01 for c in out["celdas"])
