@@ -138,6 +138,11 @@ def _en_bbox_mar_atlantico(lat: float, lon: float) -> bool:
 
 def punto_en_mar_costa_atlantica(lat: float, lon: float) -> bool:
     """True si el punto es mar en los bbox SST Cantábrico/Atlántico."""
+    return _punto_en_mar_costa_atlantica_cached(round(float(lat), 4), round(float(lon), 4))
+
+
+@lru_cache(maxsize=200_000)
+def _punto_en_mar_costa_atlantica_cached(lat: float, lon: float) -> bool:
     if not _en_bbox_mar_atlantico(lat, lon):
         return False
     if punto_en_tierra(lon, lat, _anillos_ign()):
@@ -147,27 +152,37 @@ def punto_en_mar_costa_atlantica(lat: float, lon: float) -> bool:
     return True
 
 
-def punto_en_mar_costa_atlantica_mapa(lat: float, lon: float, *, holgura_deg: float = 0.14) -> bool:
+def punto_en_mar_costa_atlantica_mapa(lat: float, lon: float, holgura_deg: float = 0.14) -> bool:
+    """Mar con holgura costera para el mapa (evita cuadrados SST sobre tierra)."""
+    return _punto_en_mar_costa_atlantica_mapa_cached(
+        round(float(lat), 4),
+        round(float(lon), 4),
+        round(max(0.04, float(holgura_deg)), 3),
+    )
+
+
+@lru_cache(maxsize=200_000)
+def _punto_en_mar_costa_atlantica_mapa_cached(lat: float, lon: float, holgura_deg: float) -> bool:
     """Mar con holgura costera para el mapa (evita cuadrados SST sobre tierra).
 
     El marcador scattergeo es un cuadrado en píxeles que, a la escala de
     Iberia, cubre ~0.1–0.2°: un centro apenas costa afuera se pinta encima
     del litoral. Exigimos holgura hacia tierra en las costas problemáticas.
     """
-    if not punto_en_mar_costa_atlantica(lat, lon):
+    if not _punto_en_mar_costa_atlantica_cached(lat, lon):
         return False
-    h = max(0.04, float(holgura_deg))
+    h = float(holgura_deg)
     # Costa oeste PT / Galicia: tierra hacia el este.
     if 36.90 <= lat <= 43.50 and -10.50 <= lon <= -8.10:
-        if not punto_en_mar_costa_atlantica(lat, lon + h):
+        if not _punto_en_mar_costa_atlantica_cached(lat, round(lon + h, 4)):
             return False
     # Cantábrico: tierra hacia el sur.
     if 43.00 <= lat <= 44.55 and -9.50 <= lon <= -1.20:
-        if not punto_en_mar_costa_atlantica(lat - h * 0.7, lon):
+        if not _punto_en_mar_costa_atlantica_cached(round(lat - h * 0.7, 4), lon):
             return False
     # Algarve sur: tierra hacia el norte.
     if 36.90 <= lat <= 37.40 and -9.00 <= lon <= -7.20:
-        if not punto_en_mar_costa_atlantica(lat + h * 0.7, lon):
+        if not _punto_en_mar_costa_atlantica_cached(round(lat + h * 0.7, 4), lon):
             return False
     return True
 

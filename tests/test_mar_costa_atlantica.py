@@ -15,6 +15,8 @@ def _limpiar_caches_mar() -> None:
     mar_atl.anillos_tierra_atlantico.cache_clear()
     mar_atl._anillos_indexados.cache_clear()
     mar_atl._anillos_ign.cache_clear()
+    mar_atl._punto_en_mar_costa_atlantica_cached.cache_clear()
+    mar_atl._punto_en_mar_costa_atlantica_mapa_cached.cache_clear()
 
 
 @pytest.fixture(autouse=True)

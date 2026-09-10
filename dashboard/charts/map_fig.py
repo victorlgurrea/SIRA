@@ -260,8 +260,6 @@ def fig_mapa(
                 legendgroup=grupo,
                 show_legend=not leyenda_pintada,
                 filtrar_tierra_al_pintar=True,
-                umbral_fraccion_mar=(0.9 if grupo in {"sst_cant", "sst_atl"} else None),
-                half_fraccion_mar=0.07,
                 marker_scale=escala,
                 paso_marcador=paso_visual,
                 submuestrear_paso=paso_pintura,
