@@ -290,6 +290,7 @@ ALLOWED_HOSTS = frozenset({
     "api.telegram.org",
     "firms.modaps.eosdis.nasa.gov",
     "coastwatch.pfeg.noaa.gov",
+    "water.discomap.eea.europa.eu",
     "volcjmdnsxfuekvehwte.supabase.co",
     "saih.chj.es",
     "www.saihebro.com",

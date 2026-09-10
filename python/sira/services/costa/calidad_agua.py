@@ -18,6 +18,25 @@ _COSTA_MAX_DEG = 0.55
 _SST_RADIO_KM = 55.0
 _CACHE_TTL_SEC = 45 * 60.0
 _NOAA_CHL_URL = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla1day.json"
+# Datos oficiales de baño (Directiva): España reporta desde Náyade → EEA.
+_EEA_BW_QUERY = (
+    "https://water.discomap.eea.europa.eu/arcgis/rest/services/"
+    "BathingWater/BathingWater_Dyna_WM/MapServer/0/query"
+)
+_NAYADE_RADIO_M = 35_000
+_NAYADE_TIMEOUT_SEC = 12.0
+_NAYADE_PORTAL = "https://nayadeciudadano.sanidad.gob.es/"
+
+_QUALITY_ES = {
+    "excellent": "Excelente",
+    "good": "Buena",
+    "sufficient": "Suficiente",
+    "poor": "Insuficiente",
+    "closed": "Cerrada",
+    "notclassified": "Sin clasificar",
+    "not classified": "Sin clasificar",
+    "new": "Nueva (sin clasificar)",
+}
 
 _cache: dict[str, tuple[float, dict]] = {}
 
@@ -165,26 +184,107 @@ def _turbidez_texto(chl: float | None) -> str:
     return "Turbia"
 
 
-def _apto_bano(chl: float | None) -> dict[str, str]:
-    """Indicativo (no sustituye Náyade / Sanidad)."""
-    if chl is None:
+def _calidad_bwd_es(raw: str | None) -> str:
+    if not raw:
+        return "Sin dato"
+    key = str(raw).strip().lower().replace("_", " ")
+    return _QUALITY_ES.get(key) or str(raw).strip()
+
+
+def _nayade_eea(lat: float, lon: float) -> dict[str, Any]:
+    """Playas de baño oficiales (Náyade vía EEA) más cercanas al punto de mar."""
+    import requests
+    from urllib.parse import urlparse
+
+    from sira.config.settings import ALLOWED_HOSTS
+
+    host = urlparse(_EEA_BW_QUERY).hostname
+    if host not in ALLOWED_HOSTS:
         return {
             "estado": "Sin dato",
-            "detalle": "Consulta el censo oficial Náyade / Sanidad para el veredicto legal.",
+            "detalle": f"Consulta Náyade: {_NAYADE_PORTAL}",
+            "playa": None,
+            "url": _NAYADE_PORTAL,
+            "dist_km": None,
+            "calidad_raw": None,
         }
-    if chl >= 2.5:
+
+    params = {
+        "where": "countryCode='ES'",
+        "geometry": f"{lon},{lat}",
+        "geometryType": "esriGeometryPoint",
+        "inSR": "4326",
+        "spatialRel": "esriSpatialRelIntersects",
+        "distance": str(_NAYADE_RADIO_M),
+        "units": "esriSRUnit_Meter",
+        "outFields": (
+            "bathingWaterName,qualityStatus,bwProfileLink,"
+            "latitude,longitude,bwWaterCategory"
+        ),
+        "returnGeometry": "false",
+        "resultRecordCount": "40",
+        "f": "json",
+    }
+    try:
+        r = requests.get(_EEA_BW_QUERY, params=params, timeout=_NAYADE_TIMEOUT_SEC)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("EEA/Náyade baño: %s", exc)
         return {
-            "estado": "Precaución",
-            "detalle": "Indicativo por clorofila elevada; no es el veredicto oficial de baño.",
+            "estado": "Sin dato",
+            "detalle": f"No se pudo consultar Náyade (EEA). Portal: {_NAYADE_PORTAL}",
+            "playa": None,
+            "url": _NAYADE_PORTAL,
+            "dist_km": None,
+            "calidad_raw": None,
         }
-    if chl >= 1.2:
+
+    feats = data.get("features") if isinstance(data, dict) else None
+    best: dict[str, Any] | None = None
+    best_km = float("inf")
+    for feat in feats or []:
+        attrs = feat.get("attributes") if isinstance(feat, dict) else None
+        if not isinstance(attrs, dict):
+            continue
+        try:
+            pla, plo = float(attrs["latitude"]), float(attrs["longitude"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        km = _haversine_km(lat, lon, pla, plo)
+        if km < best_km:
+            best_km = km
+            best = attrs
+
+    if best is None:
         return {
-            "estado": "Aceptable*",
-            "detalle": "Indicativo satélite; confirma en Náyade / playas de tu municipio.",
+            "estado": "Sin zona de baño",
+            "detalle": (
+                "Sin playa oficial Náyade en ~35 km. "
+                f"Comprueba el portal: {_NAYADE_PORTAL}"
+            ),
+            "playa": None,
+            "url": _NAYADE_PORTAL,
+            "dist_km": None,
+            "calidad_raw": None,
         }
+
+    nombre = (best.get("bathingWaterName") or "").strip() or "Playa cercana"
+    raw_q = best.get("qualityStatus")
+    estado = _calidad_bwd_es(raw_q if isinstance(raw_q, str) else None)
+    url = (best.get("bwProfileLink") or "").strip() or _NAYADE_PORTAL
+    if not url.startswith("https://"):
+        url = _NAYADE_PORTAL
     return {
-        "estado": "Favorable*",
-        "detalle": "Indicativo satélite (agua típicamente clara); confirma en Náyade.",
+        "estado": estado,
+        "detalle": (
+            f"Clasificación oficial BWD (Náyade → EEA): {nombre} "
+            f"({best_km:.1f} km). Puede haber retraso frente al portal ciudadano."
+        ),
+        "playa": nombre,
+        "url": url,
+        "dist_km": round(best_km, 1),
+        "calidad_raw": raw_q if isinstance(raw_q, str) else None,
     }
 
 
@@ -242,7 +342,7 @@ def calidad_agua_local(
             fuente_sst = "Open-Meteo marine"
 
     chl, chl_fecha = _clorofila_noaa(mlat, mlon)
-    bano = _apto_bano(chl)
+    bano = _nayade_eea(mlat, mlon)
     out = {
         "ok": True,
         "localidad": localidad,
@@ -256,7 +356,13 @@ def calidad_agua_local(
         "turbidez": _turbidez_texto(chl),
         "bano_estado": bano["estado"],
         "bano_detalle": bano["detalle"],
-        "aviso": "Clorofila/turbidez/baño son indicativos satélite; el apto oficial es Náyade/Sanidad.",
+        "bano_playa": bano.get("playa"),
+        "bano_url": bano.get("url") or _NAYADE_PORTAL,
+        "bano_dist_km": bano.get("dist_km"),
+        "aviso": (
+            "Baño: clasificación oficial Náyade (vía EEA). "
+            "Clorofila y turbidez son indicativos satélite."
+        ),
     }
     _cache[key] = (now, dict(out))
     return out

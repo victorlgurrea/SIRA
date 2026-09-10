@@ -223,6 +223,8 @@ def card_calidad_agua(data: dict, *, loc_label: str) -> html.Div:
     else:
         chl_txt = chl_nivel
     bano = data.get("bano_estado") or "—"
+    playa = (data.get("bano_playa") or "").strip()
+    bano_txt = f"{bano} · {playa}" if playa else bano
     turb = data.get("turbidez") or "—"
 
     filas = [
@@ -235,8 +237,8 @@ def card_calidad_agua(data: dict, *, loc_label: str) -> html.Div:
             html.Span(viento_txt, className="sira-agua-v"),
         ]),
         html.Div(className="sira-agua-row", children=[
-            html.Span("Baño", className="sira-agua-k"),
-            html.Span(bano, className="sira-agua-v sira-agua-v--bano"),
+            html.Span("Baño (Náyade)", className="sira-agua-k"),
+            html.Span(bano_txt, className="sira-agua-v sira-agua-v--bano"),
         ]),
         html.Div(className="sira-agua-row", children=[
             html.Span("Clorofila", className="sira-agua-k"),
@@ -253,7 +255,8 @@ def card_calidad_agua(data: dict, *, loc_label: str) -> html.Div:
         "Calidad del agua costera",
         valor,
         f"{loc_label}",
-        data.get("aviso") or "Indicadores satélite de la zona costera más cercana a la localidad.",
+        data.get("aviso")
+        or "Baño oficial Náyade; clorofila/turbidez satélite en la costa más cercana.",
         accent=C_TEAL,
         tooltip=tip,
         extra_class="sira-card--agua",

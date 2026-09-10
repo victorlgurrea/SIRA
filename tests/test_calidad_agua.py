@@ -20,10 +20,64 @@ def test_valencia_encuentra_mar(monkeypatch):
     assert pt[1] > -0.38
 
 
+def test_calidad_bwd_es():
+    assert mod._calidad_bwd_es("Excellent") == "Excelente"
+    assert mod._calidad_bwd_es("Good") == "Buena"
+    assert mod._calidad_bwd_es("Poor") == "Insuficiente"
+
+
+def test_nayade_eea_elige_mas_cercana(monkeypatch):
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "features": [
+                    {
+                        "attributes": {
+                            "bathingWaterName": "LEJOS",
+                            "qualityStatus": "Good",
+                            "bwProfileLink": "https://nayadeciudadano.sanidad.gob.es/x",
+                            "latitude": 39.60,
+                            "longitude": -0.20,
+                        }
+                    },
+                    {
+                        "attributes": {
+                            "bathingWaterName": "CERCA",
+                            "qualityStatus": "Excellent",
+                            "bwProfileLink": "https://nayadeciudadano.sanidad.gob.es/y",
+                            "latitude": 39.41,
+                            "longitude": 0.21,
+                        }
+                    },
+                ]
+            }
+
+    monkeypatch.setattr("requests.get", lambda *a, **k: FakeResp())
+    out = mod._nayade_eea(39.40, 0.20)
+    assert out["playa"] == "CERCA"
+    assert out["estado"] == "Excelente"
+    assert "nayade" in (out["url"] or "").lower()
+
+
 def test_calidad_agua_local_mock(monkeypatch):
     monkeypatch.setattr(mod, "punto_marino_cercano", lambda la, lo: (39.40, 0.20))
     monkeypatch.setattr(mod, "_sst_desde_grids", lambda d, la, lo: (24.5, 12))
     monkeypatch.setattr(mod, "_clorofila_noaa", lambda la, lo: (0.22, "2026-09-01"))
+    monkeypatch.setattr(
+        mod,
+        "_nayade_eea",
+        lambda la, lo: {
+            "estado": "Excelente",
+            "detalle": "Clasificación oficial BWD (Náyade → EEA): PLAYA X (2.1 km).",
+            "playa": "PLAYA X",
+            "url": "https://nayadeciudadano.sanidad.gob.es/",
+            "dist_km": 2.1,
+            "calidad_raw": "Excellent",
+        },
+    )
     monkeypatch.setattr(mod, "_cache", {})
     out = mod.calidad_agua_local(
         39.47,
@@ -36,5 +90,7 @@ def test_calidad_agua_local_mock(monkeypatch):
     assert out["sst_media_c"] == 24.5
     assert out["clorofila_nivel"] == "Baja"
     assert out["turbidez"] == "Agua clara"
-    assert "Favorable" in out["bano_estado"]
+    assert out["bano_estado"] == "Excelente"
+    assert out["bano_playa"] == "PLAYA X"
+    assert "Náyade" in out["aviso"]
     assert out["viento"]["vel_ms"] == 3.2
