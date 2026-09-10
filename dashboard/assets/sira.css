@@ -281,6 +281,37 @@ body {
   opacity: 0.7;
 }
 
+.sira-agua-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.sira-agua-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.sira-agua-k {
+  color: var(--sira-muted);
+  flex: 0 1 auto;
+}
+
+.sira-agua-v {
+  font-weight: 600;
+  text-align: right;
+  color: var(--sira-text);
+}
+
+.sira-agua-v--bano {
+  color: var(--sira-teal, #14b8a6);
+}
+
 .sira-card-sismos-combo {
   display: flex;
   flex-direction: column;
@@ -1461,6 +1492,23 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .sira-cards--con-costa {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .sira-cards--con-costa > .sira-card--costa-half,
+  .sira-cards--con-costa > .sira-card--agua,
+  .sira-cards--con-costa > .sira-card--tiempo,
+  .sira-cards--con-costa > .sira-card:nth-child(1),
+  .sira-cards--con-costa > .sira-card:nth-child(2),
+  .sira-cards--con-costa > .sira-card:nth-child(3) {
+    grid-column: auto;
+  }
+
+  .sira-cards--con-costa > .sira-card--agua {
+    grid-column: 1 / -1;
+  }
+
   .sira-geo-fields {
     grid-template-columns: 1fr 1fr;
   }
@@ -1652,6 +1700,26 @@ body {
 
   .sira-cards {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Con costa: fila 2 = sismos+incendios (1/2) + calidad agua (1/2). */
+  .sira-cards--con-costa {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .sira-cards--con-costa > .sira-card:nth-child(1),
+  .sira-cards--con-costa > .sira-card:nth-child(2),
+  .sira-cards--con-costa > .sira-card:nth-child(3),
+  .sira-cards--con-costa > .sira-card--tiempo {
+    grid-column: span 4;
+  }
+
+  .sira-cards--con-costa > .sira-card--costa-half {
+    grid-column: span 3;
+  }
+
+  .sira-cards--con-costa > .sira-card--agua {
+    grid-column: span 6;
   }
 
   .sira-card--lluvia .sira-card-lluvia-chart {

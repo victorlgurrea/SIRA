@@ -461,6 +461,7 @@ def refresh_historial(pathname, municipio_id, theme):
 
 @callback(
     Output("cards", "children", allow_duplicate=True),
+    Output("cards", "className", allow_duplicate=True),
     Output("mapa", "figure", allow_duplicate=True),
     Output("lluvia", "figure", allow_duplicate=True),
     Input("geo-store", "data"),
@@ -475,7 +476,8 @@ def refresh_geo(geo, theme, capas, map_aspect, pathname):
         raise PreventUpdate
     d = _load()
     t = theme_val(theme)
-    return build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
+    cards, mapa, lluvia, cards_cls = build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
+    return cards, cards_cls, mapa, lluvia
 
 
 @callback(
@@ -494,7 +496,8 @@ def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
 
 
 @callback(
-    Output("cards", "children"), Output("ts", "children"), Output("data-ts-store", "data"),
+    Output("cards", "children"), Output("cards", "className"),
+    Output("ts", "children"), Output("data-ts-store", "data"),
     Output("mapa", "figure"), Output("lluvia", "figure"),
     Output("sst_med", "figure"), Output("sst_cant", "figure"), Output("sst_atl", "figure"),
     Output("cor_med", "figure"), Output("cor_cant", "figure"), Output("cor_atl", "figure"),
@@ -527,7 +530,7 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
 
     geo = geo_resuelto(geo)
     t = theme_val(theme)
-    cards, mapa, lluvia = build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
+    cards, mapa, lluvia, cards_cls = build_panel_geo(geo, d, capas, t, map_aspect=map_aspect)
     oce = d.get("oceanografia", {})
     ts = fmt_ingesta_local(d.get("generado_en"))
     if not d.get("generado_en"):
@@ -540,7 +543,7 @@ def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathnam
     oce_atl = _bloque_oce(oce, "ATLÁNTICO")
 
     return (
-        cards, ts, refresh_token,
+        cards, cards_cls, ts, refresh_token,
         mapa, lluvia,
         _fig_linea(oce_med.get("serie_horaria", []), "sst_c", C_ORANGE, "°C", "sira-sst-med", con_semaforo_sst=True, theme=t),
         _fig_linea(oce_cant.get("serie_horaria", []), "sst_c", C_GREEN, "°C", "sira-sst-cant", con_semaforo_sst=True, theme=t),

@@ -289,6 +289,7 @@ ALLOWED_HOSTS = frozenset({
     "opendata.aemet.es", "www.aemet.es", "aemet.es",
     "api.telegram.org",
     "firms.modaps.eosdis.nasa.gov",
+    "coastwatch.pfeg.noaa.gov",
     "volcjmdnsxfuekvehwte.supabase.co",
     "saih.chj.es",
     "www.saihebro.com",

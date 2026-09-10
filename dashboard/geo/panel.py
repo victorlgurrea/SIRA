@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from sira.infrastructure.sources.hydrology.chj import resumen_aforos
 from ui.components import (
     card,
+    card_calidad_agua,
     card_doble,
     card_impacto_local,
     card_lluvia,
@@ -15,6 +16,7 @@ from ui.components import (
     meteo_ahora,
     riesgo_meteo_panel,
 )
+from sira.services.costa.calidad_agua import calidad_agua_local
 from sira.config.settings import (
     AFORO_RADIO_LOCAL_KM,
     EMBALSE_RADIO_LOCAL_KM,
@@ -262,8 +264,11 @@ def build_panel_geo(
     capas: list[str] | None = None,
     theme: str = "dark",
     map_aspect: float | None = None,
-) -> tuple[list, go.Figure, go.Figure]:
-    """Tarjetas, mapa y lluvia según la zona seleccionada."""
+) -> tuple[list, go.Figure, go.Figure, str]:
+    """Tarjetas, mapa y lluvia según la zona seleccionada.
+
+    Devuelve también la className de `.sira-cards` (con/sin costa).
+    """
     ctx = datos_mapa(geo, d)
     geo_r = ctx["geo"]
     muni_id = ctx["muni_id"]
@@ -299,6 +304,25 @@ def build_panel_geo(
     )
     cobertura_txt, tooltip_aforos = cobertura_aforos(d.get("fuentes_estado"))
 
+    agua = None
+    try:
+        agua = calidad_agua_local(
+            lat_obs,
+            lon_obs,
+            dashboard=d,
+            meteo=met,
+            localidad=localidad,
+        )
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("calidad_agua_local falló")
+
+    con_costa = bool(agua)
+    cards_cls = "sira-cards sira-cards--con-costa" if con_costa else "sira-cards"
+    extra_si = "sira-card--sismos sira-card--costa-half" if con_costa else "sira-card--sismos"
+    extra_in = "sira-card--incendios sira-card--costa-half" if con_costa else "sira-card--incendios"
+
     cards = [
         card_impacto_local(riesgo_local),
         _riesgo_meteo_card(riesgo_met),
@@ -320,6 +344,7 @@ def build_panel_geo(
             accent=C_ORANGE,
             tooltip_espana=_tooltip_sismos_espana(d.get("sismos") or []),
             tooltip_local=_tooltip_sismos_perceptibles(sismos, localidad),
+            extra_class=extra_si,
         ),
         card_doble(
             "Incendios activos",
@@ -330,7 +355,12 @@ def build_panel_geo(
             f"NASA FIRMS · radio del foco ∝ área afectada · zona local ≤ {INCENDIO_RADIO_LOCAL_KM:.0f} km.",
             accent="#ea580c",
             tooltip_local=_tooltip_incendios_local(incendios_local, localidad),
+            extra_class=extra_in,
         ),
+    ]
+    if agua:
+        cards.append(card_calidad_agua(agua, loc_label=loc_label))
+    cards.append(
         card(
             "Tiempo ahora",
             meteo_ahora(
@@ -343,8 +373,9 @@ def build_panel_geo(
             "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
             accent=C_CYAN,
             tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
+            extra_class="sira-card--tiempo",
         ),
-    ]
+    )
     mapa = build_mapa_fig(geo_r, d, capas, theme, map_aspect=map_aspect, ctx=ctx)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
-    return cards, mapa, lluvia
+    return cards, mapa, lluvia, cards_cls

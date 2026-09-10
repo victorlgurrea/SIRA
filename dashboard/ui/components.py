@@ -101,7 +101,7 @@ def card_lluvia(
     )
 
 
-def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN, tooltip: str | None = None) -> html.Div:
+def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN, tooltip: str | None = None, extra_class: str = "") -> html.Div:
     children: list = [
         html.Div(titulo, className="sira-card-title"),
         html.Div(valor, className="sira-card-value") if isinstance(valor, str) else valor,
@@ -112,8 +112,11 @@ def card(titulo, valor, detalle, ayuda, accent: str = C_CYAN, tooltip: str | Non
         children.append(detalle)
     if ayuda:
         children.append(html.P(ayuda, className="sira-card-help"))
+    cls = "sira-card"
+    if extra_class:
+        cls = f"{cls} {extra_class}".strip()
     props: dict = {
-        "className": "sira-card",
+        "className": cls,
         "style": {"borderLeftColor": accent},
         "children": children,
     }
@@ -133,6 +136,7 @@ def card_doble(
     tooltip: str | None = None,
     tooltip_espana: str | None = None,
     tooltip_local: str | None = None,
+    extra_class: str = "",
 ) -> html.Div:
     """Tarjeta con dos cifras: España / localidad."""
     # tooltip (legacy) aplica solo a la cifra local si no hay tooltip_local.
@@ -156,7 +160,7 @@ def card_doble(
             ],
         ),
     ])
-    return card(titulo, valor, "", ayuda, accent)
+    return card(titulo, valor, "", ayuda, accent, extra_class=extra_class)
 
 
 def card_sismos_combinada(
@@ -170,6 +174,7 @@ def card_sismos_combinada(
     accent: str = C_ORANGE,
     tooltip_espana: str | None = None,
     tooltip_local: str | None = None,
+    extra_class: str = "",
 ) -> html.Div:
     valor = html.Div(className="sira-card-sismos-combo", children=[
         html.Div(className="sira-card-dual", children=[
@@ -196,7 +201,63 @@ def card_sismos_combinada(
             html.Div(detalle, className="sira-card-detail") if detalle else None,
         ]),
     ])
-    return card("Sismos", valor, "", ayuda, accent)
+    return card("Sismos", valor, "", ayuda, accent, extra_class=extra_class)
+
+
+def card_calidad_agua(data: dict, *, loc_label: str) -> html.Div:
+    """Tarjeta calidad del agua costera (localidad seleccionada)."""
+    sst = data.get("sst_media_c")
+    sst_txt = f"{sst:.1f} °C" if isinstance(sst, (int, float)) else "—"
+    viento = data.get("viento") if isinstance(data.get("viento"), dict) else {}
+    vel = viento.get("vel_ms")
+    if vel is None:
+        viento_txt = "—"
+    else:
+        viento_txt = f"{vel:.1f} m/s"
+        if viento.get("dir"):
+            viento_txt = f"{viento_txt} · {viento['dir']}"
+    chl = data.get("clorofila_mg_m3")
+    chl_nivel = data.get("clorofila_nivel") or "—"
+    if isinstance(chl, (int, float)):
+        chl_txt = f"{chl_nivel} ({chl:.2f} mg/m³)"
+    else:
+        chl_txt = chl_nivel
+    bano = data.get("bano_estado") or "—"
+    turb = data.get("turbidez") or "—"
+
+    filas = [
+        html.Div(className="sira-agua-row", children=[
+            html.Span("Temp. agua", className="sira-agua-k"),
+            html.Span(sst_txt, className="sira-agua-v"),
+        ]),
+        html.Div(className="sira-agua-row", children=[
+            html.Span("Viento costero", className="sira-agua-k"),
+            html.Span(viento_txt, className="sira-agua-v"),
+        ]),
+        html.Div(className="sira-agua-row", children=[
+            html.Span("Baño", className="sira-agua-k"),
+            html.Span(bano, className="sira-agua-v sira-agua-v--bano"),
+        ]),
+        html.Div(className="sira-agua-row", children=[
+            html.Span("Clorofila", className="sira-agua-k"),
+            html.Span(chl_txt, className="sira-agua-v"),
+        ]),
+        html.Div(className="sira-agua-row", children=[
+            html.Span("Turbidez", className="sira-agua-k"),
+            html.Span(turb, className="sira-agua-v"),
+        ]),
+    ]
+    valor = html.Div(className="sira-agua-body", children=filas)
+    tip = data.get("bano_detalle") or data.get("aviso") or ""
+    return card(
+        "Calidad del agua costera",
+        valor,
+        f"{loc_label}",
+        data.get("aviso") or "Indicadores satélite de la zona costera más cercana a la localidad.",
+        accent=C_TEAL,
+        tooltip=tip,
+        extra_class="sira-card--agua",
+    )
 
 
 def regiones(reg: dict) -> html.Div:
