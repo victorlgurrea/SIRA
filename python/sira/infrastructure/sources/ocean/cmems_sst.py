@@ -90,7 +90,7 @@ _densificar_cant = partial(
 _densificar_atl = partial(
     mar_atl.densificar_celdas_mar,
     vecinos=_VECINOS_CARDINAL,
-    max_pasadas=6,
+    max_pasadas=3,
 )
 
 REGION_CANT = SstRegionConfig(
@@ -118,7 +118,7 @@ REGION_ATL = SstRegionConfig(
     fraccion_mar=mar_atl.fraccion_mar_celda,
     densificar=_densificar_atl,
     map_max_celdas=CMEMS_SST_ATL_MAP_MAX_CELDAS,
-    umbral_mar=0.75,
+    umbral_mar=0.9,
 )
 
 # Una sola descarga IBI (legacy; en PRO el bbox unificado suele timeout).
@@ -134,7 +134,7 @@ REGION_IBI = SstRegionConfig(
     fraccion_mar=mar_atl.fraccion_mar_celda,
     densificar=lambda c, **k: c,
     map_max_celdas=None,
-    umbral_mar=0.75,
+    umbral_mar=0.9,
 )
 
 # Atlántico en 2 tiles (Render Free no aguanta el bbox completo en un subset).

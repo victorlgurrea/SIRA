@@ -1,10 +1,27 @@
 """Tests máscara mar Cantábrico / Atlántico."""
 from __future__ import annotations
 
+import pytest
+
+from sira.infrastructure.geo import mar_costa_atlantica as mar_atl
 from sira.infrastructure.geo.mar_costa_atlantica import (
     build_tierra_atlantico,
     punto_en_mar_costa_atlantica,
+    punto_en_mar_costa_atlantica_mapa,
 )
+
+
+def _limpiar_caches_mar() -> None:
+    mar_atl.anillos_tierra_atlantico.cache_clear()
+    mar_atl._anillos_indexados.cache_clear()
+    mar_atl._anillos_ign.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_caches_mar():
+    _limpiar_caches_mar()
+    yield
+    _limpiar_caches_mar()
 
 
 def test_gibraltar_mar_abierto(monkeypatch):
@@ -29,6 +46,13 @@ def test_portugal_mar_abierto(monkeypatch):
         lambda: [],
     )
     assert punto_en_mar_costa_atlantica(38.70, -9.50)
+
+
+def test_mapa_holgura_evita_pintar_sobre_costa_portugal():
+    """Celdas casi costa pasan la máscara base pero no la de mapa (spill marcador)."""
+    assert punto_en_mar_costa_atlantica(40.25, -8.99)
+    assert not punto_en_mar_costa_atlantica_mapa(40.25, -8.99)
+    assert punto_en_mar_costa_atlantica_mapa(40.25, -9.30)
 
 
 def test_santander_mar_abierto(monkeypatch):

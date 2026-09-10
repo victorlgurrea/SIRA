@@ -147,6 +147,31 @@ def punto_en_mar_costa_atlantica(lat: float, lon: float) -> bool:
     return True
 
 
+def punto_en_mar_costa_atlantica_mapa(lat: float, lon: float, *, holgura_deg: float = 0.14) -> bool:
+    """Mar con holgura costera para el mapa (evita cuadrados SST sobre tierra).
+
+    El marcador scattergeo es un cuadrado en píxeles que, a la escala de
+    Iberia, cubre ~0.1–0.2°: un centro apenas costa afuera se pinta encima
+    del litoral. Exigimos holgura hacia tierra en las costas problemáticas.
+    """
+    if not punto_en_mar_costa_atlantica(lat, lon):
+        return False
+    h = max(0.04, float(holgura_deg))
+    # Costa oeste PT / Galicia: tierra hacia el este.
+    if 36.90 <= lat <= 43.50 and -10.50 <= lon <= -8.10:
+        if not punto_en_mar_costa_atlantica(lat, lon + h):
+            return False
+    # Cantábrico: tierra hacia el sur.
+    if 43.00 <= lat <= 44.55 and -9.50 <= lon <= -1.20:
+        if not punto_en_mar_costa_atlantica(lat - h * 0.7, lon):
+            return False
+    # Algarve sur: tierra hacia el norte.
+    if 36.90 <= lat <= 37.40 and -9.00 <= lon <= -7.20:
+        if not punto_en_mar_costa_atlantica(lat + h * 0.7, lon):
+            return False
+    return True
+
+
 def fraccion_mar_celda(lat: float, lon: float, half: float) -> float:
     """Proporción de muestras en mar (centro + esquinas + midpoints)."""
     h = float(half)

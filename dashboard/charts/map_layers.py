@@ -358,6 +358,9 @@ def add_capa_sst_grid(
     show_legend: bool = True,
     legendgroup: str = "sst",
     filtrar_tierra_al_pintar: bool = True,
+    umbral_fraccion_mar: float | None = None,
+    half_fraccion_mar: float = 0.06,
+    fraccion_mar_fn=None,
     marker_scale: float = 1.0,
     paso_marcador: float | None = None,
     submuestrear_paso: float | None = None,
@@ -384,6 +387,9 @@ def add_capa_sst_grid(
     size = max(9, min(14, round(paso * 90 * float(marker_scale))))
     fecha_txt = f" · {fecha}" if fecha else ""
 
+    if fraccion_mar_fn is None and umbral_fraccion_mar is not None:
+        from sira.infrastructure.geo.mar_costa_atlantica import fraccion_mar_celda as fraccion_mar_fn
+
     lats: list[float] = []
     lons: list[float] = []
     temps: list[float] = []
@@ -398,9 +404,13 @@ def add_capa_sst_grid(
             temp = float(c["sst_c"])
         except (TypeError, ValueError, KeyError):
             continue
-        # Mediterráneo: refuerzo costa al pintar; IBI ya filtrado en ingesta.
+        # Refuerzo costa al pintar (Med y también Cant/Atl: la malla IBI
+        # deja pasar centros costeros que el basemap dibuja sobre tierra).
         if filtrar_tierra_al_pintar and punto_en_mar is not None:
             if not punto_en_mar(lat, lon):
+                continue
+        if umbral_fraccion_mar is not None and fraccion_mar_fn is not None:
+            if fraccion_mar_fn(lat, lon, float(half_fraccion_mar)) < float(umbral_fraccion_mar):
                 continue
         lats.append(lat)
         lons.append(lon)

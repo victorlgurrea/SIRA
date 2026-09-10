@@ -231,18 +231,18 @@ def fig_mapa(
     from charts.map_layers import add_capa_sst_grid
 
     from sira.config.settings import CMEMS_SST_PASO_DEG
-    from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica
+    from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica_mapa
     from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
     paso_visual = float(CMEMS_SST_PASO_DEG)
     sst_capas = [
-        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med", None),
-        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica, "sst_cant", paso_visual),
-        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica, "sst_atl", paso_visual),
+        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med", None, 1.0),
+        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica_mapa, "sst_cant", paso_visual, 0.8),
+        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica_mapa, "sst_atl", paso_visual, 0.8),
     ]
     sst_activo = False
     leyenda_pintada = False
-    for etiqueta, grid_raw, filtro_mar, grupo, paso_pintura in sst_capas:
+    for etiqueta, grid_raw, filtro_mar, grupo, paso_pintura, escala in sst_capas:
         grid = grid_raw if isinstance(grid_raw, dict) else {}
         celdas = grid.get("celdas") or []
         if not celdas:
@@ -259,7 +259,10 @@ def fig_mapa(
                 theme=theme,
                 legendgroup=grupo,
                 show_legend=not leyenda_pintada,
-                filtrar_tierra_al_pintar=(grupo == "sst_med"),
+                filtrar_tierra_al_pintar=True,
+                umbral_fraccion_mar=(0.9 if grupo in {"sst_cant", "sst_atl"} else None),
+                half_fraccion_mar=0.07,
+                marker_scale=escala,
                 paso_marcador=paso_visual,
                 submuestrear_paso=paso_pintura,
             )
