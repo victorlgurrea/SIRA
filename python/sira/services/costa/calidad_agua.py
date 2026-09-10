@@ -6,7 +6,7 @@ import math
 import time
 from typing import Any
 
-from sira.config.settings import OPEN_METEO_MARINE_URL
+from sira.config.settings import OPEN_METEO_MARINE_URL, OPEN_METEO_WEATHER_URL
 from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica
 from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 from sira.infrastructure.http.client import fetch_json
@@ -126,8 +126,8 @@ def _sst_open_meteo(lat: float, lon: float) -> float | None:
     return None
 
 
-def _clorofila_noaa(lat: float, lon: float) -> tuple[float | None, str | None]:
-    """Clorofila-a (mg/m³) vía ERDDAP NOAA (1 píxel, cacheable)."""
+def _clorofila_pixel(lat: float, lon: float) -> tuple[float | None, str | None]:
+    """Una lectura ERDDAP NOAA en el píxel más cercano a la rejilla 0.04°."""
     import requests
     from urllib.parse import urlparse
 
@@ -155,13 +155,39 @@ def _clorofila_noaa(lat: float, lon: float) -> tuple[float | None, str | None]:
     row = rows[0]
     try:
         fecha = str(row[0])[:10] if row[0] else None
-        chl = float(row[3])
+        raw = row[3]
+        if raw is None:
+            return None, fecha
+        chl = float(raw)
         if not math.isfinite(chl) or chl < 0:
             return None, fecha
         return round(chl, 3), fecha
     except (TypeError, ValueError, IndexError):
         return None, None
 
+
+def _clorofila_noaa(lat: float, lon: float) -> tuple[float | None, str | None]:
+    """Clorofila-a (mg/m³); prueba píxeles vecinos si la costa cae en tierra/nubes."""
+    dirs = (
+        (0.0, 0.0),
+        (0.0, 1.0), (0.0, -1.0), (1.0, 0.0), (-1.0, 0.0),
+        (0.7, 0.7), (0.7, -0.7), (-0.7, 0.7), (-0.7, -0.7),
+    )
+    last_fecha: str | None = None
+    intentos = 0
+    for step in (0.0, 0.04, 0.08, 0.12, 0.16):
+        for dlat, dlon in dirs:
+            if step == 0.0 and (dlat or dlon):
+                continue
+            intentos += 1
+            if intentos > 10:
+                return None, last_fecha
+            chl, fecha = _clorofila_pixel(lat + dlat * step, lon + dlon * step)
+            if fecha:
+                last_fecha = fecha
+            if chl is not None:
+                return chl, fecha
+    return None, last_fecha
 
 def _nivel_clorofila(chl: float | None) -> str:
     if chl is None:
@@ -310,6 +336,40 @@ def _viento_desde_meteo(meteo: dict | None) -> dict[str, Any]:
     return {"vel_ms": round(vel_ms, 1) if vel_ms is not None else None, "dir": dir_txt}
 
 
+def _viento_open_meteo(lat: float, lon: float) -> dict[str, Any]:
+    """Respaldo ligero si el meteo municipal no trae viento."""
+    try:
+        data = fetch_json(OPEN_METEO_WEATHER_URL, {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "wind_speed_10m,wind_direction_10m",
+            "wind_speed_unit": "ms",
+            "timezone": "Europe/Madrid",
+        })
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Open-Meteo viento costa: %s", exc)
+        return {"vel_ms": None, "dir": None}
+    item = data[0] if isinstance(data, list) and data else data
+    if not isinstance(item, dict):
+        return {"vel_ms": None, "dir": None}
+    cur = item.get("current") if isinstance(item.get("current"), dict) else {}
+    vel = cur.get("wind_speed_10m")
+    deg = cur.get("wind_direction_10m")
+    dir_txt = None
+    if deg is not None:
+        try:
+            g = float(deg) % 360
+            puntos = ("N", "NE", "E", "SE", "S", "SO", "O", "NO")
+            dir_txt = f"{g:.0f}° ({puntos[int((g + 22.5) / 45) % 8]})"
+        except (TypeError, ValueError):
+            dir_txt = None
+    try:
+        vel_ms = round(float(vel), 1) if vel is not None else None
+    except (TypeError, ValueError):
+        vel_ms = None
+    return {"vel_ms": vel_ms, "dir": dir_txt}
+
+
 def calidad_agua_local(
     lat: float,
     lon: float,
@@ -327,11 +387,17 @@ def calidad_agua_local(
     key = f"{mlat:.2f}:{mlon:.2f}"
     now = time.monotonic()
     hit = _cache.get(key)
-    if hit and (now - hit[0]) < _CACHE_TTL_SEC:
-        out = dict(hit[1])
-        out["localidad"] = localidad or out.get("localidad")
-        out["viento"] = _viento_desde_meteo(meteo)
-        return out
+    if hit:
+        age = now - hit[0]
+        ttl = _CACHE_TTL_SEC if hit[1].get("clorofila_mg_m3") is not None else 180.0
+        if age < ttl:
+            out = dict(hit[1])
+            out["localidad"] = localidad or out.get("localidad")
+            viento = _viento_desde_meteo(meteo)
+            if viento.get("vel_ms") is None:
+                viento = _viento_open_meteo(mlat, mlon)
+            out["viento"] = viento
+            return out
 
     dash = dashboard if isinstance(dashboard, dict) else {}
     sst, n_sst = _sst_desde_grids(dash, mlat, mlon)
@@ -343,13 +409,16 @@ def calidad_agua_local(
 
     chl, chl_fecha = _clorofila_noaa(mlat, mlon)
     bano = _nayade_eea(mlat, mlon)
+    viento = _viento_desde_meteo(meteo)
+    if viento.get("vel_ms") is None:
+        viento = _viento_open_meteo(mlat, mlon)
     out = {
         "ok": True,
         "localidad": localidad,
         "punto_mar": {"lat": mlat, "lon": mlon},
         "sst_media_c": sst,
         "sst_fuente": fuente_sst,
-        "viento": _viento_desde_meteo(meteo),
+        "viento": viento,
         "clorofila_mg_m3": chl,
         "clorofila_nivel": _nivel_clorofila(chl),
         "clorofila_fecha": chl_fecha,

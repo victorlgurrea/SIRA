@@ -94,3 +94,20 @@ def test_calidad_agua_local_mock(monkeypatch):
     assert out["bano_playa"] == "PLAYA X"
     assert "Náyade" in out["aviso"]
     assert out["viento"]["vel_ms"] == 3.2
+
+
+def test_clorofila_busca_vecinos(monkeypatch):
+    calls: list[tuple[float, float]] = []
+
+    def fake_pixel(la, lo):
+        calls.append((la, lo))
+        # Primer píxel (costa) vacío; el siguiente vecino este tiene dato.
+        if len(calls) == 1:
+            return None, "2026-09-01"
+        return 0.19, "2026-09-01"
+
+    monkeypatch.setattr(mod, "_clorofila_pixel", fake_pixel)
+    chl, fecha = mod._clorofila_noaa(39.47, -0.30)
+    assert chl == 0.19
+    assert fecha == "2026-09-01"
+    assert len(calls) > 1

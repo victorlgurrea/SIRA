@@ -53,6 +53,40 @@ def meteo_para_geo(
     if hit and (now - hit[0]) < _METEO_TTL_SEC:
         return hit[1]
 
+    def _tiene_tiempo_actual(payload: dict | None) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        res = payload.get("resumen") if isinstance(payload.get("resumen"), dict) else {}
+        return res.get("temp_c") is not None
+
+    def _guardar(payload: dict) -> dict:
+        _METEO_CACHE[cache_key] = (now, payload)
+        return payload
+
+    def _fusionar_live(base: dict, live: dict) -> dict:
+        """Completa temperatura/viento/etc. sin pisar lluvia de la ingesta si ya viene."""
+        if not isinstance(live, dict) or not live.get("serie_horaria"):
+            return base
+        merged = dict(base)
+        base_res = base.get("resumen") if isinstance(base.get("resumen"), dict) else {}
+        live_res = live.get("resumen") if isinstance(live.get("resumen"), dict) else {}
+        # Live rellena huecos; la lluvia de ingesta (si existe) se conserva.
+        resumen = {**live_res, **{k: v for k, v in base_res.items() if v is not None}}
+        for clave in (
+            "temp_c", "sensacion_c", "humedad_pct", "tiempo_icon", "tiempo_texto",
+            "viento_vel", "viento_unidad", "viento_dir_grados", "viento_dir_texto",
+        ):
+            if resumen.get(clave) is None and live_res.get(clave) is not None:
+                resumen[clave] = live_res[clave]
+        merged["resumen"] = resumen
+        if not merged.get("proximas_horas"):
+            merged["proximas_horas"] = live.get("proximas_horas") or []
+        if not merged.get("serie_horaria"):
+            merged["serie_horaria"] = live.get("serie_horaria") or []
+        if not merged.get("fuente") or merged.get("fuente") == "—":
+            merged["fuente"] = live.get("fuente") or merged.get("fuente")
+        return merged
+
     # Reutilizar meteo ya ingerido cuando coincide el municipio de referencia.
     ref = str(AEMET_MUNICIPIO or DEFAULT_MUNI).zfill(5)
     met_ing = (dashboard or {}).get("meteorologia") if isinstance(dashboard, dict) else None
@@ -61,38 +95,28 @@ def meteo_para_geo(
         and isinstance(met_ing, dict)
         and (met_ing.get("serie_horaria") or met_ing.get("resumen"))
     ):
-        # Ingesta antigua solo traía lluvia en resumen; completar con live si falta tiempo actual.
-        res = met_ing.get("resumen") if isinstance(met_ing.get("resumen"), dict) else {}
-        if not res.get("temp_c") or not met_ing.get("proximas_horas"):
+        if not _tiene_tiempo_actual(met_ing) or not met_ing.get("proximas_horas"):
             live = meteo_localidad(mid, loc or None)
-            if live.get("serie_horaria"):
-                merged = dict(met_ing)
-                live_res = live.get("resumen") if isinstance(live.get("resumen"), dict) else {}
-                merged["resumen"] = {**live_res, **(merged.get("resumen") or {})}
-                if not merged.get("proximas_horas"):
-                    merged["proximas_horas"] = live.get("proximas_horas") or []
-                if not merged.get("fuente"):
-                    merged["fuente"] = live.get("fuente")
-                _METEO_CACHE[cache_key] = (now, merged)
-                return merged
-        _METEO_CACHE[cache_key] = (now, met_ing)
-        return met_ing
+            merged = _fusionar_live(dict(met_ing), live)
+            if _tiene_tiempo_actual(merged) or merged.get("serie_horaria"):
+                return _guardar(merged)
+        if _tiene_tiempo_actual(met_ing):
+            return _guardar(met_ing)
 
     params = {"localidad": loc} if loc else None
     try:
         r = requests.get(f"{API_BASE_URL}/api/meteo/{mid}", params=params, timeout=8)
         if r.ok:
             data = r.json()
-            if isinstance(data, dict):
-                _METEO_CACHE[cache_key] = (now, data)
-                return data
+            if isinstance(data, dict) and (_tiene_tiempo_actual(data) or data.get("serie_horaria")):
+                return _guardar(data)
     except requests.RequestException:
         pass
     data = meteo_localidad(mid, loc or None)
-    if isinstance(data, dict):
-        _METEO_CACHE[cache_key] = (now, data)
-    return data
-
+    if isinstance(data, dict) and (_tiene_tiempo_actual(data) or data.get("serie_horaria")):
+        return _guardar(data)
+    # No cachear vacío: reintentar en el próximo pintado.
+    return data if isinstance(data, dict) else {"fuente": "—", "serie_horaria": [], "resumen": {}}
 
 def alertas_meteo_fuente(d: dict) -> list[dict]:
     local = list(d.get("meteo_alertas_test", [])) if isinstance(d.get("meteo_alertas_test"), list) else []

@@ -323,6 +323,25 @@ def build_panel_geo(
     extra_si = "sira-card--sismos sira-card--costa-half" if con_costa else "sira-card--sismos"
     extra_in = "sira-card--incendios sira-card--costa-half" if con_costa else "sira-card--incendios"
 
+    # Con costa: fila1 impacto|riesgo|lluvia|tiempo; fila2 sismos+incendios|agua.
+    # Sin costa: las 6 cards caen en rejilla 3×2 (tiempo al final).
+    horas_tiempo = 3 if con_costa else 6
+    card_tiempo = card(
+        "Tiempo ahora",
+        meteo_ahora(
+            res_met,
+            met.get("proximas_horas")
+            or _proximas_horas_desde_serie(met.get("serie_horaria", []), horas=horas_tiempo),
+            fuente=met.get("fuente"),
+            alertas=alertas_meteo,
+            horas=horas_tiempo,
+        ),
+        f"Según {met.get('fuente', '—')} · {loc_label}",
+        "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
+        accent=C_CYAN,
+        tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
+        extra_class="sira-card--tiempo",
+    )
     cards = [
         card_impacto_local(riesgo_local),
         _riesgo_meteo_card(riesgo_met),
@@ -333,6 +352,10 @@ def build_panel_geo(
             accent=C_TEAL,
             tooltip=tooltip_aforos,
         ),
+    ]
+    if con_costa:
+        cards.append(card_tiempo)
+    cards.extend([
         card_sismos_combinada(
             len(d.get("sismos", [])),
             len(sismos),
@@ -357,25 +380,11 @@ def build_panel_geo(
             tooltip_local=_tooltip_incendios_local(incendios_local, localidad),
             extra_class=extra_in,
         ),
-    ]
+    ])
     if agua:
         cards.append(card_calidad_agua(agua, loc_label=loc_label))
-    cards.append(
-        card(
-            "Tiempo ahora",
-            meteo_ahora(
-                res_met,
-                met.get("proximas_horas") or _proximas_horas_desde_serie(met.get("serie_horaria", []), horas=6),
-                fuente=met.get("fuente"),
-                alertas=alertas_meteo,
-            ),
-            f"Según {met.get('fuente', '—')} · {loc_label}",
-            "Estado del cielo, temperatura, sensación térmica, humedad y viento en la localidad seleccionada.",
-            accent=C_CYAN,
-            tooltip="Observación y próximas horas para la localidad seleccionada (AEMET o Open-Meteo fallback).",
-            extra_class="sira-card--tiempo",
-        ),
-    )
+    if not con_costa:
+        cards.append(card_tiempo)
     mapa = build_mapa_fig(geo_r, d, capas, theme, map_aspect=map_aspect, ctx=ctx)
     lluvia = _fig_lluvia(met.get("serie_horaria", []), theme=theme)
     return cards, mapa, lluvia, cards_cls

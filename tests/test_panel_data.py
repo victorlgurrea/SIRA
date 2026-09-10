@@ -13,6 +13,56 @@ def test_alertas_meteo_fuente_merge():
     assert len(out) == 2
 
 
+def test_meteo_para_geo_no_cachea_vacio(monkeypatch):
+    from sira.services.mapa import panel_data as pd
+
+    monkeypatch.setattr(pd, "_METEO_CACHE", {})
+    monkeypatch.setattr(pd, "AEMET_MUNICIPIO", "46250")
+    monkeypatch.setattr(
+        pd,
+        "meteo_localidad",
+        lambda *a, **k: {"fuente": "—", "serie_horaria": [], "resumen": {}},
+    )
+    monkeypatch.setattr(
+        pd.requests,
+        "get",
+        lambda *a, **k: (_ for _ in ()).throw(pd.requests.RequestException("down")),
+    )
+    out = pd.meteo_para_geo("46250", "Valencia", dashboard={"meteorologia": {"resumen": {"precip_prox_24h_mm": 1.0}}})
+    assert out.get("resumen", {}).get("temp_c") is None
+    assert pd._METEO_CACHE == {}
+
+
+def test_meteo_para_geo_completa_desde_live(monkeypatch):
+    from sira.services.mapa import panel_data as pd
+
+    monkeypatch.setattr(pd, "_METEO_CACHE", {})
+    monkeypatch.setattr(pd, "AEMET_MUNICIPIO", "46250")
+    monkeypatch.setattr(
+        pd,
+        "meteo_localidad",
+        lambda *a, **k: {
+            "fuente": "AEMET",
+            "serie_horaria": [{"timestamp": "2026-09-10T18:00", "temp_c": 24.0}],
+            "proximas_horas": [{"timestamp": "2026-09-10T19:00", "temp_c": 23.0}],
+            "resumen": {
+                "temp_c": 24.0,
+                "viento_vel": 12.0,
+                "viento_unidad": "km/h",
+                "precip_prox_24h_mm": 0.0,
+            },
+        },
+    )
+    out = pd.meteo_para_geo(
+        "46250",
+        "Valencia",
+        dashboard={"meteorologia": {"fuente": "AEMET", "resumen": {"precip_prox_24h_mm": 2.5}, "serie_horaria": [{"timestamp": "x", "precip_mm": 0}]}},
+    )
+    assert out["resumen"]["temp_c"] == 24.0
+    assert out["resumen"]["precip_prox_24h_mm"] == 2.5
+    assert out["resumen"]["viento_vel"] == 12.0
+
+
 def test_datos_mapa_enriquece_sismos(monkeypatch):
     monkeypatch.setattr(
         "sira.services.mapa.panel_data.coords_observacion",

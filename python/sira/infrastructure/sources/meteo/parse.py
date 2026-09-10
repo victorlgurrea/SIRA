@@ -219,7 +219,7 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
         return {
             "tiempo_icon": icon,
             "tiempo_texto": texto,
-            "temp_c": round(temp, 1) if temp else None,
+            "temp_c": round(temp, 1) if temp is not None and temp > -900 else None,
             "sensacion_c": round(sens, 1) if sens >= 0 else None,
             "humedad_pct": int(round(hum)) if hum >= 0 else None,
             "viento_vel": round(vel, 1) if vel >= 0 else None,
@@ -268,7 +268,7 @@ def actual_aemet_from_item(item: dict, *, hora: int | None = None) -> dict:
     return {
         "tiempo_icon": icon,
         "tiempo_texto": texto,
-        "temp_c": round(temp, 1) if temp else None,
+        "temp_c": round(temp, 1) if temp is not None and temp > -900 else None,
         "sensacion_c": round(sens, 1) if sens >= 0 else None,
         "humedad_pct": int(round(hum)) if hum >= 0 else None,
         "viento_vel": round(vel, 1) if vel >= 0 else None,
