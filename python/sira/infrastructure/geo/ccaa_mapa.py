@@ -223,3 +223,60 @@ def anadir_bordes_provincias(
             or "Provincia"
         ),
     )
+
+
+def anadir_bordes_ccaa_nacional(
+    fig: go.Figure,
+    provincia_id: str | None = None,
+    *,
+    color_base: str = "rgba(148, 163, 184, 0.45)",
+    width_base: float = 1.0,
+    color_activa: str = "rgba(34, 211, 238, 0.95)",
+    width_activa: float = 2.6,
+) -> None:
+    """Como `anadir_bordes_ccaa` pero dibuja siempre las 19 CCAA (vista nacional),
+    resaltando la comunidad de la provincia seleccionada."""
+    _add_lineas(
+        fig,
+        _bordes_ccaa(),
+        legend_name="Límites CCAA",
+        legendgroup="ccaa",
+        provincia_id=provincia_id,
+        activo_por="ccaa",
+        color_base=color_base,
+        width_base=width_base,
+        color_activa=color_activa,
+        width_activa=width_activa,
+        etiqueta=lambda f: f.get("nombre") or CCAA_NOMBRES.get(f.get("id") or "", f.get("id") or "CCAA"),
+    )
+
+
+def anadir_bordes_provincias_nacional(
+    fig: go.Figure,
+    provincia_id: str | None = None,
+    *,
+    color_base: str = "rgba(148, 163, 184, 0.55)",
+    width_base: float = 0.6,
+    color_activa: str = "rgba(34, 211, 238, 0.98)",
+    width_activa: float = 2.2,
+) -> None:
+    """Como `anadir_bordes_provincias` pero dibuja las 52 provincias (vista
+    nacional), resaltando la provincia seleccionada."""
+    _add_lineas(
+        fig,
+        _bordes_provincias(),
+        legend_name="Límites provincias",
+        legendgroup="provincias",
+        provincia_id=provincia_id,
+        activo_por="provincia",
+        color_base=color_base,
+        width_base=width_base,
+        color_activa=color_activa,
+        width_activa=width_activa,
+        etiqueta=lambda f: (
+            f.get("nombre")
+            or provincia_nombre_de_municipio(f.get("id"))
+            or f.get("id")
+            or "Provincia"
+        ),
+    )

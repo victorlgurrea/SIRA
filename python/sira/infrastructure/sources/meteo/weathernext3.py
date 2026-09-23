@@ -150,7 +150,8 @@ def weathernext3_localidad(lat: float, lon: float, *, nombre: str | None = None)
                 f.wind_speed_10m_mean AS viento_ms,
                 f.total_precipitation_1hr_mean AS precip_m,
                 f.total_cloud_cover_mean AS nubosidad_frac,
-                f.mean_sea_level_pressure_mean AS presion_pa
+                f.mean_sea_level_pressure_mean AS presion_pa,
+                f.sea_surface_temperature_mean AS sst_k
             FROM {_tabla()} AS t, t.forecast AS f
             WHERE t.init_time = @init_time
               AND ST_DWITHIN(t.geography, ST_GEOGPOINT(@lon, @lat), @radio)
@@ -185,6 +186,7 @@ def weathernext3_localidad(lat: float, lon: float, *, nombre: str | None = None)
             nub = row["nubosidad_frac"]
             precip_m = row["precip_m"]
             viento = row["viento_ms"]
+            sst_k = row["sst_k"]
             serie.append({
                 "timestamp": ts,
                 "temp_c": round(float(temp_k) - 273.15, 1) if temp_k is not None else None,
@@ -192,6 +194,7 @@ def weathernext3_localidad(lat: float, lon: float, *, nombre: str | None = None)
                 "precip_mm": round(float(precip_m) * 1000, 2) if precip_m is not None else 0.0,
                 "nubosidad_pct": round(float(nub) * 100, 1) if nub is not None else None,
                 "presion_hpa": round(float(presion_pa) / 100, 1) if presion_pa is not None else None,
+                "sst_c": round(float(sst_k) - 273.15, 2) if sst_k is not None else None,
             })
 
         if not serie:

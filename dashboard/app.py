@@ -16,7 +16,7 @@ import requests
 from dash import Dash, Input, Output, State, callback, clientside_callback, ctx, dcc, html
 from dash.exceptions import PreventUpdate
 
-from ui.components import bloque, card_lluvia
+from ui.components import bloque, card, card_lluvia, meteo_ahora
 from sira.config.settings import (
     ALLOW_DATA_REFRESH,
     API_BASE_URL,
@@ -57,11 +57,13 @@ from charts.figures import (
     fig_corrientes as _fig_corrientes,
     fig_linea as _fig_linea,
     fig_historial as _fig_historial_impl,
-    fig_termico_ccaa as _fig_termico_ccaa,
+    fig_weathernext_mapa as _fig_weathernext_mapa,
 )
 from sira.infrastructure.sources.meteo.weathernext import (
     construir_weathernext_ccaa_cache,
     weathernext_localidad_cache,
+    weathernext_resumen_actual,
+    weathernext_sst_cache,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -278,12 +280,34 @@ app.layout = html.Div(className="sira-page", children=[
                     "La fuente activa se indica en cada gráfica.",
                     className="sira-bloque-help", style={"padding": "0 4px 8px"},
                 ),
+                html.Div(
+                    id="wn_card_tiempo", className="sira-cards",
+                    children=[card("Tiempo ahora — WeatherNext", "—", "Cargando previsión…", None, accent=C_ORANGE)],
+                ),
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         bloque(
                             "wn_mapa", "WeatherNext — temperatura máxima prevista (24 h)",
-                            f"{_AYUDA_WEATHERNEXT} · por provincia, según la comunidad autónoma seleccionada.",
+                            f"{_AYUDA_WEATHERNEXT} · toda España, resaltando la comunidad y "
+                            "provincia seleccionadas.",
                             map_chart=True, accent=C_ORANGE,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                        bloque(
+                            "wn_sst_med", "Temperatura del mar — Mediterráneo",
+                            f"{_AYUDA_WEATHERNEXT} · {MARES['MEDITERRÁNEO']['punto']}.",
+                            accent=C_ORANGE,
+                        ),
+                        bloque(
+                            "wn_sst_cant", "Temperatura del mar — Cantábrico",
+                            f"{_AYUDA_WEATHERNEXT} · {MARES['CANTÁBRICO']['punto']}.",
+                            accent=C_GREEN,
+                        ),
+                        bloque(
+                            "wn_sst_atl", "Temperatura del mar — Atlántico",
+                            f"{_AYUDA_WEATHERNEXT} · {MARES['ATLÁNTICO']['punto']}.",
+                            accent=C_CYAN,
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
@@ -522,7 +546,11 @@ def refresh_historial(pathname, municipio_id, theme):
 
 
 @callback(
+    Output("wn_card_tiempo", "children"),
     Output("wn_mapa", "figure"),
+    Output("wn_sst_med", "figure"),
+    Output("wn_sst_cant", "figure"),
+    Output("wn_sst_atl", "figure"),
     Output("wn_temp", "figure"),
     Output("wn_precip", "figure"),
     Output("wn_viento", "figure"),
@@ -531,8 +559,9 @@ def refresh_historial(pathname, municipio_id, theme):
     Input("url", "pathname"),
     Input("geo-store", "data"),
     Input("theme-store", "data"),
+    State("map-aspect", "data"),
 )
-def refresh_weathernext(pathname, geo, theme):
+def refresh_weathernext(pathname, geo, theme, map_aspect):
     if pathname != "/weathernext":
         raise PreventUpdate
     t = theme_val(theme)
@@ -546,17 +575,40 @@ def refresh_weathernext(pathname, geo, theme):
     except Exception:  # noqa: BLE001
         log.exception("construir_weathernext_ccaa_cache falló")
         wn_ccaa = {"generado_en": None, "provincias": [], "ccaa": []}
-    mapa = _fig_termico_ccaa(provincia_id, wn_ccaa, uirev="sira-wn-ccaa", theme=t)
+    mapa = _fig_weathernext_mapa(provincia_id, wn_ccaa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect)
 
     try:
         punto = weathernext_localidad_cache(municipio_id, localidad)
     except Exception:  # noqa: BLE001
         log.exception("weathernext_localidad_cache falló")
-        punto = {"serie_horaria": []}
+        punto = {"serie_horaria": [], "fuente": "—"}
     serie = punto.get("serie_horaria", [])
 
+    try:
+        sst = weathernext_sst_cache()
+    except Exception:  # noqa: BLE001
+        log.exception("weathernext_sst_cache falló")
+        sst = {}
+    sst_med = (sst.get("MEDITERRÁNEO") or {}).get("serie_horaria", [])
+    sst_cant = (sst.get("CANTÁBRICO") or {}).get("serie_horaria", [])
+    sst_atl = (sst.get("ATLÁNTICO") or {}).get("serie_horaria", [])
+
+    resumen, proximas = weathernext_resumen_actual(punto)
+    loc_label = f"{localidad or geo.get('municipio') or '—'}"
+    card_tiempo = card(
+        "Tiempo ahora — WeatherNext",
+        meteo_ahora(resumen, proximas, fuente=punto.get("fuente")),
+        f"Según {punto.get('fuente', '—')} · {loc_label}",
+        None,
+        accent=C_ORANGE,
+    )
+
     return (
+        [card_tiempo],
         mapa,
+        _fig_linea(sst_med, "sst_c", C_ORANGE, "°C", "sira-wn-sst-med", con_semaforo_sst=True, theme=t),
+        _fig_linea(sst_cant, "sst_c", C_GREEN, "°C", "sira-wn-sst-cant", con_semaforo_sst=True, theme=t),
+        _fig_linea(sst_atl, "sst_c", C_CYAN, "°C", "sira-wn-sst-atl", con_semaforo_sst=True, theme=t),
         _fig_linea(serie, "temp_c", C_ORANGE, "°C", "sira-wn-temp", theme=t),
         _fig_linea(serie, "precip_mm", C_CYAN, "mm", "sira-wn-precip", theme=t),
         _fig_linea(serie, "viento_ms", C_GREEN, "m/s", "sira-wn-viento", theme=t),

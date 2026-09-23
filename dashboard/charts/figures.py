@@ -13,13 +13,20 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from charts.map_fig import es_sismo_hoy, fig_mapa, fmt_sismo_fecha, fmt_sismo_linea, geo_layout
-from sira.infrastructure.geo.ccaa_mapa import anadir_bordes_ccaa, anadir_bordes_provincias
+from sira.infrastructure.geo.ccaa_mapa import (
+    anadir_bordes_ccaa,
+    anadir_bordes_ccaa_nacional,
+    anadir_bordes_provincias,
+    anadir_bordes_provincias_nacional,
+    anadir_costa_ign,
+)
 from sira.infrastructure.geo.es import (
     CCAA_PROVINCIAS,
     ccaa_de_provincia,
     projection_scale_for_viewport,
     provincias,
     viewport_ccaa,
+    viewport_peninsula,
 )
 from ui.components import dir_compass
 from ui.theme import (
@@ -45,6 +52,7 @@ __all__ = [
     "fig_historial",
     "fig_lluvia",
     "fig_termico_ccaa",
+    "fig_weathernext_mapa",
     "xaxis_lluvia",
 ]
 
@@ -503,4 +511,78 @@ def fig_termico_ccaa(
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         **plotly_bg(theme),
     )
+    return fig
+
+
+def fig_weathernext_mapa(
+    provincia_id: str | None,
+    termico_data: dict | None,
+    *,
+    uirev: str = "sira-weathernext-mapa",
+    theme: str = "dark",
+    map_aspect: float | None = None,
+) -> go.Figure:
+    """Mapa coroplético NACIONAL (toda España) de temperatura máxima prevista
+    (24 h) por provincia, con el mismo estilo que el mapa de riesgos principal
+    (tierra/mar coloreados, costa IGN) y resaltando la CCAA/provincia
+    seleccionada, sin recortar la vista al resto del país."""
+    fig = go.Figure()
+    pid_sel = str(provincia_id or "").zfill(2)
+
+    por_prov = {
+        str(p.get("provincia_id") or "").zfill(2): p
+        for p in (termico_data or {}).get("provincias") or []
+        if isinstance(p, dict)
+    }
+    feat_by_pid = _prov_rings()
+    pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
+
+    for pid, feat in feat_by_pid.items():
+        row = por_prov.get(pid, {})
+        tmax = row.get("temp_max_c")
+        sens = row.get("sensacion_max_c")
+        hora = fmt_hora_pico(row.get("hora_pico"))
+        fuente = str(row.get("fuente") or "—")
+        color = color_temp(tmax if tmax is None else float(tmax))
+        ttxt = f"{float(tmax):.1f} °C" if tmax is not None else "—"
+        stxt = f"{float(sens):.1f} °C" if sens is not None else "—"
+        prov_name = pmeta.get(pid, row.get("provincia") or pid)
+        es_activa = pid == pid_sel
+        for ring in feat.get("rings", []):
+            lats = ring.get("lat") or []
+            lons = ring.get("lon") or []
+            if len(lats) < 3:
+                continue
+            fig.add_trace(
+                go.Scattergeo(
+                    lat=lats, lon=lons, mode="lines", fill="toself", fillcolor=color,
+                    line=dict(
+                        color="rgba(34,211,238,0.95)" if es_activa else "rgba(15,23,42,0.35)",
+                        width=1.8 if es_activa else 0.5,
+                    ),
+                    showlegend=False, name=prov_name,
+                    hovertemplate=(
+                        f"{prov_name}<br>"
+                        f"T. máxima prevista (24 h): {ttxt}<br>"
+                        f"Sensación térmica en pico: {stxt}<br>"
+                        f"Hora pico: {hora}<br>"
+                        f"Fuente: {fuente}"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+
+    vp = viewport_peninsula()
+    anadir_costa_ign(fig, vp, color="#94a3b8", width=0.8)
+    anadir_bordes_ccaa_nacional(fig, pid_sel)
+    anadir_bordes_provincias_nacional(fig, pid_sel)
+
+    geo_layout(
+        fig, vp,
+        uirevision=uirev,
+        estilo_aemet=False,
+        theme=theme,
+        aspect=float(map_aspect or 1.65),
+    )
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
