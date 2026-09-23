@@ -560,29 +560,37 @@ def fig_weathernext_mapa(
         stxt = f"{float(sens):.1f} °C" if sens is not None else "—"
         prov_name = pmeta.get(pid, row.get("provincia") or pid)
         es_activa = pid == pid_sel
-        for ring in feat.get("rings", []):
-            lats = ring.get("lat") or []
-            lons = ring.get("lon") or []
-            if len(lats) < 3:
-                continue
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lats, lon=lons, mode="lines", fill="toself", fillcolor=color,
-                    line=dict(
-                        color="rgba(34,211,238,0.95)" if es_activa else "rgba(15,23,42,0.35)",
-                        width=1.8 if es_activa else 0.5,
-                    ),
-                    showlegend=False, name=prov_name,
-                    hovertemplate=(
-                        f"{prov_name}<br>"
-                        f"T. máxima prevista (24 h): {ttxt}<br>"
-                        f"Sensación térmica en pico: {stxt}<br>"
-                        f"Hora pico: {hora}<br>"
-                        f"Fuente: {fuente}"
-                        "<extra></extra>"
-                    ),
-                )
+        rings = [r for r in feat.get("rings", []) if len(r.get("lat") or []) >= 3]
+        if not rings:
+            continue
+        # OJO: solo se rellena el anillo MÁS GRANDE (más puntos) de cada
+        # provincia. Rellenar TODOS los anillos con fill="toself" rompe el
+        # mapa entero cuando una provincia tiene un anillo pequeño anidado
+        # (agujeros/exclaves reales como el Condado de Treviño en Álava, o
+        # islas menores): Plotly invierte el relleno y pinta TODO el mapa
+        # (tierra y mar) del color de esa provincia en vez de solo su forma.
+        # Confirmado con capturas: 1 anillo = correcto; 2 anillos anidados =
+        # todo el lienzo pintado. Los bordes de los anillos secundarios
+        # (islas, exclaves) ya se dibujan aparte con anadir_bordes_*_nacional.
+        ring = max(rings, key=lambda r: len(r.get("lat") or []))
+        fig.add_trace(
+            go.Scattergeo(
+                lat=ring["lat"], lon=ring["lon"], mode="lines", fill="toself", fillcolor=color,
+                line=dict(
+                    color="rgba(34,211,238,0.95)" if es_activa else "rgba(15,23,42,0.35)",
+                    width=1.8 if es_activa else 0.5,
+                ),
+                showlegend=False, name=prov_name,
+                hovertemplate=(
+                    f"{prov_name}<br>"
+                    f"T. máxima prevista (24 h): {ttxt}<br>"
+                    f"Sensación térmica en pico: {stxt}<br>"
+                    f"Hora pico: {hora}<br>"
+                    f"Fuente: {fuente}"
+                    "<extra></extra>"
+                ),
             )
+        )
 
     sst_capas = [
         ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),
