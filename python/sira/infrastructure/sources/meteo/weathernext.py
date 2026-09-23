@@ -91,6 +91,32 @@ _SST_COORDS_ALT: dict[str, tuple[float, float]] = {
 _OM_BATCH = 45
 _OM_BATCH_PAUSA_SEC = 0.6
 
+# Open-Meteo corta la conexión de forma intermitente bajo la carga de varios
+# lotes seguidos (`ConnectionResetError`/"Connection aborted"). Sin reintento
+# se perdía el lote ENTERO (hasta 45 puntos de golpe) — un hueco grande en el
+# mapa/rejilla en vez de una celda suelta, muy visible sobre todo en el
+# Mediterráneo (bbox más grande => más lotes => más probabilidad de que
+# alguno falle).
+_OM_REINTENTOS = 3
+_OM_REINTENTO_PAUSA_SEC = 1.0
+
+
+def _fetch_lote_om(params: dict, *, contexto: str) -> dict | list | None:
+    """`fetch_json` con reintentos ante fallos de red transitorios."""
+    ultimo_exc: Exception | None = None
+    for intento in range(_OM_REINTENTOS):
+        if intento:
+            time.sleep(_OM_REINTENTO_PAUSA_SEC * intento)
+        try:
+            return fetch_json(OPEN_METEO_ENSEMBLE_URL, params)
+        except (requests.RequestException, ValueError, OSError) as exc:
+            ultimo_exc = exc
+    log.warning(
+        "WeatherNext (Open-Meteo) %s: agotados %d intentos (%s)",
+        contexto, _OM_REINTENTOS, ultimo_exc,
+    )
+    return None
+
 
 def _weathernext2_punto(lat: float, lon: float, nombre: str) -> dict:
     """Fallback: serie horaria WeatherNext 2 (media del ensemble) vía Open-Meteo."""
@@ -176,17 +202,18 @@ def _weathernext2_ccaa_lote(tareas: list[tuple[str, str, str, str | None, str, s
         if i:
             time.sleep(_OM_BATCH_PAUSA_SEC)
         lote = puntos[i : i + _OM_BATCH]
-        try:
-            data = fetch_json(OPEN_METEO_ENSEMBLE_URL, {
+        data = _fetch_lote_om(
+            {
                 "latitude": ",".join(str(p[1]) for p in lote),
                 "longitude": ",".join(str(p[2]) for p in lote),
                 "hourly": "temperature_2m,precipitation,cloud_cover",
                 "models": WEATHERNEXT_MODEL,
                 "timezone": "Europe/Madrid",
                 "forecast_days": WEATHERNEXT_FORECAST_DAYS,
-            })
-        except (requests.RequestException, ValueError, OSError) as exc:
-            log.warning("WeatherNext 2 (Open-Meteo) lote CCAA %s: %s", i // _OM_BATCH, exc)
+            },
+            contexto=f"lote CCAA {i // _OM_BATCH}",
+        )
+        if data is None:
             continue
         items = data if isinstance(data, list) else [data]
         for (mid, _lat, _lon), item in zip(lote, items):
@@ -330,17 +357,18 @@ def _weathernext_sst_grid_region(region: _RegionSstWn) -> dict:
         if i:
             time.sleep(_OM_BATCH_PAUSA_SEC)
         lote = puntos[i : i + _OM_BATCH]
-        try:
-            data = fetch_json(OPEN_METEO_ENSEMBLE_URL, {
+        data = _fetch_lote_om(
+            {
                 "latitude": ",".join(str(p[0]) for p in lote),
                 "longitude": ",".join(str(p[1]) for p in lote),
                 "hourly": "sea_surface_temperature",
                 "models": WEATHERNEXT_MODEL,
                 "timezone": "UTC",
                 "forecast_days": 1,
-            })
-        except (requests.RequestException, ValueError, OSError) as exc:
-            log.warning("WeatherNext SST rejilla %s lote %s: %s", region.nombre, i // _OM_BATCH, exc)
+            },
+            contexto=f"rejilla SST {region.nombre} lote {i // _OM_BATCH}",
+        )
+        if data is None:
             continue
         items = data if isinstance(data, list) else [data]
         for (lat, lon), item in zip(lote, items):

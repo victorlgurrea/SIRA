@@ -434,6 +434,60 @@ def fig_lluvia(serie: list, *, theme: str = "dark") -> go.Figure:
     return fig
 
 
+def _punto_en_anillo(lat: float, lon: float, ring_lats: list[float], ring_lons: list[float]) -> bool:
+    """Ray-casting clásico: True si (lat, lon) cae dentro del anillo dado."""
+    n = len(ring_lats)
+    if n < 3:
+        return False
+    dentro = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = ring_lats[i], ring_lons[i]
+        yj, xj = ring_lats[j], ring_lons[j]
+        if (yi > lat) != (yj > lat):
+            x_interseccion = (xj - xi) * (lat - yi) / (yj - yi + 1e-15) + xi
+            if lon < x_interseccion:
+                dentro = not dentro
+        j = i
+    return dentro
+
+
+def _puntos_hover_interior(
+    ring: dict, *, paso: float = 0.28, max_puntos: int = 45
+) -> tuple[list[float], list[float]]:
+    """Rejilla de puntos interiores de una provincia para que el hover
+    funcione en TODA su superficie, no solo cerca del borde: un `Scattergeo`
+    con `fill="toself"` (`mode="lines"`) solo dispara el hover cerca de la
+    línea del contorno — a diferencia de `Scatter`/`Scattermapbox`, no
+    soporta `hoveron="fills"`. Se reparten puntos invisibles por dentro del
+    polígono, mismo mecanismo que usan las celdas SST del mar (marcadores
+    con hover), para que la temperatura salga al pasar por cualquier zona
+    de la provincia."""
+    lats = ring.get("lat") or []
+    lons = ring.get("lon") or []
+    if len(lats) < 3:
+        return [], []
+    lat_min, lat_max = min(lats), max(lats)
+    lon_min, lon_max = min(lons), max(lons)
+    out_lat: list[float] = []
+    out_lon: list[float] = []
+    lat = lat_min + paso / 2
+    while lat <= lat_max and len(out_lat) < max_puntos:
+        lon = lon_min + paso / 2
+        while lon <= lon_max and len(out_lat) < max_puntos:
+            if _punto_en_anillo(lat, lon, lats, lons):
+                out_lat.append(lat)
+                out_lon.append(lon)
+            lon += paso
+        lat += paso
+    if not out_lat:
+        # Provincia muy pequeña/estrecha: la rejilla no cayó dentro; se usa
+        # el centroide aproximado (media de vértices) como único punto.
+        out_lat = [sum(lats) / len(lats)]
+        out_lon = [sum(lons) / len(lons)]
+    return out_lat, out_lon
+
+
 def fig_termico_ccaa(
     provincia_id: str | None,
     termico_data: dict | None,
@@ -591,6 +645,28 @@ def fig_weathernext_mapa(
                 ),
             )
         )
+        # Puntos invisibles repartidos por dentro de la provincia: el hover
+        # de la traza anterior (fill="toself") solo dispara cerca del borde,
+        # así que sin esto pasar el ratón por el centro de una provincia
+        # grande no mostraba nada (a diferencia de las celdas SST del mar,
+        # que son marcadores y sí disparan el hover en cualquier punto suyo).
+        hlat, hlon = _puntos_hover_interior(ring)
+        if hlat:
+            fig.add_trace(
+                go.Scattergeo(
+                    lat=hlat, lon=hlon, mode="markers",
+                    marker=dict(size=1, color="rgba(0,0,0,0)"),
+                    showlegend=False, name=prov_name,
+                    hovertemplate=(
+                        f"{prov_name}<br>"
+                        f"T. máxima prevista (24 h): <b>{ttxt}</b><br>"
+                        f"Sensación térmica en pico: {stxt}<br>"
+                        f"Hora pico: {hora}<br>"
+                        f"Fuente: {fuente}"
+                        "<extra></extra>"
+                    ),
+                )
+            )
 
     sst_capas = [
         ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),
