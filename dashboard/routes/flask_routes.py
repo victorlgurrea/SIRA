@@ -9,6 +9,7 @@ from flask import Response, jsonify, redirect, request, send_from_directory
 from sira.config.settings import API_BASE_URL, CRON_SECRET
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
+from sira.infrastructure.sources.meteo.weathernext3 import weathernext3_configurado
 
 # Stub cuando Dash pide async-plotlyjs.js (en PRO esa ruta del suite devuelve 500).
 _ASYNC_PLOTLYJS_STUB = """
@@ -305,6 +306,40 @@ def register_routes(
             filas.append(
                 f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
             )
+        # WeatherNext no forma parte del ciclo de ingesta programada (se
+        # consulta a demanda al abrir /weathernext, para no cargar la
+        # ingesta del plan gratuito de Render): no tiene entrada en
+        # `fuentes_estado`, así que se muestra aparte con estado fijo en
+        # vez de "sin datos" (que sería engañoso, ya que sí funciona).
+        try:
+            wn3_ok = weathernext3_configurado()
+        except Exception:  # noqa: BLE001
+            wn3_ok = False
+        if wn3_ok:
+            wn_etiqueta = "Google WeatherNext 3"
+            wn_desc = (
+                "Previsión Google WeatherNext 3 (BigQuery), a demanda al abrir /weathernext. "
+                "Proyecto/dataset configurados; si la allowlist de Google aún no ha concedido "
+                "acceso, cae automáticamente a WeatherNext 2 (Open-Meteo) sin intervención."
+            )
+            wn_estado = (
+                '<span class="sira-status-ok">OK</span> '
+                '<span class="sira-status-meta">configurado (con fallback a WeatherNext 2)</span>'
+            )
+        else:
+            wn_etiqueta = "Google WeatherNext 2 (temporal)"
+            wn_desc = (
+                "Previsión Google WeatherNext 2 vía Open-Meteo (media del ensemble), a demanda "
+                "al abrir /weathernext (no en la ingesta programada). Es un respaldo temporal "
+                "mientras se espera el acceso a WeatherNext 3 (BigQuery, allowlist de Google)."
+            )
+            wn_estado = (
+                '<span class="sira-status-warn">activo (a demanda)</span> '
+                '<span class="sira-status-meta">de momento, hasta acceso a WeatherNext 3</span>'
+            )
+        filas.append(
+            f'<tr><td>{wn_etiqueta}</td><td class="sira-status-desc">{wn_desc}</td><td>{wn_estado}</td></tr>'
+        )
         for clave in sorted(fuentes.keys()):
             if clave in vistos:
                 continue
