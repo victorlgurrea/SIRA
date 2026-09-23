@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from charts.map_fig import es_sismo_hoy, fig_mapa, fmt_sismo_fecha, fmt_sismo_linea, geo_layout
+from sira.infrastructure.geo import REPO_ROOT as _REPO_ROOT
 from sira.infrastructure.geo.ccaa_mapa import (
     anadir_bordes_ccaa,
     anadir_bordes_ccaa_nacional,
@@ -64,7 +65,7 @@ SEMAFORO_COLORES = {
 }
 
 _MESES_EJE_LLUVIA = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
-_PROV_BORDES_FILE = Path(__file__).resolve().parent.parent / "data" / "geo" / "provincias_bordes.json"
+_PROV_BORDES_FILE = _REPO_ROOT / "data" / "geo" / "provincias_bordes.json"
 _TEMP_COLORSCALE = [
     (-20.0, "#f8fafc"),
     (15.0, "#fde047"),
@@ -521,11 +522,22 @@ def fig_weathernext_mapa(
     uirev: str = "sira-weathernext-mapa",
     theme: str = "dark",
     map_aspect: float | None = None,
+    sst_med_grid: dict | None = None,
+    sst_cant_grid: dict | None = None,
+    sst_atl_grid: dict | None = None,
 ) -> go.Figure:
     """Mapa coroplético NACIONAL (toda España) de temperatura máxima prevista
     (24 h) por provincia, con el mismo estilo que el mapa de riesgos principal
-    (tierra/mar coloreados, costa IGN) y resaltando la CCAA/provincia
-    seleccionada, sin recortar la vista al resto del país."""
+    (tierra/mar coloreados, costa IGN), resaltando la CCAA/provincia
+    seleccionada sin recortar la vista al resto del país, y con la
+    temperatura del mar (WeatherNext) pintada en celdas por costa igual que
+    hace el dashboard principal con CMEMS."""
+    import logging
+
+    from charts.map_layers import add_capa_sst_grid
+    from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica_mapa
+    from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
+
     fig = go.Figure()
     pid_sel = str(provincia_id or "").zfill(2)
 
@@ -571,6 +583,34 @@ def fig_weathernext_mapa(
                     ),
                 )
             )
+
+    sst_capas = [
+        ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),
+        ("Cantábrico", sst_cant_grid, punto_en_mar_costa_atlantica_mapa, "sst_cant"),
+        ("Atlántico", sst_atl_grid, punto_en_mar_costa_atlantica_mapa, "sst_atl"),
+    ]
+    leyenda_pintada = False
+    for etiqueta, grid_raw, filtro_mar, grupo in sst_capas:
+        grid = grid_raw if isinstance(grid_raw, dict) else {}
+        celdas = grid.get("celdas") or []
+        if not celdas:
+            continue
+        try:
+            add_capa_sst_grid(
+                fig,
+                celdas,
+                region_label=etiqueta,
+                punto_en_mar=filtro_mar,
+                fecha=str(grid.get("fecha") or "") or None,
+                paso_deg=grid.get("paso_deg"),
+                fuente=str(grid.get("fuente") or "") or None,
+                theme=theme,
+                legendgroup=grupo,
+                show_legend=not leyenda_pintada,
+            )
+            leyenda_pintada = True
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("Capa SST WeatherNext %s falló; omitiendo", etiqueta)
 
     vp = viewport_peninsula()
     anadir_costa_ign(fig, vp, color="#94a3b8", width=0.8)

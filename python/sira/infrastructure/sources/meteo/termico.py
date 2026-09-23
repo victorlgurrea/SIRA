@@ -64,16 +64,13 @@ def pico_termico_24h(meteo: dict | None, *, now: datetime | None = None) -> dict
     return mejor or {"temp_max_c": None, "sensacion_max_c": None, "hora_pico": None}
 
 
-def construir_termico_ccaa(
-    fetch_meteo: Callable[[str, str | None], dict],
-    *,
-    now: datetime | None = None,
-    max_workers: int = 6,
-) -> dict:
-    """Precalcula un resumen térmico compacto por provincia para todas las CCAA."""
-    tareas: list[tuple[str, str, str, str | None, str, str]] = []
-    por_ccaa: dict[str, dict] = {}
+TareaProvincia = tuple[str, str, str, str | None, str, str]
 
+
+def tareas_provincias() -> list[TareaProvincia]:
+    """(pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre) del municipio de
+    referencia (el primero listado) de cada provincia."""
+    tareas: list[TareaProvincia] = []
     for prov in provincias():
         pid = str(prov.get("id") or "").zfill(2)
         if not pid:
@@ -90,43 +87,49 @@ def construir_termico_ccaa(
         prov_nombre = str(prov.get("nombre") or pid)
         muni_nombre = str(municipio.get("nombre") or prov_nombre)
         tareas.append((pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre))
+    return tareas
 
+
+def ensamblar_termico_ccaa(
+    tareas: list[TareaProvincia],
+    resultados: dict[str, dict],
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Agrega en `filas`/`ccaa` un resultado por-municipio ya calculado
+    (dict `mid -> meteo`), sin importar cómo se obtuvo (secuencial, en
+    paralelo o por lotes en una sola llamada HTTP)."""
     filas: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, int(max_workers))) as pool:
-        future_map = {
-            pool.submit(fetch_meteo, mid, muni_nombre): (pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre)
-            for pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre in tareas
+    por_ccaa: dict[str, dict] = {}
+    for pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre in tareas:
+        met = resultados.get(mid) or {}
+        pico = pico_termico_24h(met, now=now)
+        fila = {
+            "provincia_id": pid,
+            "provincia": prov_nombre,
+            "municipio_ref_id": mid,
+            "municipio_ref": muni_nombre,
+            "ccaa_id": ccaa_id,
+            "ccaa": ccaa,
+            "fuente": met.get("fuente") or "—",
+            **pico,
         }
-        for future in as_completed(future_map):
-            pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre = future_map[future]
-            met = future.result() or {}
-            pico = pico_termico_24h(met, now=now)
-            fila = {
-                "provincia_id": pid,
-                "provincia": prov_nombre,
-                "municipio_ref_id": mid,
-                "municipio_ref": muni_nombre,
+        filas.append(fila)
+        if not ccaa_id:
+            continue
+        agg = por_ccaa.setdefault(
+            ccaa_id,
+            {
                 "ccaa_id": ccaa_id,
                 "ccaa": ccaa,
-                "fuente": met.get("fuente") or "—",
-                **pico,
-            }
-            filas.append(fila)
-            if not ccaa_id:
-                continue
-            agg = por_ccaa.setdefault(
-                ccaa_id,
-                {
-                    "ccaa_id": ccaa_id,
-                    "ccaa": ccaa,
-                    "provincias": [],
-                    "temp_max_c": None,
-                },
-            )
-            agg["provincias"].append(pid)
-            temp = fila.get("temp_max_c")
-            if temp is not None and (agg["temp_max_c"] is None or temp > agg["temp_max_c"]):
-                agg["temp_max_c"] = temp
+                "provincias": [],
+                "temp_max_c": None,
+            },
+        )
+        agg["provincias"].append(pid)
+        temp = fila.get("temp_max_c")
+        if temp is not None and (agg["temp_max_c"] is None or temp > agg["temp_max_c"]):
+            agg["temp_max_c"] = temp
 
     filas.sort(key=lambda x: (str(x.get("ccaa_id") or ""), str(x.get("provincia_id") or "")))
     for agg in por_ccaa.values():
@@ -138,3 +141,23 @@ def construir_termico_ccaa(
         "provincias": filas,
         "ccaa": [por_ccaa[k] for k in sorted(por_ccaa)],
     }
+
+
+def construir_termico_ccaa(
+    fetch_meteo: Callable[[str, str | None], dict],
+    *,
+    now: datetime | None = None,
+    max_workers: int = 6,
+) -> dict:
+    """Precalcula un resumen térmico compacto por provincia para todas las CCAA."""
+    tareas = tareas_provincias()
+    resultados: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=max(1, int(max_workers))) as pool:
+        future_map = {
+            pool.submit(fetch_meteo, mid, muni_nombre): mid
+            for _pid, _prov_nombre, mid, _ccaa_id, _ccaa, muni_nombre in tareas
+        }
+        for future in as_completed(future_map):
+            mid = future_map[future]
+            resultados[mid] = future.result() or {}
+    return ensamblar_termico_ccaa(tareas, resultados, now=now)

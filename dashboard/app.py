@@ -64,6 +64,7 @@ from sira.infrastructure.sources.meteo.weathernext import (
     weathernext_localidad_cache,
     weathernext_resumen_actual,
     weathernext_sst_cache,
+    weathernext_sst_grid_cache,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -575,7 +576,19 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
     except Exception:  # noqa: BLE001
         log.exception("construir_weathernext_ccaa_cache falló")
         wn_ccaa = {"generado_en": None, "provincias": [], "ccaa": []}
-    mapa = _fig_weathernext_mapa(provincia_id, wn_ccaa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect)
+
+    try:
+        sst_grid = weathernext_sst_grid_cache()
+    except Exception:  # noqa: BLE001
+        log.exception("weathernext_sst_grid_cache falló")
+        sst_grid = {}
+
+    mapa = _fig_weathernext_mapa(
+        provincia_id, wn_ccaa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
+        sst_med_grid=sst_grid.get("MEDITERRÁNEO"),
+        sst_cant_grid=sst_grid.get("CANTÁBRICO"),
+        sst_atl_grid=sst_grid.get("ATLÁNTICO"),
+    )
 
     try:
         punto = weathernext_localidad_cache(municipio_id, localidad)

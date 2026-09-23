@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable
 
 import requests
 
@@ -39,9 +41,21 @@ from sira.config.settings import (
     WEATHERNEXT_MODEL,
 )
 from sira.infrastructure.geo.es import coords_municipio, municipio_por_id
+from sira.infrastructure.geo.mar_costa_atlantica import (
+    fraccion_mar_celda as _fraccion_mar_atl,
+    punto_en_mar_costa_atlantica_mapa,
+)
+from sira.infrastructure.geo.mar_mediterraneo import (
+    fraccion_mar_celda as _fraccion_mar_med,
+    punto_en_mar_mediterraneo,
+)
 from sira.infrastructure.http.client import fetch_json
 from sira.infrastructure.sources.meteo.parse import VACIO_METEO, hourly as _hourly
-from sira.infrastructure.sources.meteo.termico import construir_termico_ccaa
+from sira.infrastructure.sources.meteo.termico import (
+    construir_termico_ccaa,
+    ensamblar_termico_ccaa,
+    tareas_provincias,
+)
 from sira.infrastructure.sources.meteo.weathernext3 import (
     weathernext3_configurado,
     weathernext3_localidad,
@@ -57,6 +71,7 @@ _CACHE_TTL_SST_SEC = 900.0  # 15 min
 _cache_ccaa: dict[str, object] = {"ts": 0.0, "data": None}
 _cache_punto: dict[str, tuple[float, dict]] = {}
 _cache_sst: dict[str, object] = {"ts": 0.0, "data": None}
+_cache_sst_grid: dict[str, object] = {"ts": 0.0, "data": None}
 
 # El punto de referencia del Cantábrico en `MARES` (Santander, cerca de la
 # costa) cae en una celda de tierra/costa de la rejilla del ensemble de
@@ -67,6 +82,14 @@ _cache_sst: dict[str, object] = {"ts": 0.0, "data": None}
 _SST_COORDS_ALT: dict[str, tuple[float, float]] = {
     "CANTÁBRICO": (43.75, -4.0),
 }
+
+# Nº de coordenadas por llamada HTTP al API "ensemble" de Open-Meteo. Pedir
+# muchas localizaciones en UNA llamada (en vez de 1 llamada por localización)
+# es lo que evita el 429 "Too Many Requests": al mapa nacional (52 provincias)
+# o a la rejilla SST le sale mucho más barato en Nº de *peticiones*, aunque el
+# volumen de datos pedido sea el mismo.
+_OM_BATCH = 45
+_OM_BATCH_PAUSA_SEC = 0.6
 
 
 def _weathernext2_punto(lat: float, lon: float, nombre: str) -> dict:
@@ -138,9 +161,62 @@ def weathernext_localidad(municipio_id: str | None, localidad: str | None = None
     return weathernext_punto(lat, lon, nombre)
 
 
+def _weathernext2_ccaa_lote(tareas: list[tuple[str, str, str, str | None, str, str]]) -> dict[str, dict]:
+    """Serie WN2 de las 52 provincias en pocas llamadas HTTP (batch de
+    coordenadas), no 52 llamadas sueltas — eso es lo que disparaba 429 "Too
+    Many Requests" en Open-Meteo (52 peticiones casi simultáneas) y dejaba el
+    mapa sin datos (todas las provincias en gris "sin dato")."""
+    puntos: list[tuple[str, float, float]] = []
+    for _pid, _prov_nombre, mid, _ccaa_id, _ccaa, _muni_nombre in tareas:
+        lat, lon = coords_municipio(mid)
+        puntos.append((mid, lat, lon))
+
+    resultados: dict[str, dict] = {}
+    for i in range(0, len(puntos), _OM_BATCH):
+        if i:
+            time.sleep(_OM_BATCH_PAUSA_SEC)
+        lote = puntos[i : i + _OM_BATCH]
+        try:
+            data = fetch_json(OPEN_METEO_ENSEMBLE_URL, {
+                "latitude": ",".join(str(p[1]) for p in lote),
+                "longitude": ",".join(str(p[2]) for p in lote),
+                "hourly": "temperature_2m,precipitation,cloud_cover",
+                "models": WEATHERNEXT_MODEL,
+                "timezone": "Europe/Madrid",
+                "forecast_days": WEATHERNEXT_FORECAST_DAYS,
+            })
+        except (requests.RequestException, ValueError, OSError) as exc:
+            log.warning("WeatherNext 2 (Open-Meteo) lote CCAA %s: %s", i // _OM_BATCH, exc)
+            continue
+        items = data if isinstance(data, list) else [data]
+        for (mid, _lat, _lon), item in zip(lote, items):
+            if not isinstance(item, dict):
+                continue
+            serie = _hourly(item, {
+                "temp_c": "temperature_2m",
+                "precip_mm": "precipitation",
+                "nubosidad_pct": "cloud_cover",
+            })
+            for row in serie:
+                if row.get("temp_c") is not None:
+                    row["temp_c"] = round(float(row["temp_c"]), 1)
+            resultados[mid] = {"fuente": FUENTE_WEATHERNEXT, "serie_horaria": serie, "resumen": {}}
+    return resultados
+
+
 def construir_weathernext_ccaa(*, now: datetime | None = None, max_workers: int = 6) -> dict:
-    """Resumen térmico WeatherNext por provincia/CCAA (para el mapa)."""
-    return construir_termico_ccaa(weathernext_localidad, now=now, max_workers=max_workers)
+    """Resumen térmico WeatherNext por provincia/CCAA (para el mapa nacional).
+
+    Si WeatherNext 3 (BigQuery) está configurado se consulta punto a punto
+    (52 llamadas en paralelo, sin límite de tasa conocido tipo Open-Meteo);
+    si no, se usa WeatherNext 2 en lotes de `_OM_BATCH` coordenadas por
+    llamada para no disparar el 429 de Open-Meteo.
+    """
+    if weathernext3_configurado():
+        return construir_termico_ccaa(weathernext_localidad, now=now, max_workers=max_workers)
+    tareas = tareas_provincias()
+    resultados = _weathernext2_ccaa_lote(tareas)
+    return ensamblar_termico_ccaa(tareas, resultados, now=now)
 
 
 def construir_weathernext_ccaa_cache(*, max_workers: int = 6) -> dict:
@@ -193,6 +269,123 @@ def weathernext_sst_cache() -> dict:
             data[clave] = VACIO_METEO
     _cache_sst["data"] = data
     _cache_sst["ts"] = now
+    return data
+
+
+@dataclass(frozen=True)
+class _RegionSstWn:
+    nombre: str
+    lat_min: float
+    lat_max: float
+    lon_min: float
+    lon_max: float
+    paso: float
+    fraccion_mar: Callable[[float, float, float], float]
+    punto_en_mar: Callable[[float, float], bool]
+
+
+# Cajas más pequeñas que las de CMEMS (`cmems_sst.py`): ahí el coste es una
+# única descarga de fichero; aquí cada celda cuesta una coordenada dentro de
+# una llamada HTTP a Open-Meteo, así que se prioriza una rejilla más basta
+# (paso 0.35-0.4°, resolución nativa aprox. del ensemble) ciñéndose a la
+# costa española de cada mar en vez del bbox regional completo.
+_REGIONES_SST_WN: dict[str, _RegionSstWn] = {
+    "MEDITERRÁNEO": _RegionSstWn(
+        "Mediterráneo", 36.0, 42.8, -1.0, 4.4, 0.4, _fraccion_mar_med, punto_en_mar_mediterraneo,
+    ),
+    "CANTÁBRICO": _RegionSstWn(
+        "Cantábrico", 43.3, 44.6, -9.4, -1.4, 0.4, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
+    ),
+    "ATLÁNTICO": _RegionSstWn(
+        "Atlántico", 36.0, 42.3, -9.9, -6.0, 0.35, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
+    ),
+}
+
+
+def _malla_puntos_mar(region: _RegionSstWn) -> list[tuple[float, float]]:
+    """Puntos de la rejilla que caen ya en mar (se descartan de tierra ANTES
+    de gastar llamadas HTTP, no después)."""
+    half = max(region.paso * 0.48, 0.06)
+    pts: list[tuple[float, float]] = []
+    lat = region.lat_min
+    while lat <= region.lat_max + 1e-9:
+        lon = region.lon_min
+        while lon <= region.lon_max + 1e-9:
+            lat_r, lon_r = round(lat, 4), round(lon, 4)
+            if region.fraccion_mar(lat_r, lon_r, half) >= 0.6:
+                pts.append((lat_r, lon_r))
+            lon += region.paso
+        lat += region.paso
+    return pts
+
+
+def _weathernext_sst_grid_region(region: _RegionSstWn) -> dict:
+    """Rejilla SST WeatherNext de una costa: `{celdas, fecha, paso_deg, fuente}`
+    (misma forma que las mallas CMEMS de `cmems_sst.py`, para reutilizar
+    `add_capa_sst_grid`/`add_leyenda_sst_med` del mapa principal)."""
+    puntos = _malla_puntos_mar(region)
+    celdas: list[dict] = []
+    fecha_ref: str | None = None
+    for i in range(0, len(puntos), _OM_BATCH):
+        if i:
+            time.sleep(_OM_BATCH_PAUSA_SEC)
+        lote = puntos[i : i + _OM_BATCH]
+        try:
+            data = fetch_json(OPEN_METEO_ENSEMBLE_URL, {
+                "latitude": ",".join(str(p[0]) for p in lote),
+                "longitude": ",".join(str(p[1]) for p in lote),
+                "hourly": "sea_surface_temperature",
+                "models": WEATHERNEXT_MODEL,
+                "timezone": "UTC",
+                "forecast_days": 1,
+            })
+        except (requests.RequestException, ValueError, OSError) as exc:
+            log.warning("WeatherNext SST rejilla %s lote %s: %s", region.nombre, i // _OM_BATCH, exc)
+            continue
+        items = data if isinstance(data, list) else [data]
+        for (lat, lon), item in zip(lote, items):
+            if not isinstance(item, dict):
+                continue
+            hourly = item.get("hourly") or {}
+            temps = hourly.get("sea_surface_temperature") or []
+            times = hourly.get("time") or []
+            sst, ts = None, None
+            for t, v in zip(times, temps):
+                if v is not None:
+                    sst, ts = float(v), str(t)
+                    break
+            if sst is None:
+                continue
+            if ts and (fecha_ref is None or ts > fecha_ref):
+                fecha_ref = ts
+            celdas.append({"lat": lat, "lon": lon, "sst_c": round(sst, 2)})
+
+    fecha = (fecha_ref or datetime.now().strftime("%Y-%m-%dT%H:%M"))[:16]
+    return {
+        "region": region.nombre,
+        "fuente": FUENTE_WEATHERNEXT,
+        "fecha": fecha,
+        "paso_deg": region.paso,
+        "celdas": celdas,
+    }
+
+
+def weathernext_sst_grid_cache() -> dict:
+    """Rejillas SST WeatherNext (Mediterráneo/Cantábrico/Atlántico) para
+    pintarlas como celdas en el mapa, igual que hace el dashboard principal
+    con CMEMS. Cache corta en memoria (mismo TTL que `weathernext_sst_cache`)."""
+    now = time.monotonic()
+    if _cache_sst_grid["data"] is not None and (now - float(_cache_sst_grid["ts"])) < _CACHE_TTL_SST_SEC:
+        return _cache_sst_grid["data"]  # type: ignore[return-value]
+    data: dict[str, dict] = {}
+    for clave, region in _REGIONES_SST_WN.items():
+        try:
+            data[clave] = _weathernext_sst_grid_region(region)
+        except Exception:  # noqa: BLE001
+            log.exception("weathernext_sst_grid_cache %s falló", clave)
+            data[clave] = {}
+    _cache_sst_grid["data"] = data
+    _cache_sst_grid["ts"] = now
     return data
 
 
