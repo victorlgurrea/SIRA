@@ -345,6 +345,76 @@ def rejilla_visual_sst(celdas: list[dict], paso: float | None = None) -> list[di
     ]
 
 
+def densificar_visual_sst(
+    celdas: list[dict],
+    *,
+    paso: float,
+    factor: int = 4,
+    punto_en_mar=None,
+) -> list[dict]:
+    """Interpola BILINEALMENTE una malla regular dispersa (paso grande, p.ej.
+    WeatherNext, limitado por coste por punto de la API) a una malla visual
+    más fina (paso/factor), para que se pinte como una superficie continua
+    en vez de un tablero de cuadros con huecos entre sí -- con una densidad
+    de puntos del mismo orden que las mallas CMEMS del dashboard principal
+    (mucho más finas de origen). No crea dato nuevo: solo interpola entre
+    los puntos ya obtenidos, es un recurso puramente de renderizado."""
+    paso = float(paso)
+    factor = max(1, int(factor))
+    if factor == 1 or not celdas or paso <= 0:
+        return list(celdas)
+
+    lats_validas = [float(c["lat"]) for c in celdas if c.get("sst_c") is not None]
+    lons_validas = [float(c["lon"]) for c in celdas if c.get("sst_c") is not None]
+    if not lats_validas:
+        return []
+    lat0, lon0 = min(lats_validas), min(lons_validas)
+
+    idx: dict[tuple[int, int], float] = {}
+    for c in celdas:
+        if c.get("sst_c") is None:
+            continue
+        i = round((float(c["lat"]) - lat0) / paso)
+        j = round((float(c["lon"]) - lon0) / paso)
+        idx[(i, j)] = float(c["sst_c"])
+
+    i_min, i_max = min(k[0] for k in idx), max(k[0] for k in idx)
+    j_min, j_max = min(k[1] for k in idx), max(k[1] for k in idx)
+
+    finas: list[dict] = []
+    for i in range(i_min, i_max + 1):
+        for j in range(j_min, j_max + 1):
+            esquinas = {
+                (0, 0): idx.get((i, j)),
+                (1, 0): idx.get((i + 1, j)),
+                (0, 1): idx.get((i, j + 1)),
+                (1, 1): idx.get((i + 1, j + 1)),
+            }
+            if all(v is None for v in esquinas.values()):
+                continue
+            for di in range(factor):
+                for dj in range(factor):
+                    tx = di / factor
+                    ty = dj / factor
+                    total = peso = 0.0
+                    for (ei, ej), valor in esquinas.items():
+                        if valor is None:
+                            continue
+                        w = (tx if ei else 1 - tx) * (ty if ej else 1 - ty)
+                        total += w * valor
+                        peso += w
+                    if peso <= 1e-9:
+                        continue
+                    lat = lat0 + (i + tx) * paso
+                    lon = lon0 + (j + ty) * paso
+                    if punto_en_mar is not None and not punto_en_mar(lat, lon):
+                        continue
+                    finas.append(
+                        {"lat": round(lat, 4), "lon": round(lon, 4), "sst_c": round(total / peso, 2)}
+                    )
+    return finas
+
+
 def add_capa_sst_grid(
     fig: go.Figure,
     celdas: list[dict] | None,

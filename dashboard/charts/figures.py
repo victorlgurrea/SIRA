@@ -588,7 +588,7 @@ def fig_weathernext_mapa(
     hace el dashboard principal con CMEMS."""
     import logging
 
-    from charts.map_layers import add_capa_sst_grid
+    from charts.map_layers import add_capa_sst_grid, densificar_visual_sst
     from sira.infrastructure.geo.mar_costa_atlantica import punto_en_mar_costa_atlantica_mapa
     from sira.infrastructure.geo.mar_mediterraneo import punto_en_mar_mediterraneo
 
@@ -680,13 +680,24 @@ def fig_weathernext_mapa(
         if not celdas:
             continue
         try:
+            paso_original = float(grid.get("paso_deg") or 0.4)
+            # WeatherNext pide cada punto a la API (coste por celda), así que
+            # su malla real es mucho más basta que la de CMEMS (paso ~0.4°
+            # frente a ~0.08-0.12°) y se ve como un tablero de cuadros con
+            # huecos. Se interpola visualmente a una malla más fina (sin
+            # pedir más datos reales) para que se pinte como una superficie
+            # continua, igual que las celdas del dashboard principal.
+            celdas_pintar = densificar_visual_sst(
+                celdas, paso=paso_original, factor=4, punto_en_mar=filtro_mar,
+            )
+            paso_pintar = paso_original / 4
             add_capa_sst_grid(
                 fig,
-                celdas,
+                celdas_pintar,
                 region_label=etiqueta,
                 punto_en_mar=filtro_mar,
                 fecha=str(grid.get("fecha") or "") or None,
-                paso_deg=grid.get("paso_deg"),
+                paso_deg=paso_pintar,
                 fuente=str(grid.get("fuente") or "") or None,
                 theme=theme,
                 legendgroup=grupo,
