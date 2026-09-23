@@ -27,6 +27,7 @@ dashboard no incluye esos paneles a propósito.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -89,16 +90,19 @@ _SST_COORDS_ALT: dict[str, tuple[float, float]] = {
 # o a la rejilla SST le sale mucho más barato en Nº de *peticiones*, aunque el
 # volumen de datos pedido sea el mismo.
 _OM_BATCH = 45
-_OM_BATCH_PAUSA_SEC = 0.6
+_OM_BATCH_PAUSA_SEC = 1.1
 
 # Open-Meteo corta la conexión de forma intermitente bajo la carga de varios
 # lotes seguidos (`ConnectionResetError`/"Connection aborted"). Sin reintento
 # se perdía el lote ENTERO (hasta 45 puntos de golpe) — un hueco grande en el
 # mapa/rejilla en vez de una celda suelta, muy visible sobre todo en el
 # Mediterráneo (bbox más grande => más lotes => más probabilidad de que
-# alguno falle).
+# alguno falle). Con bboxes más grandes (más lotes seguidos) también aparece
+# 429 "Too Many Requests" -- ese necesita una espera mucho más larga que un
+# simple corte de conexión, o el reintento vuelve a chocar con el límite.
 _OM_REINTENTOS = 3
 _OM_REINTENTO_PAUSA_SEC = 1.0
+_OM_REINTENTO_PAUSA_429_SEC = 8.0
 
 
 def _fetch_lote_om(params: dict, *, contexto: str) -> dict | list | None:
@@ -106,7 +110,11 @@ def _fetch_lote_om(params: dict, *, contexto: str) -> dict | list | None:
     ultimo_exc: Exception | None = None
     for intento in range(_OM_REINTENTOS):
         if intento:
-            time.sleep(_OM_REINTENTO_PAUSA_SEC * intento)
+            es_429 = isinstance(ultimo_exc, requests.HTTPError) and getattr(
+                ultimo_exc.response, "status_code", None
+            ) == 429
+            pausa = _OM_REINTENTO_PAUSA_429_SEC * intento if es_429 else _OM_REINTENTO_PAUSA_SEC * intento
+            time.sleep(pausa)
         try:
             return fetch_json(OPEN_METEO_ENSEMBLE_URL, params)
         except (requests.RequestException, ValueError, OSError) as exc:
@@ -320,9 +328,16 @@ _REGIONES_SST_WN: dict[str, _RegionSstWn] = {
     # lon_min a -5.4 (antes -1.0): el bbox se quedaba corto por el oeste y
     # dejaba fuera TODA la costa mediterránea de Málaga/Almería y el mar de
     # Alborán (frente a Gibraltar) — el hueco que se veía en el mapa no era
-    # un fallo de red, era que esa zona ni se pedía. lon_max a 7.6 (antes
-    # 4.4) para rellenar visualmente más superficie de mar dentro del
-    # viewport nacional (hasta cerca de Cerdeña), no solo la franja costera.
+    # un fallo de red, era que esa zona ni se pedía. lon_max a 7.6 para
+    # rellenar visualmente más superficie de mar dentro del viewport
+    # nacional (hasta cerca de Cerdeña), no solo la franja costera.
+    #
+    # OJO: se probó a ampliar hasta Sicilia/Túnez (lon_max=17.0, ~15 lotes)
+    # y Open-Meteo empezó a devolver 429 "Too Many Requests" en TODOS los
+    # lotes, no solo alguno suelto -- es un límite real de la API, no un
+    # problema de rendimiento nuestro. Con ~7 lotes (este bbox) no se ha
+    # visto ese problema. No agrandar sin volver a probar en frío varias
+    # veces seguidas (el límite parece acumulativo/por ventana de tiempo).
     "MEDITERRÁNEO": _RegionSstWn(
         "Mediterráneo", 35.8, 43.0, -5.4, 7.6, 0.4, _fraccion_mar_med, punto_en_mar_mediterraneo,
     ),
@@ -404,13 +419,7 @@ def _weathernext_sst_grid_region(region: _RegionSstWn) -> dict:
     }
 
 
-def weathernext_sst_grid_cache() -> dict:
-    """Rejillas SST WeatherNext (Mediterráneo/Cantábrico/Atlántico) para
-    pintarlas como celdas en el mapa, igual que hace el dashboard principal
-    con CMEMS. Cache corta en memoria (mismo TTL que `weathernext_sst_cache`)."""
-    now = time.monotonic()
-    if _cache_sst_grid["data"] is not None and (now - float(_cache_sst_grid["ts"])) < _CACHE_TTL_SST_SEC:
-        return _cache_sst_grid["data"]  # type: ignore[return-value]
+def _construir_sst_grid_todas() -> dict[str, dict]:
     data: dict[str, dict] = {}
     for clave, region in _REGIONES_SST_WN.items():
         try:
@@ -418,9 +427,59 @@ def weathernext_sst_grid_cache() -> dict:
         except Exception:  # noqa: BLE001
             log.exception("weathernext_sst_grid_cache %s falló", clave)
             data[clave] = {}
-    _cache_sst_grid["data"] = data
-    _cache_sst_grid["ts"] = now
     return data
+
+
+_cache_sst_grid_lock = threading.Lock()
+_cache_sst_grid_refrescando = False
+
+
+def weathernext_sst_grid_cache() -> dict:
+    """Rejillas SST WeatherNext (Mediterráneo/Cantábrico/Atlántico) para
+    pintarlas como celdas en el mapa, igual que hace el dashboard principal
+    con CMEMS. Cache corta en memoria (mismo TTL que `weathernext_sst_cache`).
+
+    "Stale-while-revalidate": con bboxes grandes (sobre todo el Mediterráneo)
+    esto puede tardar ~1 min en frío (varias decenas de lotes a Open-Meteo).
+    Si ya hay un dato previo (aunque esté caducado) se devuelve al instante y
+    se refresca en un hilo de fondo, para que ningún usuario que visite
+    /weathernext se quede esperando ese minuto -- solo la primera vez que el
+    proceso arranca (sin nada cacheado aún) se espera de forma síncrona.
+    """
+    global _cache_sst_grid_refrescando
+    now = time.monotonic()
+    data = _cache_sst_grid["data"]
+    caducado = data is None or (now - float(_cache_sst_grid["ts"])) >= _CACHE_TTL_SST_SEC
+    if not caducado:
+        return data  # type: ignore[return-value]
+
+    if data is None:
+        # Primer arranque: no hay nada que servir, hay que esperar sí o sí.
+        nuevo = _construir_sst_grid_todas()
+        _cache_sst_grid["data"] = nuevo
+        _cache_sst_grid["ts"] = now
+        return nuevo
+
+    with _cache_sst_grid_lock:
+        ya_en_marcha = _cache_sst_grid_refrescando
+        _cache_sst_grid_refrescando = True
+    if ya_en_marcha:
+        return data  # type: ignore[return-value]
+
+    def _refrescar() -> None:
+        global _cache_sst_grid_refrescando
+        try:
+            nuevo = _construir_sst_grid_todas()
+            _cache_sst_grid["data"] = nuevo
+            _cache_sst_grid["ts"] = time.monotonic()
+        except Exception:  # noqa: BLE001
+            log.exception("Refresco en background de weathernext_sst_grid_cache falló")
+        finally:
+            with _cache_sst_grid_lock:
+                _cache_sst_grid_refrescando = False
+
+    threading.Thread(target=_refrescar, daemon=True, name="wn-sst-grid-refresh").start()
+    return data  # type: ignore[return-value]
 
 
 def weathernext_resumen_actual(punto: dict | None) -> tuple[dict, list[dict]]:
