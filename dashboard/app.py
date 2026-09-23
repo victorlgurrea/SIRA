@@ -57,6 +57,11 @@ from charts.figures import (
     fig_corrientes as _fig_corrientes,
     fig_linea as _fig_linea,
     fig_historial as _fig_historial_impl,
+    fig_termico_ccaa as _fig_termico_ccaa,
+)
+from sira.infrastructure.sources.meteo.weathernext import (
+    construir_weathernext_ccaa_cache,
+    weathernext_localidad_cache,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -107,6 +112,7 @@ app.index_string = f"""
 _LOGO = app.get_asset_url("logo-sira_4.png") + "?v=8"
 
 _AYUDA_OCE_PREVISION = f"Previsión horaria · {FORECAST_DAYS} días · Open-Meteo Marine"
+_AYUDA_WEATHERNEXT = "Previsión horaria · Google WeatherNext 2 (media del ensemble) vía Open-Meteo"
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
@@ -164,6 +170,7 @@ app.layout = html.Div(className="sira-page", children=[
                         # Historial 30 días: oculto hasta tener SQLite persistente / serie útil
                         # html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
                         html.A("Estado", href="/status", className="sira-link-nav"),
+                        html.A("WeatherNext", href="/weathernext", className="sira-link-nav"),
                         html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
                         html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
                         html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
@@ -257,6 +264,38 @@ app.layout = html.Div(className="sira-page", children=[
                         "Meteo e impacto local: un punto al día guardado en ingesta (requiere SQLite persistente).",
                         accent=C_CYAN,
                     ),
+                ]),
+            ]),
+            html.Div(id="page-weathernext", style={"display": "none"}, children=[
+                html.Div(className="sira-historial-nav", children=[
+                    html.A("← Volver al dashboard", href="/", className="sira-link-nav"),
+                    html.A("Estado del sistema", href="/status", className="sira-link-nav"),
+                ]),
+                html.Div(className="sira-charts", children=[
+                    html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
+                        bloque(
+                            "wn_mapa", "WeatherNext — temperatura máxima prevista (24 h)",
+                            f"{_AYUDA_WEATHERNEXT} · por provincia, según la comunidad autónoma seleccionada.",
+                            map_chart=True, accent=C_ORANGE,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                        bloque(
+                            "wn_temp", "Previsión temperatura — WeatherNext 2",
+                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            accent=C_ORANGE,
+                        ),
+                        bloque(
+                            "wn_precip", "Previsión precipitación — WeatherNext 2",
+                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            accent=C_CYAN,
+                        ),
+                        bloque(
+                            "wn_viento", "Previsión viento — WeatherNext 2",
+                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            accent=C_GREEN,
+                        ),
+                    ]),
                 ]),
             ]),
         ]),
@@ -427,6 +466,7 @@ def on_geo_change(provincia_id, municipio_id, localidad_id, map_aspect):
 @callback(
     Output("page-home", "style"),
     Output("page-historial", "style"),
+    Output("page-weathernext", "style"),
     Output("tick", "disabled"),
     Output("geo-locate-poll", "disabled"),
     Input("url", "pathname"),
@@ -434,9 +474,12 @@ def on_geo_change(provincia_id, municipio_id, localidad_id, map_aspect):
 def route_pages(pathname):
     # /historial deshabilitado en UI; la ruta sigue en código por si se reactiva.
     on_historial = False
+    on_weathernext = pathname == "/weathernext"
+    if on_weathernext:
+        return {"display": "none"}, {"display": "none"}, {"display": "block"}, True, True
     if on_historial:
-        return {"display": "none"}, {"display": "block"}, True, True
-    return {"display": "block"}, {"display": "none"}, False, True
+        return {"display": "none"}, {"display": "block"}, {"display": "none"}, True, True
+    return {"display": "block"}, {"display": "none"}, {"display": "none"}, False, True
 
 
 @callback(
@@ -460,6 +503,46 @@ def refresh_historial(pathname, municipio_id, theme):
 
 
 @callback(
+    Output("wn_mapa", "figure"),
+    Output("wn_temp", "figure"),
+    Output("wn_precip", "figure"),
+    Output("wn_viento", "figure"),
+    Input("url", "pathname"),
+    Input("geo-store", "data"),
+    Input("theme-store", "data"),
+)
+def refresh_weathernext(pathname, geo, theme):
+    if pathname != "/weathernext":
+        raise PreventUpdate
+    t = theme_val(theme)
+    geo = geo_resuelto(geo)
+    provincia_id = geo.get("provincia_id")
+    municipio_id = geo.get("municipio_id")
+    localidad = geo.get("localidad")
+
+    try:
+        wn_ccaa = construir_weathernext_ccaa_cache()
+    except Exception:  # noqa: BLE001
+        log.exception("construir_weathernext_ccaa_cache falló")
+        wn_ccaa = {"generado_en": None, "provincias": [], "ccaa": []}
+    mapa = _fig_termico_ccaa(provincia_id, wn_ccaa, uirev="sira-wn-ccaa", theme=t)
+
+    try:
+        punto = weathernext_localidad_cache(municipio_id, localidad)
+    except Exception:  # noqa: BLE001
+        log.exception("weathernext_localidad_cache falló")
+        punto = {"serie_horaria": []}
+    serie = punto.get("serie_horaria", [])
+
+    return (
+        mapa,
+        _fig_linea(serie, "temp_c", C_ORANGE, "°C", "sira-wn-temp", theme=t),
+        _fig_linea(serie, "precip_mm", C_CYAN, "mm", "sira-wn-precip", theme=t),
+        _fig_linea(serie, "viento_ms", C_GREEN, "m/s", "sira-wn-viento", theme=t),
+    )
+
+
+@callback(
     Output("cards", "children", allow_duplicate=True),
     Output("cards", "className", allow_duplicate=True),
     Output("mapa", "figure", allow_duplicate=True),
@@ -472,7 +555,7 @@ def refresh_historial(pathname, municipio_id, theme):
     prevent_initial_call=True,
 )
 def refresh_geo(geo, theme, capas, map_aspect, pathname):
-    if pathname == "/historial":
+    if pathname in ("/historial", "/weathernext"):
         raise PreventUpdate
     d = _load()
     t = theme_val(theme)
@@ -490,7 +573,7 @@ def refresh_geo(geo, theme, capas, map_aspect, pathname):
     prevent_initial_call=True,
 )
 def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
-    if pathname == "/historial":
+    if pathname in ("/historial", "/weathernext"):
         raise PreventUpdate
     return build_mapa_fig(geo, _load(), capas, theme_val(theme), map_aspect=map_aspect)
 
@@ -510,7 +593,7 @@ def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
     State("url", "pathname"),
 )
 def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathname):
-    if pathname == "/historial":
+    if pathname in ("/historial", "/weathernext"):
         raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:

@@ -221,6 +221,13 @@ AFORO_MAP_MAX = _i("AFORO_MAP_MAX", "20")
 AFORO_CAUDAL_VIGILANCIA_M3S = _f("AFORO_CAUDAL_VIGILANCIA_M3S", "1.0")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
+# WeatherNext (Google DeepMind) vía Open-Meteo. WeatherNext 3 solo está disponible
+# hoy con acceso restringido en Google Cloud (allowlist); WeatherNext 2 es de acceso
+# libre a través del endpoint "ensemble" de Open-Meteo con el modelo *_mean (media
+# del ensemble, sin miembros individuales).
+OPEN_METEO_ENSEMBLE_URL = os.getenv("OPEN_METEO_ENSEMBLE_URL", "https://ensemble-api.open-meteo.com/v1/ensemble")
+WEATHERNEXT_MODEL = os.getenv("WEATHERNEXT_MODEL", "google_weathernext2_ensemble_mean")
+WEATHERNEXT_FORECAST_DAYS = _i("WEATHERNEXT_FORECAST_DAYS", "7")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
 AEMET_MUNICIPIO = os.getenv("AEMET_MUNICIPIO", "46250")
 AEMET_PUSH_MIN_LEVEL = os.getenv("AEMET_PUSH_MIN_LEVEL", "amarillo").strip().lower()
@@ -283,7 +290,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 ALLOWED_HOSTS = frozenset({
     "earthquake.usgs.gov", "www.seismicportal.eu", "seismicportal.eu",
-    "marine-api.open-meteo.com", "api.open-meteo.com",
+    "marine-api.open-meteo.com", "api.open-meteo.com", "ensemble-api.open-meteo.com",
     "geocoding-api.open-meteo.com", "datasets-server.huggingface.co",
     "raw.githubusercontent.com", "huggingface.co",
     "opendata.aemet.es", "www.aemet.es", "aemet.es",
