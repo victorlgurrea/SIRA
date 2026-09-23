@@ -320,9 +320,11 @@ _REGIONES_SST_WN: dict[str, _RegionSstWn] = {
     # lon_min a -5.4 (antes -1.0): el bbox se quedaba corto por el oeste y
     # dejaba fuera TODA la costa mediterránea de Málaga/Almería y el mar de
     # Alborán (frente a Gibraltar) — el hueco que se veía en el mapa no era
-    # un fallo de red, era que esa zona ni se pedía.
+    # un fallo de red, era que esa zona ni se pedía. lon_max a 7.6 (antes
+    # 4.4) para rellenar visualmente más superficie de mar dentro del
+    # viewport nacional (hasta cerca de Cerdeña), no solo la franja costera.
     "MEDITERRÁNEO": _RegionSstWn(
-        "Mediterráneo", 35.8, 42.8, -5.4, 4.4, 0.4, _fraccion_mar_med, punto_en_mar_mediterraneo,
+        "Mediterráneo", 35.8, 43.0, -5.4, 7.6, 0.4, _fraccion_mar_med, punto_en_mar_mediterraneo,
     ),
     "CANTÁBRICO": _RegionSstWn(
         "Cantábrico", 43.3, 44.6, -9.4, -1.4, 0.4, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
