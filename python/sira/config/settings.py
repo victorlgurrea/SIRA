@@ -228,6 +228,19 @@ OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-m
 OPEN_METEO_ENSEMBLE_URL = os.getenv("OPEN_METEO_ENSEMBLE_URL", "https://ensemble-api.open-meteo.com/v1/ensemble")
 WEATHERNEXT_MODEL = os.getenv("WEATHERNEXT_MODEL", "google_weathernext2_ensemble_mean")
 WEATHERNEXT_FORECAST_DAYS = _i("WEATHERNEXT_FORECAST_DAYS", "7")
+# WeatherNext 3 real (BigQuery, acceso por allowlist — formulario en
+# https://developers.google.com/weathernext/guides/access-forecast, 5-7 días
+# laborables). Mientras esto no esté configurado (o la cuenta no esté admitida
+# todavía en la allowlist), weathernext.py cae automáticamente a WeatherNext 2
+# vía Open-Meteo. Rellenar tras suscribirse al listing "WeatherNext 3" en
+# BigQuery Analytics Hub del proyecto de Google Cloud:
+# WEATHERNEXT3_PROJECT_ID=tu-proyecto-gcp
+# WEATHERNEXT3_DATASET_ID=nombre-que-le-diste-al-dataset-enlazado
+WEATHERNEXT3_PROJECT_ID = os.getenv("WEATHERNEXT3_PROJECT_ID", "")
+WEATHERNEXT3_DATASET_ID = os.getenv("WEATHERNEXT3_DATASET_ID", "")
+WEATHERNEXT3_TABLE_0P1DEG = os.getenv("WEATHERNEXT3_TABLE_0P1DEG", "weathernext_3_0_0_0p1deg")
+# Horizonte a pedir (de hasta 360h/15 días disponibles en ciclos de 6h).
+WEATHERNEXT3_HORAS_MAX = _i("WEATHERNEXT3_HORAS_MAX", "168")
 AEMET_API_KEY = os.getenv("AEMET_API_KEY", "")
 AEMET_MUNICIPIO = os.getenv("AEMET_MUNICIPIO", "46250")
 AEMET_PUSH_MIN_LEVEL = os.getenv("AEMET_PUSH_MIN_LEVEL", "amarillo").strip().lower()

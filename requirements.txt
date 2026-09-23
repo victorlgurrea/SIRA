@@ -12,3 +12,8 @@ xarray>=2024.1.0
 h5netcdf>=1.3.0
 pywebpush>=2.0.3
 pytest>=8.0.0
+# WeatherNext 3 (Google Cloud, allowlist pendiente): import perezoso en
+# weathernext3.py, solo se usa si se configuran WEATHERNEXT3_PROJECT_ID /
+# WEATHERNEXT3_DATASET_ID. Mientras tanto no se instancia ningun cliente ni
+# se consume memoria extra (fallback automatico a WeatherNext 2/Open-Meteo).
+google-cloud-bigquery>=3.25.0

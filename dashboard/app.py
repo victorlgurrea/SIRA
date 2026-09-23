@@ -271,6 +271,13 @@ app.layout = html.Div(className="sira-page", children=[
                     html.A("← Volver al dashboard", href="/", className="sira-link-nav"),
                     html.A("Estado del sistema", href="/status", className="sira-link-nav"),
                 ]),
+                html.P(
+                    "Modelo meteorológico puro (Google WeatherNext): sin sismos, incendios, "
+                    "embalses ni aforos. Usa WeatherNext 3 en cuanto Google conceda el acceso "
+                    "solicitado (BigQuery); mientras tanto, WeatherNext 2 vía Open-Meteo. "
+                    "La fuente activa se indica en cada gráfica.",
+                    className="sira-bloque-help", style={"padding": "0 4px 8px"},
+                ),
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         bloque(
@@ -281,19 +288,31 @@ app.layout = html.Div(className="sira-page", children=[
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
                         bloque(
-                            "wn_temp", "Previsión temperatura — WeatherNext 2",
+                            "wn_temp", "Previsión temperatura",
                             f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
                             accent=C_ORANGE,
                         ),
                         bloque(
-                            "wn_precip", "Previsión precipitación — WeatherNext 2",
+                            "wn_precip", "Previsión precipitación",
                             f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
                             accent=C_CYAN,
                         ),
                         bloque(
-                            "wn_viento", "Previsión viento — WeatherNext 2",
+                            "wn_viento", "Previsión viento",
                             f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
                             accent=C_GREEN,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--3", children=[
+                        bloque(
+                            "wn_nubes", "Previsión nubosidad",
+                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            accent=C_TEAL,
+                        ),
+                        bloque(
+                            "wn_presion", "Previsión presión a nivel del mar",
+                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            accent=C_ORANGE,
                         ),
                     ]),
                 ]),
@@ -507,6 +526,8 @@ def refresh_historial(pathname, municipio_id, theme):
     Output("wn_temp", "figure"),
     Output("wn_precip", "figure"),
     Output("wn_viento", "figure"),
+    Output("wn_nubes", "figure"),
+    Output("wn_presion", "figure"),
     Input("url", "pathname"),
     Input("geo-store", "data"),
     Input("theme-store", "data"),
@@ -539,6 +560,8 @@ def refresh_weathernext(pathname, geo, theme):
         _fig_linea(serie, "temp_c", C_ORANGE, "°C", "sira-wn-temp", theme=t),
         _fig_linea(serie, "precip_mm", C_CYAN, "mm", "sira-wn-precip", theme=t),
         _fig_linea(serie, "viento_ms", C_GREEN, "m/s", "sira-wn-viento", theme=t),
+        _fig_linea(serie, "nubosidad_pct", C_TEAL, "%", "sira-wn-nubes", theme=t),
+        _fig_linea(serie, "presion_hpa", C_ORANGE, "hPa", "sira-wn-presion", theme=t),
     )
 
 
