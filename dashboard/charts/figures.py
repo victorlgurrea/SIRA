@@ -525,26 +525,27 @@ def fig_termico_ccaa(
         ttxt = f"{float(tmax):.1f} °C" if tmax is not None else "—"
         stxt = f"{float(sens):.1f} °C" if sens is not None else "—"
         prov_name = pmeta.get(pid, row.get("provincia") or pid)
-        for ring in feat.get("rings", []):
-            lats = ring.get("lat") or []
-            lons = ring.get("lon") or []
-            if len(lats) < 3:
-                continue
-            fig.add_trace(
-                go.Scattergeo(
-                    lat=lats, lon=lons, mode="lines", fill="toself", fillcolor=color,
-                    line=dict(color="rgba(15,23,42,0.45)", width=0.7),
-                    showlegend=False, name=prov_name,
-                    hovertemplate=(
-                        f"{prov_name}<br>"
-                        f"T. máxima prevista (24 h): {ttxt}<br>"
-                        f"Sensación térmica en pico: {stxt}<br>"
-                        f"Hora pico: {hora}<br>"
-                        f"Fuente: {fuente}"
-                        "<extra></extra>"
-                    ),
-                )
+        rings = [r for r in feat.get("rings", []) if len(r.get("lat") or []) >= 3]
+        if not rings:
+            continue
+        # Solo el anillo mayor: fill=toself con anillos anidados (exclaves)
+        # puede vaciar provincias vecinas (p. ej. hueco en Toledo).
+        ring = max(rings, key=lambda r: len(r.get("lat") or []))
+        fig.add_trace(
+            go.Scattergeo(
+                lat=ring["lat"], lon=ring["lon"], mode="lines", fill="toself", fillcolor=color,
+                line=dict(color="rgba(15,23,42,0.45)", width=0.7),
+                showlegend=False, name=prov_name,
+                hovertemplate=(
+                    f"{prov_name}<br>"
+                    f"T. máxima prevista (24 h): {ttxt}<br>"
+                    f"Sensación térmica en pico: {stxt}<br>"
+                    f"Hora pico: {hora}<br>"
+                    f"Fuente: {fuente}"
+                    "<extra></extra>"
+                ),
             )
+        )
 
     anadir_bordes_ccaa(fig, pid_sel)
     anadir_bordes_provincias(

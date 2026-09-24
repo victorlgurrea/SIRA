@@ -583,11 +583,21 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         log.exception("weathernext_sst_grid_cache falló")
         sst_grid = {}
 
+    # Preferir mallas CMEMS de la ingesta (Med hasta Levante/Turquía, Atl
+    # Portugal→Gibraltar). WeatherNext Open-Meteo se queda corto por rate-limit.
+    d = _load()
+    def _sst_capa(clave_wn: str, clave_dash: str) -> dict | None:
+        cmems = d.get(clave_dash) if isinstance(d.get(clave_dash), dict) else {}
+        if cmems.get("celdas"):
+            return cmems
+        wn = sst_grid.get(clave_wn) if isinstance(sst_grid, dict) else {}
+        return wn if isinstance(wn, dict) else {}
+
     mapa = _fig_weathernext_mapa(
         provincia_id, wn_ccaa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
-        sst_med_grid=sst_grid.get("MEDITERRÁNEO"),
-        sst_cant_grid=sst_grid.get("CANTÁBRICO"),
-        sst_atl_grid=sst_grid.get("ATLÁNTICO"),
+        sst_med_grid=_sst_capa("MEDITERRÁNEO", "sst_med_grid"),
+        sst_cant_grid=_sst_capa("CANTÁBRICO", "sst_cant_grid"),
+        sst_atl_grid=_sst_capa("ATLÁNTICO", "sst_atl_grid"),
     )
 
     try:

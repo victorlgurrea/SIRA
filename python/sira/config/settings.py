@@ -96,14 +96,15 @@ COSTERO_MAPA = {
 }
 
 MAPA = {
-    "lat_centro": _f("MAPA_LAT_CENTRO", "40.4168"),
-    "lon_centro": _f("MAPA_LON_CENTRO", "-3.7038"),
-    "ciudad_centro": os.getenv("MAPA_CIUDAD_CENTRO", "Madrid"),
-    "lat_min": _f("MAPA_LAT_MIN", "32.0"),
+    "lat_centro": _f("MAPA_LAT_CENTRO", "39.5"),
+    "lon_centro": _f("MAPA_LON_CENTRO", "8.0"),
+    "ciudad_centro": os.getenv("MAPA_CIUDAD_CENTRO", "Mediterráneo"),
+    "lat_min": _f("MAPA_LAT_MIN", "30.5"),
     "lat_max": _f("MAPA_LAT_MAX", "46.0"),
     "lon_min": _f("MAPA_LON_MIN", "-12.0"),
-    "lon_max": _f("MAPA_LON_MAX", "8.0"),
-    "projection_scale": _f("MAPA_PROJECTION_SCALE", "1.5"),
+    # Hasta Egeo / costa anatolia para ver SST Med-Physics completa.
+    "lon_max": _f("MAPA_LON_MAX", "30.0"),
+    "projection_scale": _f("MAPA_PROJECTION_SCALE", "1.05"),
 }
 
 # Puntos de referencia marinos por costa (Open-Meteo marine)
@@ -142,7 +143,7 @@ CMEMS_SST_LAT_MAX = _f("CMEMS_SST_LAT_MAX", "45.97")
 CMEMS_SST_LON_MIN = _f("CMEMS_SST_LON_MIN", "-6.50")
 CMEMS_SST_LON_MAX = _f("CMEMS_SST_LON_MAX", "36.29")
 CMEMS_SST_PASO_DEG = _f("CMEMS_SST_PASO_DEG", "0.12")
-CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "2000")
+CMEMS_SST_MAP_MAX_CELDAS = _i("CMEMS_SST_MAP_MAX_CELDAS", "3500")
 # Tope por región CMEMS (Render Free se queda colgado en open_dataset).
 CMEMS_SST_TIMEOUT_SEC = _i("CMEMS_SST_TIMEOUT_SEC", "300")
 # IBI conjunto (cant+atl) es un bbox mayor: más margen antes de abortar.

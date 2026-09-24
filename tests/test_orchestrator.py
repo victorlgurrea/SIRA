@@ -230,7 +230,7 @@ def test_ingesta_tres_regiones_sst_separadas(monkeypatch):
                 {"lat": 36.2, "lon": -5.5, "sst_c": 19.0},
             ],
             "resumen": {"n_celdas": 2, "sst_min_c": 17.0, "sst_max_c": 19.0, "sst_media_c": 18.0},
-            "mosaico_tiles": ["atl_oeste", "atl_sur"],
+            "mosaico_tiles": ["atl_oeste", "atl_sur_oeste", "atl_golfo"],
         },
     )
     monkeypatch.setattr(orch, "read_dashboard", lambda: {})
@@ -244,6 +244,8 @@ def test_ingesta_tres_regiones_sst_separadas(monkeypatch):
     orch.ejecutar_ingesta()
     out = written[0]
     assert out["fuentes_estado"]["cmems_sst_atl"]["ok"] is True
-    assert out["fuentes_estado"]["cmems_sst_atl"].get("mosaico_tiles") == ["atl_oeste", "atl_sur"]
+    assert out["fuentes_estado"]["cmems_sst_atl"].get("mosaico_tiles") == [
+        "atl_oeste", "atl_sur_oeste", "atl_golfo",
+    ]
     assert len(out["sst_atl_grid"]["celdas"]) == 2
     assert max(c["lon"] for c in out["sst_atl_grid"]["celdas"]) >= -5.5

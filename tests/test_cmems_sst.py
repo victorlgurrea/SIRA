@@ -142,8 +142,8 @@ def test_descargar_sst_cant_cmems_mock(monkeypatch):
     assert "Copernicus" in out["fuente"]
 
 
-def test_descargar_sst_atl_mosaico_dos_tiles(monkeypatch):
-    """Atlántico = 2 subset (oeste+sur), no un bbox único."""
+def test_descargar_sst_atl_mosaico_tiles(monkeypatch):
+    """Atlántico = mosaico oeste + Algarve + golfo (no un bbox único)."""
     monkeypatch.setattr(mod, "CMEMS_USERNAME", "user")
     monkeypatch.setattr(mod, "CMEMS_PASSWORD", "pass")
     monkeypatch.setattr(mod, "CMEMS_SST_VARIABLE", "thetao")
@@ -177,12 +177,25 @@ def test_descargar_sst_atl_mosaico_dos_tiles(monkeypatch):
     )
     monkeypatch.setattr(
         mod,
-        "REGION_ATL_SUR",
+        "REGION_ATL_SUR_OESTE",
         _region_test(
-            key="atl_sur",
+            key="atl_sur_oeste",
             lat_min=35.9,
             lat_max=37.8,
             lon_min=-10.95,
+            lon_max=-8.0,
+            paso_deg=1.0,
+            umbral_mar=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "REGION_ATL_GOLFO",
+        _region_test(
+            key="atl_golfo",
+            lat_min=35.9,
+            lat_max=37.5,
+            lon_min=-8.5,
             lon_max=-5.0,
             paso_deg=1.0,
             umbral_mar=0.0,
@@ -195,14 +208,16 @@ def test_descargar_sst_atl_mosaico_dos_tiles(monkeypatch):
         calls.append(region.key)
         if region.key == "atl_oeste":
             return [{"lat": 40.0, "lon": -9.0, "sst_c": 17.0}], "2026-07-28 12:00", 1.0
-        if region.key == "atl_sur":
+        if region.key == "atl_sur_oeste":
+            return [{"lat": 36.5, "lon": -9.2, "sst_c": 18.5}], "2026-07-28 12:00", 1.0
+        if region.key == "atl_golfo":
             return [{"lat": 36.2, "lon": -5.5, "sst_c": 19.0}], "2026-07-28 12:00", 1.0
         raise AssertionError(f"tile inesperado {region.key}")
 
     monkeypatch.setattr(mod, "_desde_cmems_celdas_con_timeout", fake_celdas)
     out = mod.descargar_sst_atl_cuadricula()
-    assert calls == ["atl_oeste", "atl_sur"]
+    assert calls == ["atl_oeste", "atl_sur_oeste", "atl_golfo"]
     assert out["region"] == "atl"
-    assert out.get("mosaico_tiles") == ["atl_oeste", "atl_sur"]
-    assert len(out["celdas"]) == 2
+    assert out.get("mosaico_tiles") == ["atl_oeste", "atl_sur_oeste", "atl_golfo"]
+    assert len(out["celdas"]) == 3
     assert any(abs(c["lon"] + 5.5) < 0.01 for c in out["celdas"])

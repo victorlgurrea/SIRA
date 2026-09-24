@@ -55,6 +55,18 @@ services:
         value: "300"
       - key: CMEMS_SST_IBI_TIMEOUT_SEC
         value: "480"
+      - key: CMEMS_SST_MAP_MAX_CELDAS
+        value: "3500"
+      - key: MAPA_LAT_CENTRO
+        value: "39.5"
+      - key: MAPA_LON_CENTRO
+        value: "8.0"
+      - key: MAPA_LON_MAX
+        value: "30.0"
+      - key: MAPA_LAT_MIN
+        value: "30.5"
+      - key: MAPA_PROJECTION_SCALE
+        value: "1.05"
       - key: CORS_ORIGINS
         fromService:
           type: web
@@ -86,6 +98,16 @@ services:
       # 30 min basta y deja hibernar entre visitas.
       - key: DASHBOARD_REFRESH_MIN
         value: "30"
+      - key: MAPA_LAT_CENTRO
+        value: "39.5"
+      - key: MAPA_LON_CENTRO
+        value: "8.0"
+      - key: MAPA_LON_MAX
+        value: "30.0"
+      - key: MAPA_LAT_MIN
+        value: "30.5"
+      - key: MAPA_PROJECTION_SCALE
+        value: "1.05"
       - key: API_BASE_URL
         fromService:
           type: web

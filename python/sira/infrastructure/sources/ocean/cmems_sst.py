@@ -137,8 +137,8 @@ REGION_IBI = SstRegionConfig(
     umbral_mar=0.9,
 )
 
-# Atlántico en 2 tiles (Render Free no aguanta el bbox completo en un subset).
-# Oeste≈malla que ya funcionó; sur=Algarve+Cádiz→Estrecho.
+# Atlántico en mosaico de tiles pequeños (Render Free no aguanta el bbox único).
+# oeste = Portugal NW / Galicia SW; sur_oeste = Algarve W; golfo = Cádiz→Estrecho.
 REGION_ATL_OESTE = SstRegionConfig(
     key="atl_oeste",
     dataset_id=CMEMS_SST_IBI_DATASET_ID,
@@ -153,12 +153,26 @@ REGION_ATL_OESTE = SstRegionConfig(
     map_max_celdas=None,
     umbral_mar=REGION_ATL.umbral_mar,
 )
-REGION_ATL_SUR = SstRegionConfig(
-    key="atl_sur",
+REGION_ATL_SUR_OESTE = SstRegionConfig(
+    key="atl_sur_oeste",
     dataset_id=CMEMS_SST_IBI_DATASET_ID,
     lat_min=CMEMS_SST_ATL_LAT_MIN,
     lat_max=min(CMEMS_SST_ATL_LAT_MAX, 37.80),
     lon_min=CMEMS_SST_ATL_LON_MIN,
+    lon_max=min(CMEMS_SST_ATL_LON_MAX, -8.00),
+    paso_deg=CMEMS_SST_ATL_PASO_DEG,
+    fuente_cmems=REGION_ATL.fuente_cmems,
+    fraccion_mar=mar_atl.fraccion_mar_celda,
+    densificar=lambda c, **k: c,
+    map_max_celdas=None,
+    umbral_mar=REGION_ATL.umbral_mar,
+)
+REGION_ATL_GOLFO = SstRegionConfig(
+    key="atl_golfo",
+    dataset_id=CMEMS_SST_IBI_DATASET_ID,
+    lat_min=CMEMS_SST_ATL_LAT_MIN,
+    lat_max=min(CMEMS_SST_ATL_LAT_MAX, 37.50),
+    lon_min=max(CMEMS_SST_ATL_LON_MIN, -8.50),
     lon_max=CMEMS_SST_ATL_LON_MAX,
     paso_deg=CMEMS_SST_ATL_PASO_DEG,
     fuente_cmems=REGION_ATL.fuente_cmems,
@@ -167,6 +181,8 @@ REGION_ATL_SUR = SstRegionConfig(
     map_max_celdas=None,
     umbral_mar=REGION_ATL.umbral_mar,
 )
+# Alias de compatibilidad (tests / imports antiguos).
+REGION_ATL_SUR = REGION_ATL_GOLFO
 
 
 def _creds_ok() -> bool:
@@ -532,8 +548,8 @@ def _fusionar_celdas_sst(celdas: list[dict]) -> list[dict]:
 
 
 def _desde_cmems_atl_mosaico() -> dict:
-    """Portugal→Gibraltar en 2 subset IBI (oeste + sur) y fusión."""
-    tiles = (REGION_ATL_OESTE, REGION_ATL_SUR)
+    """Portugal→Gibraltar en mosaico IBI (oeste + Algarve + golfo) y fusión."""
+    tiles = (REGION_ATL_OESTE, REGION_ATL_SUR_OESTE, REGION_ATL_GOLFO)
     merged: list[dict] = []
     fechas: list[str] = []
     pasos: list[float] = []
@@ -565,6 +581,7 @@ def _desde_cmems_atl_mosaico() -> dict:
         paso=paso_out,
     )
     out["mosaico_tiles"] = [t.key for t in tiles]
+    out["mosaico_tiles_ok"] = [t.key for t in tiles if not any(e.startswith(t.key + ":") for e in errores)]
     if errores:
         out["mosaico_parcial"] = True
         out["mosaico_errores"] = errores

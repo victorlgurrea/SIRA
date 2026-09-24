@@ -56,6 +56,7 @@ from sira.infrastructure.sources.meteo.termico import (
     construir_termico_ccaa,
     ensamblar_termico_ccaa,
     tareas_provincias,
+    _completar_sin_temp,
 )
 from sira.infrastructure.sources.meteo.weathernext3 import (
     weathernext3_configurado,
@@ -251,7 +252,7 @@ def construir_weathernext_ccaa(*, now: datetime | None = None, max_workers: int 
         return construir_termico_ccaa(weathernext_localidad, now=now, max_workers=max_workers)
     tareas = tareas_provincias()
     resultados = _weathernext2_ccaa_lote(tareas)
-    return ensamblar_termico_ccaa(tareas, resultados, now=now)
+    return _completar_sin_temp(ensamblar_termico_ccaa(tareas, resultados, now=now), now=now)
 
 
 def construir_weathernext_ccaa_cache(*, max_workers: int = 6) -> dict:
@@ -319,33 +320,18 @@ class _RegionSstWn:
     punto_en_mar: Callable[[float, float], bool]
 
 
-# Cajas más pequeñas que las de CMEMS (`cmems_sst.py`): ahí el coste es una
-# única descarga de fichero; aquí cada celda cuesta una coordenada dentro de
-# una llamada HTTP a Open-Meteo, así que se prioriza una rejilla más basta
-# (paso 0.35-0.4°, resolución nativa aprox. del ensemble) ciñéndose a la
-# costa española de cada mar en vez del bbox regional completo.
+# Cajas de respaldo si no hay malla CMEMS en la ingesta. Preferimos CMEMS en
+# el mapa /weathernext (cobertura Med-Physics hasta Turquía y mosaico IBI
+# Portugal→Gibraltar). Estas cajas solo rellenan huecos con Open-Meteo.
 _REGIONES_SST_WN: dict[str, _RegionSstWn] = {
-    # lon_min a -5.4 (antes -1.0): el bbox se quedaba corto por el oeste y
-    # dejaba fuera TODA la costa mediterránea de Málaga/Almería y el mar de
-    # Alborán (frente a Gibraltar) — el hueco que se veía en el mapa no era
-    # un fallo de red, era que esa zona ni se pedía. lon_max a 7.6 para
-    # rellenar visualmente más superficie de mar dentro del viewport
-    # nacional (hasta cerca de Cerdeña), no solo la franja costera.
-    #
-    # OJO: se probó a ampliar hasta Sicilia/Túnez (lon_max=17.0, ~15 lotes)
-    # y Open-Meteo empezó a devolver 429 "Too Many Requests" en TODOS los
-    # lotes, no solo alguno suelto -- es un límite real de la API, no un
-    # problema de rendimiento nuestro. Con ~7 lotes (este bbox) no se ha
-    # visto ese problema. No agrandar sin volver a probar en frío varias
-    # veces seguidas (el límite parece acumulativo/por ventana de tiempo).
     "MEDITERRÁNEO": _RegionSstWn(
         "Mediterráneo", 35.8, 43.0, -5.4, 7.6, 0.4, _fraccion_mar_med, punto_en_mar_mediterraneo,
     ),
     "CANTÁBRICO": _RegionSstWn(
-        "Cantábrico", 43.3, 44.6, -9.4, -1.4, 0.4, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
+        "Cantábrico", 42.2, 44.6, -10.95, -1.2, 0.35, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
     ),
     "ATLÁNTICO": _RegionSstWn(
-        "Atlántico", 36.0, 42.3, -9.9, -6.0, 0.35, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
+        "Atlántico", 35.9, 42.3, -10.95, -5.0, 0.35, _fraccion_mar_atl, punto_en_mar_costa_atlantica_mapa,
     ),
 }
 

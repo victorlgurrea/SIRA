@@ -69,7 +69,7 @@ TareaProvincia = tuple[str, str, str, str | None, str, str]
 
 def tareas_provincias() -> list[TareaProvincia]:
     """(pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre) del municipio de
-    referencia (el primero listado) de cada provincia."""
+    referencia de cada provincia (capital homónima si existe; si no, el primero)."""
     tareas: list[TareaProvincia] = []
     for prov in provincias():
         pid = str(prov.get("id") or "").zfill(2)
@@ -78,13 +78,20 @@ def tareas_provincias() -> list[TareaProvincia]:
         munis = municipios(pid)
         if not munis:
             continue
-        municipio = munis[0]
+        prov_nombre = str(prov.get("nombre") or pid)
+        capital = next(
+            (
+                m for m in munis
+                if str(m.get("nombre") or "").casefold() == prov_nombre.casefold()
+            ),
+            None,
+        )
+        municipio = capital or munis[0]
         mid = str(municipio.get("id") or "").zfill(5)
         if not mid:
             continue
         ccaa_id = ccaa_de_provincia(pid)
         ccaa = CCAA_NOMBRES.get(ccaa_id or "", ccaa_id or "")
-        prov_nombre = str(prov.get("nombre") or pid)
         muni_nombre = str(municipio.get("nombre") or prov_nombre)
         tareas.append((pid, prov_nombre, mid, ccaa_id, ccaa, muni_nombre))
     return tareas
@@ -159,5 +166,35 @@ def construir_termico_ccaa(
         }
         for future in as_completed(future_map):
             mid = future_map[future]
-            resultados[mid] = future.result() or {}
-    return ensamblar_termico_ccaa(tareas, resultados, now=now)
+            try:
+                resultados[mid] = future.result() or {}
+            except Exception:  # noqa: BLE001
+                resultados[mid] = {}
+    return _completar_sin_temp(ensamblar_termico_ccaa(tareas, resultados, now=now), now=now)
+
+
+def _completar_sin_temp(data: dict, *, now: datetime | None = None) -> dict:
+    """Si falta T.máx en alguna provincia, rellena con AEMET/Open-Meteo live."""
+    from sira.infrastructure.sources.meteo.live import meteo_localidad
+
+    filas = data.get("provincias") if isinstance(data, dict) else None
+    if not isinstance(filas, list):
+        return data
+    for fila in filas:
+        if not isinstance(fila, dict) or fila.get("temp_max_c") is not None:
+            continue
+        mid = str(fila.get("municipio_ref_id") or "").zfill(5)
+        if not mid or mid == "00000":
+            continue
+        try:
+            live = meteo_localidad(mid, fila.get("municipio_ref"))
+        except Exception:  # noqa: BLE001
+            continue
+        pico = pico_termico_24h(live, now=now)
+        if pico.get("temp_max_c") is None:
+            continue
+        fila["temp_max_c"] = pico["temp_max_c"]
+        fila["sensacion_max_c"] = pico.get("sensacion_max_c")
+        fila["hora_pico"] = pico.get("hora_pico")
+        fila["fuente"] = f"{live.get('fuente') or 'live'} (respaldo)"
+    return data
