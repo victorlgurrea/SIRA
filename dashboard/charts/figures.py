@@ -682,16 +682,25 @@ def fig_weathernext_mapa(
             continue
         try:
             paso_original = float(grid.get("paso_deg") or 0.4)
-            # WeatherNext pide cada punto a la API (coste por celda), así que
-            # su malla real es mucho más basta que la de CMEMS (paso ~0.4°
-            # frente a ~0.08-0.12°) y se ve como un tablero de cuadros con
-            # huecos. Se interpola visualmente a una malla más fina (sin
-            # pedir más datos reales) para que se pinte como una superficie
-            # continua, igual que las celdas del dashboard principal.
-            celdas_pintar = densificar_visual_sst(
-                celdas, paso=paso_original, factor=4, punto_en_mar=filtro_mar,
+            fuente_txt = str(grid.get("fuente") or "")
+            # CMEMS ya es denso: densificar×4 en Med completo (~miles de celdas)
+            # hincha Plotly hasta OOM/502 en Render Free. WN Open-Meteo sí
+            # necesita interpolación visual (paso ~0.35-0.4°).
+            es_densa = (
+                paso_original <= 0.16
+                or "Copernicus" in fuente_txt
+                or "CMEMS" in fuente_txt.upper()
             )
-            paso_pintar = paso_original / 4
+            if es_densa:
+                from charts.map_layers import rejilla_visual_sst
+
+                paso_pintar = max(paso_original, 0.18)
+                celdas_pintar = rejilla_visual_sst(celdas, paso=paso_pintar)
+            else:
+                celdas_pintar = densificar_visual_sst(
+                    celdas, paso=paso_original, factor=4, punto_en_mar=filtro_mar,
+                )
+                paso_pintar = paso_original / 4
             add_capa_sst_grid(
                 fig,
                 celdas_pintar,
@@ -699,7 +708,7 @@ def fig_weathernext_mapa(
                 punto_en_mar=filtro_mar,
                 fecha=str(grid.get("fecha") or "") or None,
                 paso_deg=paso_pintar,
-                fuente=str(grid.get("fuente") or "") or None,
+                fuente=fuente_txt or None,
                 theme=theme,
                 legendgroup=grupo,
                 show_legend=not leyenda_pintada,

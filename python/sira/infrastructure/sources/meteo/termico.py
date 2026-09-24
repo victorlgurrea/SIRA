@@ -173,14 +173,17 @@ def construir_termico_ccaa(
     return _completar_sin_temp(ensamblar_termico_ccaa(tareas, resultados, now=now), now=now)
 
 
-def _completar_sin_temp(data: dict, *, now: datetime | None = None) -> dict:
-    """Si falta T.máx en alguna provincia, rellena con AEMET/Open-Meteo live."""
+def _completar_sin_temp(data: dict, *, now: datetime | None = None, max_fill: int = 6) -> dict:
+    """Si falta T.máx en alguna provincia, rellena unas pocas con live (tope)."""
     from sira.infrastructure.sources.meteo.live import meteo_localidad
 
     filas = data.get("provincias") if isinstance(data, dict) else None
     if not isinstance(filas, list):
         return data
+    rellenadas = 0
     for fila in filas:
+        if rellenadas >= max_fill:
+            break
         if not isinstance(fila, dict) or fila.get("temp_max_c") is not None:
             continue
         mid = str(fila.get("municipio_ref_id") or "").zfill(5)
@@ -197,4 +200,5 @@ def _completar_sin_temp(data: dict, *, now: datetime | None = None) -> dict:
         fila["sensacion_max_c"] = pico.get("sensacion_max_c")
         fila["hora_pico"] = pico.get("hora_pico")
         fila["fuente"] = f"{live.get('fuente') or 'live'} (respaldo)"
+        rellenadas += 1
     return data

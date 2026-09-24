@@ -71,6 +71,8 @@ _CACHE_TTL_CCAA_SEC = 900.0  # 15 min
 _CACHE_TTL_PUNTO_SEC = 600.0  # 10 min
 _CACHE_TTL_SST_SEC = 900.0  # 15 min
 _cache_ccaa: dict[str, object] = {"ts": 0.0, "data": None}
+_cache_ccaa_lock = threading.Lock()
+_cache_ccaa_refrescando = False
 _cache_punto: dict[str, tuple[float, dict]] = {}
 _cache_sst: dict[str, object] = {"ts": 0.0, "data": None}
 _cache_sst_grid: dict[str, object] = {"ts": 0.0, "data": None}
@@ -256,19 +258,55 @@ def construir_weathernext_ccaa(*, now: datetime | None = None, max_workers: int 
 
 
 def construir_weathernext_ccaa_cache(*, max_workers: int = 6) -> dict:
-    """Igual que `construir_weathernext_ccaa` pero con cache corta en memoria.
-
-    52 llamadas al API no son gratis en tiempo de respuesta (ni, en el caso de
-    WeatherNext 3/BigQuery, en coste); se cachean unos minutos para que abrir
-    o refrescar la página de WeatherNext no dispare siempre esa ronda completa.
-    """
+    """Cache térmica WN con stale-while-revalidate (no bloquear Render Free)."""
+    global _cache_ccaa_refrescando
     now = time.monotonic()
-    if _cache_ccaa["data"] is not None and (now - float(_cache_ccaa["ts"])) < _CACHE_TTL_CCAA_SEC:
-        return _cache_ccaa["data"]  # type: ignore[return-value]
-    data = construir_weathernext_ccaa(max_workers=max_workers)
-    _cache_ccaa["data"] = data
-    _cache_ccaa["ts"] = now
-    return data
+    data = _cache_ccaa["data"]
+    caducado = data is None or (now - float(_cache_ccaa["ts"])) >= _CACHE_TTL_CCAA_SEC
+    if not caducado:
+        return data  # type: ignore[return-value]
+
+    if data is not None:
+        with _cache_ccaa_lock:
+            ya = _cache_ccaa_refrescando
+            _cache_ccaa_refrescando = True
+        if not ya:
+            def _bg() -> None:
+                global _cache_ccaa_refrescando
+                try:
+                    nuevo = construir_weathernext_ccaa(max_workers=max_workers)
+                    _cache_ccaa["data"] = nuevo
+                    _cache_ccaa["ts"] = time.monotonic()
+                except Exception:  # noqa: BLE001
+                    log.exception("Refresco background weathernext_ccaa falló")
+                finally:
+                    with _cache_ccaa_lock:
+                        _cache_ccaa_refrescando = False
+
+            threading.Thread(target=_bg, daemon=True, name="wn-ccaa-refresh").start()
+        return data  # type: ignore[return-value]
+
+    # Primer arranque sin cache: no construir aquí (puede >60 s → 502 en Render).
+    # El caller debe usar termico_ccaa de la ingesta; este hilo rellena para la
+    # siguiente visita.
+    with _cache_ccaa_lock:
+        ya = _cache_ccaa_refrescando
+        _cache_ccaa_refrescando = True
+    if not ya:
+        def _bg_cold() -> None:
+            global _cache_ccaa_refrescando
+            try:
+                nuevo = construir_weathernext_ccaa(max_workers=max_workers)
+                _cache_ccaa["data"] = nuevo
+                _cache_ccaa["ts"] = time.monotonic()
+            except Exception:  # noqa: BLE001
+                log.exception("Construcción inicial weathernext_ccaa falló")
+            finally:
+                with _cache_ccaa_lock:
+                    _cache_ccaa_refrescando = False
+
+        threading.Thread(target=_bg_cold, daemon=True, name="wn-ccaa-cold").start()
+    return {"generado_en": None, "provincias": [], "ccaa": []}
 
 
 def weathernext_localidad_cache(municipio_id: str | None, localidad: str | None = None) -> dict:

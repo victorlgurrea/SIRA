@@ -64,7 +64,6 @@ from sira.infrastructure.sources.meteo.weathernext import (
     weathernext_localidad_cache,
     weathernext_resumen_actual,
     weathernext_sst_cache,
-    weathernext_sst_grid_cache,
 )
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
@@ -570,35 +569,42 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
     provincia_id = geo.get("provincia_id")
     municipio_id = geo.get("municipio_id")
     localidad = geo.get("localidad")
+    d = _load()
 
+    # Mapa térmico: ingesta (rápido) primero; WN en background vía cache SWR.
+    termico_ing = d.get("termico_ccaa") if isinstance(d.get("termico_ccaa"), dict) else {}
     try:
         wn_ccaa = construir_weathernext_ccaa_cache()
     except Exception:  # noqa: BLE001
         log.exception("construir_weathernext_ccaa_cache falló")
         wn_ccaa = {"generado_en": None, "provincias": [], "ccaa": []}
+    n_wn = sum(
+        1 for p in (wn_ccaa.get("provincias") or [])
+        if isinstance(p, dict) and p.get("temp_max_c") is not None
+    )
+    n_ing = sum(
+        1 for p in (termico_ing.get("provincias") or [])
+        if isinstance(p, dict) and p.get("temp_max_c") is not None
+    )
+    termico_mapa = wn_ccaa if n_wn >= max(20, n_ing) else (termico_ing or wn_ccaa)
+
+    # SST mapa: solo CMEMS de la ingesta. No construir rejilla WN (minutos → 502).
+    def _sst_capa(clave_dash: str) -> dict:
+        cmems = d.get(clave_dash) if isinstance(d.get(clave_dash), dict) else {}
+        return cmems if cmems.get("celdas") else {}
 
     try:
-        sst_grid = weathernext_sst_grid_cache()
+        mapa = _fig_weathernext_mapa(
+            provincia_id, termico_mapa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
+            sst_med_grid=_sst_capa("sst_med_grid"),
+            sst_cant_grid=_sst_capa("sst_cant_grid"),
+            sst_atl_grid=_sst_capa("sst_atl_grid"),
+        )
     except Exception:  # noqa: BLE001
-        log.exception("weathernext_sst_grid_cache falló")
-        sst_grid = {}
-
-    # Preferir mallas CMEMS de la ingesta (Med hasta Levante/Turquía, Atl
-    # Portugal→Gibraltar). WeatherNext Open-Meteo se queda corto por rate-limit.
-    d = _load()
-    def _sst_capa(clave_wn: str, clave_dash: str) -> dict | None:
-        cmems = d.get(clave_dash) if isinstance(d.get(clave_dash), dict) else {}
-        if cmems.get("celdas"):
-            return cmems
-        wn = sst_grid.get(clave_wn) if isinstance(sst_grid, dict) else {}
-        return wn if isinstance(wn, dict) else {}
-
-    mapa = _fig_weathernext_mapa(
-        provincia_id, wn_ccaa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
-        sst_med_grid=_sst_capa("MEDITERRÁNEO", "sst_med_grid"),
-        sst_cant_grid=_sst_capa("CANTÁBRICO", "sst_cant_grid"),
-        sst_atl_grid=_sst_capa("ATLÁNTICO", "sst_atl_grid"),
-    )
+        log.exception("fig_weathernext_mapa falló")
+        mapa = _fig_weathernext_mapa(
+            provincia_id, termico_mapa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
+        )
 
     try:
         punto = weathernext_localidad_cache(municipio_id, localidad)
