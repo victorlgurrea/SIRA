@@ -604,12 +604,24 @@ def fig_weathernext_mapa(
     feat_by_pid = _prov_rings()
     pmeta = {str(p["id"]).zfill(2): p.get("nombre", str(p["id"])) for p in provincias()}
 
+    precip_lats: list[float] = []
+    precip_lons: list[float] = []
+    precip_sizes: list[float] = []
+    precip_text: list[str] = []
+    precip_custom: list[float] = []
+
     for pid, feat in feat_by_pid.items():
         row = por_prov.get(pid, {})
         tmax = row.get("temp_max_c")
         sens = row.get("sensacion_max_c")
         hora = fmt_hora_pico(row.get("hora_pico"))
         fuente = str(row.get("fuente") or "—")
+        precip = row.get("precip_24h_mm")
+        try:
+            precip_val = float(precip) if precip is not None else None
+        except (TypeError, ValueError):
+            precip_val = None
+        ptxt = f"{precip_val:.1f} mm" if precip_val is not None else "—"
         color = color_temp(tmax if tmax is None else float(tmax))
         ttxt = f"{float(tmax):.1f} °C" if tmax is not None else "—"
         stxt = f"{float(sens):.1f} °C" if sens is not None else "—"
@@ -628,6 +640,15 @@ def fig_weathernext_mapa(
         # todo el lienzo pintado. Los bordes de los anillos secundarios
         # (islas, exclaves) ya se dibujan aparte con anadir_bordes_*_nacional.
         ring = max(rings, key=lambda r: len(r.get("lat") or []))
+        hover = (
+            f"{prov_name}<br>"
+            f"T. máxima prevista (24 h): {ttxt}<br>"
+            f"Precipitación 24 h: {ptxt}<br>"
+            f"Sensación térmica en pico: {stxt}<br>"
+            f"Hora pico: {hora}<br>"
+            f"Fuente: {fuente}"
+            "<extra></extra>"
+        )
         fig.add_trace(
             go.Scattergeo(
                 lat=ring["lat"], lon=ring["lon"], mode="lines", fill="toself", fillcolor=color,
@@ -636,14 +657,7 @@ def fig_weathernext_mapa(
                     width=1.8 if es_activa else 0.5,
                 ),
                 showlegend=False, name=prov_name,
-                hovertemplate=(
-                    f"{prov_name}<br>"
-                    f"T. máxima prevista (24 h): {ttxt}<br>"
-                    f"Sensación térmica en pico: {stxt}<br>"
-                    f"Hora pico: {hora}<br>"
-                    f"Fuente: {fuente}"
-                    "<extra></extra>"
-                ),
+                hovertemplate=hover,
             )
         )
         # Puntos invisibles repartidos por dentro de la provincia: el hover
@@ -658,16 +672,40 @@ def fig_weathernext_mapa(
                     lat=hlat, lon=hlon, mode="markers",
                     marker=dict(size=1, color="rgba(0,0,0,0)"),
                     showlegend=False, name=prov_name,
-                    hovertemplate=(
-                        f"{prov_name}<br>"
-                        f"T. máxima prevista (24 h): <b>{ttxt}</b><br>"
-                        f"Sensación térmica en pico: {stxt}<br>"
-                        f"Hora pico: {hora}<br>"
-                        f"Fuente: {fuente}"
-                        "<extra></extra>"
-                    ),
+                    hovertemplate=hover.replace(ttxt, f"<b>{ttxt}</b>", 1),
                 )
             )
+        if precip_val is not None and precip_val >= 0.2:
+            clat = sum(ring["lat"]) / len(ring["lat"])
+            clon = sum(ring["lon"]) / len(ring["lon"])
+            # Tamaño ~mm (tope visual 22); azul cyan semitransparente sobre el relleno térmico.
+            size = max(9.0, min(22.0, 8.0 + precip_val * 1.1))
+            precip_lats.append(clat)
+            precip_lons.append(clon)
+            precip_sizes.append(size)
+            precip_text.append(f"{prov_name}: {precip_val:.1f} mm / 24 h")
+            precip_custom.append(precip_val)
+
+    if precip_lats:
+        fig.add_trace(
+            go.Scattergeo(
+                lat=precip_lats,
+                lon=precip_lons,
+                mode="markers",
+                marker=dict(
+                    size=precip_sizes,
+                    color="rgba(56, 189, 248, 0.72)",
+                    line=dict(width=1.2, color="rgba(14, 165, 233, 0.95)"),
+                    symbol="circle",
+                ),
+                text=precip_text,
+                customdata=precip_custom,
+                name="Precipitación 24 h",
+                legendgroup="precip",
+                showlegend=True,
+                hovertemplate="%{text}<extra></extra>",
+            )
+        )
 
     sst_capas = [
         ("Mediterráneo", sst_med_grid, punto_en_mar_mediterraneo, "sst_med"),

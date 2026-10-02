@@ -390,22 +390,10 @@ def register_routes(
             )
         # LAB: datos a demanda al abrir /lab (no van en la ingesta programada).
         filas.append(
-            '<tr><td>LAB — previsión</td>'
-            '<td class="sira-status-desc">Open-Meteo (ensemble)</td>'
+            '<tr><td>LAB — mapa</td>'
+            '<td class="sira-status-desc">Open-Meteo (T.máx + precipitación 24 h)</td>'
             '<td><span class="sira-status-ok">OK</span> '
             '<span class="sira-status-meta">a demanda</span></td></tr>'
-        )
-        if OPENWEATHER_API_KEY:
-            owm_estado = (
-                '<span class="sira-status-ok">OK</span> '
-                '<span class="sira-status-meta">tiles</span>'
-            )
-        else:
-            owm_estado = '<span class="sira-status-warn">sin API key</span>'
-        filas.append(
-            '<tr><td>LAB — precipitación</td>'
-            '<td class="sira-status-desc">OpenWeather</td>'
-            f'<td>{owm_estado}</td></tr>'
         )
         for clave in sorted(fuentes.keys()):
             if clave in vistos:

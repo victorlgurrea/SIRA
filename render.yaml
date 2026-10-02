@@ -11,6 +11,8 @@ envVarGroups:
         sync: false
       - key: CRON_SECRET
         sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY

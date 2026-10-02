@@ -29,8 +29,6 @@ from sira.config.settings import (
     FORECAST_DAYS,
     INGESTA_INTERVAL_MIN,
     MARES,
-    OPENWEATHER_API_KEY,
-    OPENWEATHER_PRECIP_LAYER,
 )
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard  # noqa: E402
 from routes.flask_routes import register_routes
@@ -100,7 +98,6 @@ app.index_string = f"""
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
-        <script src="/assets/owm-radar.js?v=1"></script>
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
@@ -146,8 +143,6 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Store(id="theme-store", data="dark"),
             dcc.Store(id="map-aspect", data=1.65),
             dcc.Store(id="geo-store", data=default_geo()),
-            dcc.Store(id="wn_radar_meta", data=None),
-            dcc.Store(id="wn_radar_hook", data=None),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(DEFAULT_PROV, DEFAULT_MUNI, DEFAULT_LOC),
@@ -290,32 +285,11 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         bloque(
-                            "wn_mapa", "LAB — temperatura máxima prevista (24 h)",
-                            f"{_AYUDA_LAB} · toda España, resaltando la comunidad y "
-                            "provincia seleccionadas.",
+                            "wn_mapa", "LAB — temperatura máxima y precipitación (24 h)",
+                            f"{_AYUDA_LAB} · provincias coloreadas por T.máx; "
+                            "círculos azules = precipitación acumulada prevista. "
+                            "Toda España, resaltando la comunidad y provincia seleccionadas.",
                             map_chart=True, accent=C_ORANGE,
-                        ),
-                    ]),
-                    html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
-                        html.Div(
-                            className="sira-bloque",
-                            style={"borderTopColor": C_CYAN},
-                            children=[
-                                html.H4(
-                                    "Precipitación — OpenWeather (ahora)",
-                                    className="sira-bloque-title",
-                                ),
-                                html.P(
-                                    "Capa de precipitación en tiempo casi real (OpenWeather). "
-                                    "Frame estático.",
-                                    className="sira-bloque-help",
-                                ),
-                                html.Div(
-                                    id="wn_radar_map",
-                                    className="sira-graph-wrap sira-graph-wrap--map sira-owm-radar",
-                                ),
-                                html.P(id="wn_radar_status", className="sira-bloque-help sira-owm-radar-status"),
-                            ],
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
@@ -581,7 +555,6 @@ def refresh_historial(pathname, municipio_id, theme):
     Output("wn_viento", "figure"),
     Output("wn_nubes", "figure"),
     Output("wn_presion", "figure"),
-    Output("wn_radar_meta", "data"),
     Input("url", "pathname"),
     Input("geo-store", "data"),
     Input("theme-store", "data"),
@@ -658,21 +631,6 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         accent=C_ORANGE,
     )
 
-    owm_ok = bool(OPENWEATHER_API_KEY)
-    layer = (OPENWEATHER_PRECIP_LAYER or "precipitation_new").strip()
-    try:
-        lat_obs, lon_obs, _ = coords_observacion(municipio_id, geo.get("localidad_id"))
-    except Exception:  # noqa: BLE001
-        lat_obs, lon_obs = 40.2, -3.7
-    radar_meta = {
-        "ok": owm_ok,
-        "layer": layer if owm_ok else None,
-        "lat": float(lat_obs),
-        "lon": float(lon_obs),
-        "zoom": 7,
-        "detail": None if owm_ok else "OPENWEATHER_API_KEY no configurada en .env",
-    }
-
     return (
         [card_tiempo],
         mapa,
@@ -684,23 +642,7 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         _fig_linea(serie, "viento_ms", C_GREEN, "m/s", "sira-wn-viento", theme=t),
         _fig_linea(serie, "nubosidad_pct", C_TEAL, "%", "sira-wn-nubes", theme=t),
         _fig_linea(serie, "presion_hpa", C_ORANGE, "hPa", "sira-wn-presion", theme=t),
-        radar_meta,
     )
-
-
-clientside_callback(
-    """
-    function(pathname, meta) {
-        if (window.SiraOwmRadar && typeof window.SiraOwmRadar.onPage === "function") {
-            window.SiraOwmRadar.onPage(pathname, meta);
-        }
-        return window.dash_clientside.no_update;
-    }
-    """,
-    Output("wn_radar_hook", "data"),
-    Input("url", "pathname"),
-    Input("wn_radar_meta", "data"),
-)
 
 
 @callback(

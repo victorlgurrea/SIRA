@@ -25,22 +25,37 @@ def _parse_ts(value: object) -> datetime | None:
 
 
 def pico_termico_24h(meteo: dict | None, *, now: datetime | None = None) -> dict:
-    """Temperatura máxima y sensación asociada en las próximas 24 h."""
+    """Temperatura máxima, sensación y precipitación acumulada en las próximas 24 h."""
     serie = meteo.get("serie_horaria") if isinstance(meteo, dict) else []
+    vacio = {
+        "temp_max_c": None,
+        "sensacion_max_c": None,
+        "hora_pico": None,
+        "precip_24h_mm": None,
+    }
     if not isinstance(serie, list) or not serie:
-        return {"temp_max_c": None, "sensacion_max_c": None, "hora_pico": None}
+        return vacio
 
     ahora = now.astimezone(_MADRID) if now else datetime.now(_MADRID)
     inicio = ahora.replace(minute=0, second=0, microsecond=0)
     fin = inicio + timedelta(hours=24)
 
     mejor: dict | None = None
+    precip_acum = 0.0
+    hay_precip = False
     for row in serie:
         if not isinstance(row, dict):
             continue
         dt = _parse_ts(row.get("timestamp"))
         if not dt or dt < inicio or dt > fin:
             continue
+        precip = row.get("precip_mm")
+        try:
+            if precip is not None:
+                precip_acum += max(0.0, float(precip))
+                hay_precip = True
+        except (TypeError, ValueError):
+            pass
         temp = row.get("temp_c")
         try:
             temp_val = round(float(temp), 1) if temp is not None else None
@@ -61,7 +76,13 @@ def pico_termico_24h(meteo: dict | None, *, now: datetime | None = None) -> dict
         if mejor is None or temp_val > mejor["temp_max_c"]:
             mejor = cand
 
-    return mejor or {"temp_max_c": None, "sensacion_max_c": None, "hora_pico": None}
+    out = mejor or {
+        "temp_max_c": None,
+        "sensacion_max_c": None,
+        "hora_pico": None,
+    }
+    out["precip_24h_mm"] = round(precip_acum, 1) if hay_precip else None
+    return out
 
 
 TareaProvincia = tuple[str, str, str, str | None, str, str]
