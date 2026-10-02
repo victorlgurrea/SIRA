@@ -1230,7 +1230,7 @@ body {
   min-height: 420px;
 }
 
-/* Leaflet precipitación OpenWeather en /weathernext */
+/* Leaflet / radar en /lab */
 .sira-owm-radar {
   background: #0a1628;
   z-index: 0;
@@ -1240,6 +1240,15 @@ body {
   height: 100%;
   background: #0a1628;
   font: inherit;
+}
+.sira-radar-img {
+  display: block;
+  width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+  background: #0a1628;
+  margin-top: 0.5rem;
+  border-radius: 2px;
 }
 .sira-owm-radar-status {
   margin-top: 0.4rem;

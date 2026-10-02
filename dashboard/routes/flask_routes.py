@@ -18,6 +18,10 @@ from sira.config.settings import (
 )
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
+from sira.infrastructure.sources.meteo.aemet_radar import (
+    aemet_radar_configurado,
+    radar_nacional_bytes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -236,6 +240,79 @@ def register_routes(
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
 
+    @server.route("/api/aemet/radar/status")
+    def _aemet_radar_status():
+        """Estado del radar LAB: AEMET nacional si hay imagen; si no, RainViewer."""
+        aemet_ok = False
+        aemet_err = None
+        if aemet_radar_configurado():
+            data, _ctype, err = radar_nacional_bytes()
+            aemet_ok = data is not None
+            aemet_err = err
+        rainviewer = None
+        try:
+            rv = requests.get(
+                "https://api.rainviewer.com/public/weather-maps.json",
+                timeout=12,
+            )
+            if rv.ok:
+                payload = rv.json()
+                past = (payload.get("radar") or {}).get("past") or []
+                frame = past[-1] if past else None
+                if frame and frame.get("path"):
+                    rainviewer = {
+                        "host": payload.get("host") or "https://tilecache.rainviewer.com",
+                        "path": frame["path"],
+                        "time": frame.get("time"),
+                    }
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            log.warning("RainViewer status falló: %s", exc)
+
+        if aemet_ok:
+            return jsonify(
+                {
+                    "ok": True,
+                    "mode": "aemet",
+                    "image_url": "/api/aemet/radar/nacional.gif",
+                    "fuente": "AEMET OpenData · composición nacional",
+                    "rainviewer": rainviewer,
+                    "detail": None,
+                }
+            )
+        if rainviewer:
+            return jsonify(
+                {
+                    "ok": True,
+                    "mode": "rainviewer",
+                    "image_url": None,
+                    "fuente": "RainViewer",
+                    "rainviewer": rainviewer,
+                    "aemet_error": aemet_err or (
+                        None if aemet_radar_configurado() else "AEMET_API_KEY no configurada"
+                    ),
+                    "detail": aemet_err or "AEMET nacional no disponible",
+                }
+            )
+        return jsonify(
+            {
+                "ok": False,
+                "mode": None,
+                "detail": aemet_err or "Radar no disponible",
+            }
+        ), 503
+
+    @server.route("/api/aemet/radar/nacional.gif")
+    def _aemet_radar_nacional():
+        """Proxy de la imagen GIF/PNG del mosaico radar AEMET nacional."""
+        data, ctype, err = radar_nacional_bytes()
+        if not data:
+            return Response(err or "Radar AEMET no disponible", status=503, mimetype="text/plain")
+        return Response(
+            data,
+            mimetype=ctype or "image/gif",
+            headers={"Cache-Control": "public, max-age=120"},
+        )
+
     @server.route("/api/owm/status")
     def _owm_status():
         """Estado de la capa de precipitación OpenWeather (radar estático)."""
@@ -388,12 +465,35 @@ def register_routes(
             filas.append(
                 f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
             )
-        # LAB: datos a demanda al abrir /lab (no van en la ingesta programada).
+        # LAB: radar a demanda + previsión Open-Meteo.
         filas.append(
-            '<tr><td>LAB — mapa</td>'
-            '<td class="sira-status-desc">Open-Meteo (T.máx + precipitación 24 h)</td>'
+            '<tr><td>LAB — mapa térmico</td>'
+            '<td class="sira-status-desc">Open-Meteo (T.máx 24 h)</td>'
             '<td><span class="sira-status-ok">OK</span> '
             '<span class="sira-status-meta">a demanda</span></td></tr>'
+        )
+        try:
+            from sira.infrastructure.sources.meteo.aemet_radar import radar_nacional_estado
+
+            rad = radar_nacional_estado()
+            if rad.get("ok"):
+                rad_estado = (
+                    '<span class="sira-status-ok">OK</span> '
+                    '<span class="sira-status-meta">AEMET nacional</span>'
+                )
+            elif aemet_radar_configurado():
+                rad_estado = (
+                    '<span class="sira-status-warn">AEMET sin mosaico</span> '
+                    '<span class="sira-status-meta">fallback RainViewer</span>'
+                )
+            else:
+                rad_estado = '<span class="sira-status-warn">sin AEMET_API_KEY</span>'
+        except Exception:  # noqa: BLE001
+            rad_estado = '<span class="sira-status-warn">error</span>'
+        filas.append(
+            '<tr><td>LAB — radar</td>'
+            '<td class="sira-status-desc">AEMET reflectividad (dBZ); RainViewer si falla</td>'
+            f'<td>{rad_estado}</td></tr>'
         )
         for clave in sorted(fuentes.keys()):
             if clave in vistos:
@@ -423,7 +523,7 @@ def register_routes(
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=37">
+  <link rel="stylesheet" href="/assets/sira.css?v=38">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">

@@ -92,12 +92,13 @@ app.index_string = f"""
         <title>{{%title%}}</title>
         {{%favicon%}}
         {{%css%}}
-        <link rel="stylesheet" href="/assets/sira.css?v=37">
+        <link rel="stylesheet" href="/assets/sira.css?v=38">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
+        <script src="/assets/aemet-radar.js?v=1"></script>
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
@@ -143,6 +144,7 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Store(id="theme-store", data="dark"),
             dcc.Store(id="map-aspect", data=1.65),
             dcc.Store(id="geo-store", data=default_geo()),
+            dcc.Store(id="wn_radar_hook", data=None),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(DEFAULT_PROV, DEFAULT_MUNI, DEFAULT_LOC),
@@ -285,11 +287,42 @@ app.layout = html.Div(className="sira-page", children=[
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         bloque(
-                            "wn_mapa", "LAB — temperatura máxima y precipitación (24 h)",
-                            f"{_AYUDA_LAB} · provincias coloreadas por T.máx; "
-                            "círculos azules = precipitación acumulada prevista. "
-                            "Toda España, resaltando la comunidad y provincia seleccionadas.",
+                            "wn_mapa", "LAB — temperatura máxima prevista (24 h)",
+                            f"{_AYUDA_LAB} · toda España, resaltando la comunidad y "
+                            "provincia seleccionadas.",
                             map_chart=True, accent=C_ORANGE,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
+                        html.Div(
+                            className="sira-bloque",
+                            style={"borderTopColor": C_CYAN},
+                            children=[
+                                html.H4(
+                                    "Radar — reflectividad (precipitación)",
+                                    className="sira-bloque-title",
+                                ),
+                                html.P(
+                                    "Mosaico radar AEMET (dBZ) cuando OpenData lo sirve; "
+                                    "si no hay mosaico nacional, capa radar RainViewer.",
+                                    className="sira-bloque-help",
+                                ),
+                                html.Img(
+                                    id="wn_radar_img",
+                                    className="sira-radar-img",
+                                    alt="Radar de precipitación",
+                                    style={"display": "none", "width": "100%", "height": "auto"},
+                                ),
+                                html.Div(
+                                    id="wn_radar_map",
+                                    className="sira-graph-wrap sira-graph-wrap--map sira-owm-radar",
+                                    style={"display": "none"},
+                                ),
+                                html.P(
+                                    id="wn_radar_status",
+                                    className="sira-bloque-help sira-owm-radar-status",
+                                ),
+                            ],
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
@@ -643,6 +676,20 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         _fig_linea(serie, "nubosidad_pct", C_TEAL, "%", "sira-wn-nubes", theme=t),
         _fig_linea(serie, "presion_hpa", C_ORANGE, "hPa", "sira-wn-presion", theme=t),
     )
+
+
+clientside_callback(
+    """
+    function(pathname) {
+        if (window.SiraAemetRadar && typeof window.SiraAemetRadar.onPage === "function") {
+            window.SiraAemetRadar.onPage(pathname);
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("wn_radar_hook", "data"),
+    Input("url", "pathname"),
+)
 
 
 @callback(
