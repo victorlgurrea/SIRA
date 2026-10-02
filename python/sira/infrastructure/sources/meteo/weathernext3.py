@@ -62,7 +62,7 @@ from sira.config.settings import (
 
 log = logging.getLogger(__name__)
 
-FUENTE_WEATHERNEXT3 = "Google WeatherNext 3 (BigQuery)"
+FUENTE_WEATHERNEXT3 = "BigQuery"
 
 # Radio de búsqueda del punto más cercano en la rejilla 0.1° (~10 km/celda).
 _RADIO_CELDA_M = 15_000

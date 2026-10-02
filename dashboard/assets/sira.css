@@ -1230,6 +1230,24 @@ body {
   min-height: 420px;
 }
 
+/* Leaflet precipitación OpenWeather en /weathernext */
+.sira-owm-radar {
+  background: #0a1628;
+  z-index: 0;
+}
+.sira-owm-radar .leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: #0a1628;
+  font: inherit;
+}
+.sira-owm-radar-status {
+  margin-top: 0.4rem;
+}
+.sira-owm-radar-status--err {
+  color: var(--sira-orange, #e07a3d);
+}
+
 /* Plotly: el contenedor SVG sí puede ir al 100%; .geolayer es un <g> interno
    y su “ancho” lo marca la relación de aspecto del encuadre (viewport_fit_contenedor). */
 .sira-graph-wrap--map .svg-container {

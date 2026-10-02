@@ -65,7 +65,7 @@ from sira.infrastructure.sources.meteo.weathernext3 import (
 
 log = logging.getLogger(__name__)
 
-FUENTE_WEATHERNEXT = "Google WeatherNext 2 (Open-Meteo)"
+FUENTE_WEATHERNEXT = "Open-Meteo"
 
 _CACHE_TTL_CCAA_SEC = 900.0  # 15 min
 _CACHE_TTL_PUNTO_SEC = 600.0  # 10 min

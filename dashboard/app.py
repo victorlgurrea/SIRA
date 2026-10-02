@@ -29,6 +29,8 @@ from sira.config.settings import (
     FORECAST_DAYS,
     INGESTA_INTERVAL_MIN,
     MARES,
+    OPENWEATHER_API_KEY,
+    OPENWEATHER_PRECIP_LAYER,
 )
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard  # noqa: E402
 from routes.flask_routes import register_routes
@@ -92,12 +94,13 @@ app.index_string = f"""
         <title>{{%title%}}</title>
         {{%favicon%}}
         {{%css%}}
-        <link rel="stylesheet" href="/assets/sira.css?v=36">
+        <link rel="stylesheet" href="/assets/sira.css?v=37">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
+        <script src="/assets/owm-radar.js?v=1"></script>
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
@@ -114,7 +117,7 @@ app.index_string = f"""
 _LOGO = app.get_asset_url("logo-sira_4.png") + "?v=8"
 
 _AYUDA_OCE_PREVISION = f"Previsión horaria · {FORECAST_DAYS} días · Open-Meteo Marine"
-_AYUDA_WEATHERNEXT = "Previsión horaria · Google WeatherNext 2 (media del ensemble) vía Open-Meteo"
+_AYUDA_LAB = "Previsión horaria · Open-Meteo"
 
 _BTN_CLASS = "sira-btn-refresh" + ("" if ALLOW_DATA_REFRESH else " sira-btn-refresh--hidden")
 
@@ -143,6 +146,8 @@ app.layout = html.Div(className="sira-page", children=[
             dcc.Store(id="theme-store", data="dark"),
             dcc.Store(id="map-aspect", data=1.65),
             dcc.Store(id="geo-store", data=default_geo()),
+            dcc.Store(id="wn_radar_meta", data=None),
+            dcc.Store(id="wn_radar_hook", data=None),
             dcc.Interval(id="geo-locate-poll", interval=500, n_intervals=0, disabled=True, max_intervals=60),
             html.Div(id="geo-locate-pending", style={"display": "none"}),
             selector_geo(DEFAULT_PROV, DEFAULT_MUNI, DEFAULT_LOC),
@@ -172,7 +177,7 @@ app.layout = html.Div(className="sira-page", children=[
                         # Historial 30 días: oculto hasta tener SQLite persistente / serie útil
                         # html.A("Historial 30 días", href="/historial", className="sira-link-nav"),
                         html.A("Estado", href="/status", className="sira-link-nav"),
-                        html.A("WeatherNext", href="/weathernext", className="sira-link-nav"),
+                        html.A("LAB", href="/lab", className="sira-link-nav"),
                         html.Button("Actualizar", id="btn", n_clicks=0, className=_BTN_CLASS),
                         html.Button("Activar notificaciones", id="push-btn", n_clicks=0, className="sira-btn-push"),
                         html.Span("Push: desactivado", id="push-status", className="sira-push-status"),
@@ -274,68 +279,88 @@ app.layout = html.Div(className="sira-page", children=[
                     html.A("Estado del sistema", href="/status", className="sira-link-nav"),
                 ]),
                 html.P(
-                    "Modelo meteorológico puro (Google WeatherNext): sin sismos, incendios, "
-                    "embalses ni aforos. Usa WeatherNext 3 en cuanto Google conceda el acceso "
-                    "solicitado (BigQuery); mientras tanto, WeatherNext 2 vía Open-Meteo. "
+                    "Modelo meteorológico puro: sin sismos, incendios, embalses ni aforos. "
                     "La fuente activa se indica en cada gráfica.",
                     className="sira-bloque-help", style={"padding": "0 4px 8px"},
                 ),
                 html.Div(
                     id="wn_card_tiempo", className="sira-cards",
-                    children=[card("Tiempo ahora — WeatherNext", "—", "Cargando previsión…", None, accent=C_ORANGE)],
+                    children=[card("Tiempo ahora — LAB", "—", "Cargando previsión…", None, accent=C_ORANGE)],
                 ),
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         bloque(
-                            "wn_mapa", "WeatherNext — temperatura máxima prevista (24 h)",
-                            f"{_AYUDA_WEATHERNEXT} · toda España, resaltando la comunidad y "
+                            "wn_mapa", "LAB — temperatura máxima prevista (24 h)",
+                            f"{_AYUDA_LAB} · toda España, resaltando la comunidad y "
                             "provincia seleccionadas.",
                             map_chart=True, accent=C_ORANGE,
+                        ),
+                    ]),
+                    html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
+                        html.Div(
+                            className="sira-bloque",
+                            style={"borderTopColor": C_CYAN},
+                            children=[
+                                html.H4(
+                                    "Precipitación — OpenWeather (ahora)",
+                                    className="sira-bloque-title",
+                                ),
+                                html.P(
+                                    "Capa de precipitación en tiempo casi real (OpenWeather). "
+                                    "Frame estático.",
+                                    className="sira-bloque-help",
+                                ),
+                                html.Div(
+                                    id="wn_radar_map",
+                                    className="sira-graph-wrap sira-graph-wrap--map sira-owm-radar",
+                                ),
+                                html.P(id="wn_radar_status", className="sira-bloque-help sira-owm-radar-status"),
+                            ],
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
                         bloque(
                             "wn_sst_med", "Temperatura del mar — Mediterráneo",
-                            f"{_AYUDA_WEATHERNEXT} · {MARES['MEDITERRÁNEO']['punto']}.",
+                            f"{_AYUDA_LAB} · {MARES['MEDITERRÁNEO']['punto']}.",
                             accent=C_ORANGE,
                         ),
                         bloque(
                             "wn_sst_cant", "Temperatura del mar — Cantábrico",
-                            f"{_AYUDA_WEATHERNEXT} · {MARES['CANTÁBRICO']['punto']}.",
+                            f"{_AYUDA_LAB} · {MARES['CANTÁBRICO']['punto']}.",
                             accent=C_GREEN,
                         ),
                         bloque(
                             "wn_sst_atl", "Temperatura del mar — Atlántico",
-                            f"{_AYUDA_WEATHERNEXT} · {MARES['ATLÁNTICO']['punto']}.",
+                            f"{_AYUDA_LAB} · {MARES['ATLÁNTICO']['punto']}.",
                             accent=C_CYAN,
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
                         bloque(
                             "wn_temp", "Previsión temperatura",
-                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            f"{_AYUDA_LAB} · localidad seleccionada.",
                             accent=C_ORANGE,
                         ),
                         bloque(
                             "wn_precip", "Previsión precipitación",
-                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            f"{_AYUDA_LAB} · localidad seleccionada.",
                             accent=C_CYAN,
                         ),
                         bloque(
                             "wn_viento", "Previsión viento",
-                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            f"{_AYUDA_LAB} · localidad seleccionada.",
                             accent=C_GREEN,
                         ),
                     ]),
                     html.Div(className="sira-charts-row sira-charts-row--3", children=[
                         bloque(
                             "wn_nubes", "Previsión nubosidad",
-                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            f"{_AYUDA_LAB} · localidad seleccionada.",
                             accent=C_TEAL,
                         ),
                         bloque(
                             "wn_presion", "Previsión presión a nivel del mar",
-                            f"{_AYUDA_WEATHERNEXT} · localidad seleccionada.",
+                            f"{_AYUDA_LAB} · localidad seleccionada.",
                             accent=C_ORANGE,
                         ),
                     ]),
@@ -517,8 +542,8 @@ def on_geo_change(provincia_id, municipio_id, localidad_id, map_aspect):
 def route_pages(pathname):
     # /historial deshabilitado en UI; la ruta sigue en código por si se reactiva.
     on_historial = False
-    on_weathernext = pathname == "/weathernext"
-    if on_weathernext:
+    on_lab = pathname in ("/lab", "/weathernext")
+    if on_lab:
         return {"display": "none"}, {"display": "none"}, {"display": "block"}, True, True
     if on_historial:
         return {"display": "none"}, {"display": "block"}, {"display": "none"}, True, True
@@ -556,13 +581,14 @@ def refresh_historial(pathname, municipio_id, theme):
     Output("wn_viento", "figure"),
     Output("wn_nubes", "figure"),
     Output("wn_presion", "figure"),
+    Output("wn_radar_meta", "data"),
     Input("url", "pathname"),
     Input("geo-store", "data"),
     Input("theme-store", "data"),
     State("map-aspect", "data"),
 )
 def refresh_weathernext(pathname, geo, theme, map_aspect):
-    if pathname != "/weathernext":
+    if pathname not in ("/lab", "/weathernext"):
         raise PreventUpdate
     t = theme_val(theme)
     geo = geo_resuelto(geo)
@@ -625,12 +651,27 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
     resumen, proximas = weathernext_resumen_actual(punto)
     loc_label = f"{localidad or geo.get('municipio') or '—'}"
     card_tiempo = card(
-        "Tiempo ahora — WeatherNext",
+        "Tiempo ahora — LAB",
         meteo_ahora(resumen, proximas, fuente=punto.get("fuente")),
         f"Según {punto.get('fuente', '—')} · {loc_label}",
         None,
         accent=C_ORANGE,
     )
+
+    owm_ok = bool(OPENWEATHER_API_KEY)
+    layer = (OPENWEATHER_PRECIP_LAYER or "precipitation_new").strip()
+    try:
+        lat_obs, lon_obs, _ = coords_observacion(municipio_id, geo.get("localidad_id"))
+    except Exception:  # noqa: BLE001
+        lat_obs, lon_obs = 40.2, -3.7
+    radar_meta = {
+        "ok": owm_ok,
+        "layer": layer if owm_ok else None,
+        "lat": float(lat_obs),
+        "lon": float(lon_obs),
+        "zoom": 7,
+        "detail": None if owm_ok else "OPENWEATHER_API_KEY no configurada en .env",
+    }
 
     return (
         [card_tiempo],
@@ -643,7 +684,23 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         _fig_linea(serie, "viento_ms", C_GREEN, "m/s", "sira-wn-viento", theme=t),
         _fig_linea(serie, "nubosidad_pct", C_TEAL, "%", "sira-wn-nubes", theme=t),
         _fig_linea(serie, "presion_hpa", C_ORANGE, "hPa", "sira-wn-presion", theme=t),
+        radar_meta,
     )
+
+
+clientside_callback(
+    """
+    function(pathname, meta) {
+        if (window.SiraOwmRadar && typeof window.SiraOwmRadar.onPage === "function") {
+            window.SiraOwmRadar.onPage(pathname, meta);
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("wn_radar_hook", "data"),
+    Input("url", "pathname"),
+    Input("wn_radar_meta", "data"),
+)
 
 
 @callback(
@@ -659,7 +716,7 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
     prevent_initial_call=True,
 )
 def refresh_geo(geo, theme, capas, map_aspect, pathname):
-    if pathname in ("/historial", "/weathernext"):
+    if pathname in ("/historial", "/lab", "/weathernext"):
         raise PreventUpdate
     d = _load()
     t = theme_val(theme)
@@ -677,7 +734,7 @@ def refresh_geo(geo, theme, capas, map_aspect, pathname):
     prevent_initial_call=True,
 )
 def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
-    if pathname in ("/historial", "/weathernext"):
+    if pathname in ("/historial", "/lab", "/weathernext"):
         raise PreventUpdate
     return build_mapa_fig(geo, _load(), capas, theme_val(theme), map_aspect=map_aspect)
 
@@ -697,7 +754,7 @@ def refresh_map_layers(capas, theme, map_aspect, geo, pathname):
     State("url", "pathname"),
 )
 def refresh(n_intervals, clicks, theme, geo, capas, map_aspect, last_ts, pathname):
-    if pathname in ("/historial", "/weathernext"):
+    if pathname in ("/historial", "/lab", "/weathernext"):
         raise PreventUpdate
     if ALLOW_DATA_REFRESH and ctx.triggered_id == "btn" and clicks:
         try:

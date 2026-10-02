@@ -222,21 +222,20 @@ AFORO_MAP_MAX = _i("AFORO_MAP_MAX", "20")
 AFORO_CAUDAL_VIGILANCIA_M3S = _f("AFORO_CAUDAL_VIGILANCIA_M3S", "1.0")
 OPEN_METEO_MARINE_URL = os.getenv("OPEN_METEO_MARINE_URL", "https://marine-api.open-meteo.com/v1/marine")
 OPEN_METEO_WEATHER_URL = os.getenv("OPEN_METEO_WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
-# WeatherNext (Google DeepMind) vía Open-Meteo. WeatherNext 3 solo está disponible
-# hoy con acceso restringido en Google Cloud (allowlist); WeatherNext 2 es de acceso
-# libre a través del endpoint "ensemble" de Open-Meteo con el modelo *_mean (media
-# del ensemble, sin miembros individuales).
+# LAB (/lab): previsión vía Open-Meteo ensemble.
 OPEN_METEO_ENSEMBLE_URL = os.getenv("OPEN_METEO_ENSEMBLE_URL", "https://ensemble-api.open-meteo.com/v1/ensemble")
 WEATHERNEXT_MODEL = os.getenv("WEATHERNEXT_MODEL", "google_weathernext2_ensemble_mean")
 WEATHERNEXT_FORECAST_DAYS = _i("WEATHERNEXT_FORECAST_DAYS", "7")
-# WeatherNext 3 real (BigQuery, acceso por allowlist — formulario en
-# https://developers.google.com/weathernext/guides/access-forecast, 5-7 días
-# laborables). Mientras esto no esté configurado (o la cuenta no esté admitida
-# todavía en la allowlist), weathernext.py cae automáticamente a WeatherNext 2
-# vía Open-Meteo. Rellenar tras suscribirse al listing "WeatherNext 3" en
-# BigQuery Analytics Hub del proyecto de Google Cloud:
+# OpenWeather (precipitación en /lab).
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "").strip()
+OPENWEATHER_TILE_URL = os.getenv(
+    "OPENWEATHER_TILE_URL",
+    "https://tile.openweathermap.org/map/{layer}/{z}/{x}/{y}.png",
+)
+OPENWEATHER_PRECIP_LAYER = os.getenv("OPENWEATHER_PRECIP_LAYER", "precipitation_new")
+# Opcional: BigQuery (proyecto/dataset enlazado).
 # WEATHERNEXT3_PROJECT_ID=tu-proyecto-gcp
-# WEATHERNEXT3_DATASET_ID=nombre-que-le-diste-al-dataset-enlazado
+# WEATHERNEXT3_DATASET_ID=nombre-dataset
 WEATHERNEXT3_PROJECT_ID = os.getenv("WEATHERNEXT3_PROJECT_ID", "")
 WEATHERNEXT3_DATASET_ID = os.getenv("WEATHERNEXT3_DATASET_ID", "")
 WEATHERNEXT3_TABLE_0P1DEG = os.getenv("WEATHERNEXT3_TABLE_0P1DEG", "weathernext_3_0_0_0p1deg")
@@ -312,6 +311,10 @@ ALLOWED_HOSTS = frozenset({
     "firms.modaps.eosdis.nasa.gov",
     "coastwatch.pfeg.noaa.gov",
     "water.discomap.eea.europa.eu",
+    "tile.openweathermap.org",
+    "maps.openweathermap.org",
+    "api.openweathermap.org",
+    "pro.openweathermap.org",
     "volcjmdnsxfuekvehwte.supabase.co",
     "saih.chj.es",
     "www.saihebro.com",

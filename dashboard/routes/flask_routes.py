@@ -1,15 +1,38 @@
 """Rutas Flask auxiliares del dashboard (PWA, estado, manifest)."""
 from __future__ import annotations
 
+import logging
+import re
 import secrets
 from pathlib import Path
 
+import requests
 from flask import Response, jsonify, redirect, request, send_from_directory
 
-from sira.config.settings import API_BASE_URL, CRON_SECRET
+from sira.config.settings import (
+    API_BASE_URL,
+    CRON_SECRET,
+    OPENWEATHER_API_KEY,
+    OPENWEATHER_PRECIP_LAYER,
+    OPENWEATHER_TILE_URL,
+)
 from sira.infrastructure.http.client import fmt_ingesta_local, read_dashboard
 from sira.infrastructure.persistence.sqlite import count_subscriptions
-from sira.infrastructure.sources.meteo.weathernext3 import weathernext3_configurado
+
+log = logging.getLogger(__name__)
+
+_OWM_LAYERS = frozenset(
+    {
+        "precipitation_new",
+        "precipitation",
+        "rain",
+        "clouds_new",
+        "temp_new",
+        "wind_new",
+        "pressure_new",
+    }
+)
+_OWM_TILE_RE = re.compile(r"^https://tile\.openweathermap\.org/map/")
 
 # Stub cuando Dash pide async-plotlyjs.js (en PRO esa ruta del suite devuelve 500).
 _ASYNC_PLOTLYJS_STUB = """
@@ -213,6 +236,65 @@ def register_routes(
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
 
+    @server.route("/api/owm/status")
+    def _owm_status():
+        """Estado de la capa de precipitación OpenWeather (radar estático)."""
+        ok = bool(OPENWEATHER_API_KEY)
+        layer = (OPENWEATHER_PRECIP_LAYER or "precipitation_new").strip()
+        if layer not in _OWM_LAYERS:
+            layer = "precipitation_new"
+        return jsonify(
+            {
+                "ok": ok,
+                "layer": layer,
+                "tile_url": f"/api/owm/tiles/{layer}/{{z}}/{{x}}/{{y}}.png" if ok else None,
+                "detail": None if ok else "OPENWEATHER_API_KEY no configurada en .env",
+            }
+        )
+
+    @server.route("/api/owm/tiles/<layer>/<int:z>/<int:x>/<int:y>.png")
+    def _owm_tile(layer: str, z: int, x: int, y: int):
+        """Proxy de tiles OWM: la API key no sale al navegador."""
+        if not OPENWEATHER_API_KEY:
+            return Response("OPENWEATHER_API_KEY no configurada", status=503, mimetype="text/plain")
+        if layer not in _OWM_LAYERS:
+            return Response("Capa no permitida", status=400, mimetype="text/plain")
+        if z < 0 or z > 18 or x < 0 or y < 0:
+            return Response("Tile inválida", status=400, mimetype="text/plain")
+        url_tmpl = (OPENWEATHER_TILE_URL or "").strip() or (
+            "https://tile.openweathermap.org/map/{layer}/{z}/{x}/{y}.png"
+        )
+        try:
+            url = url_tmpl.format(layer=layer, z=z, x=x, y=y)
+        except (KeyError, ValueError):
+            return Response("URL de tiles mal configurada", status=500, mimetype="text/plain")
+        if not _OWM_TILE_RE.match(url):
+            return Response("Host de tiles no permitido", status=400, mimetype="text/plain")
+        try:
+            r = requests.get(
+                url,
+                params={"appid": OPENWEATHER_API_KEY},
+                timeout=12,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            log.warning("OWM tile falló z=%s x=%s y=%s: %s", z, x, y, exc)
+            return Response("Error al obtener tile", status=502, mimetype="text/plain")
+        if r.status_code != 200:
+            return Response(
+                f"OWM respondió {r.status_code}",
+                status=502 if r.status_code >= 500 else r.status_code,
+                mimetype="text/plain",
+            )
+        return Response(
+            r.content,
+            mimetype=r.headers.get("Content-Type", "image/png"),
+            headers={
+                "Cache-Control": "public, max-age=600",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
     @server.route("/api/cron/restore-snapshot", methods=["POST"])
     def _cron_restore_snapshot():
         """Tras cada ingesta: fuerza descarga del release latest-data en este servicio."""
@@ -306,39 +388,24 @@ def register_routes(
             filas.append(
                 f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
             )
-        # WeatherNext no forma parte del ciclo de ingesta programada (se
-        # consulta a demanda al abrir /weathernext, para no cargar la
-        # ingesta del plan gratuito de Render): no tiene entrada en
-        # `fuentes_estado`, así que se muestra aparte con estado fijo en
-        # vez de "sin datos" (que sería engañoso, ya que sí funciona).
-        try:
-            wn3_ok = weathernext3_configurado()
-        except Exception:  # noqa: BLE001
-            wn3_ok = False
-        if wn3_ok:
-            wn_etiqueta = "Google WeatherNext 3"
-            wn_desc = (
-                "Previsión Google WeatherNext 3 (BigQuery), a demanda al abrir /weathernext. "
-                "Proyecto/dataset configurados; si la allowlist de Google aún no ha concedido "
-                "acceso, cae automáticamente a WeatherNext 2 (Open-Meteo) sin intervención."
-            )
-            wn_estado = (
+        # LAB: datos a demanda al abrir /lab (no van en la ingesta programada).
+        filas.append(
+            '<tr><td>LAB — previsión</td>'
+            '<td class="sira-status-desc">Open-Meteo (ensemble)</td>'
+            '<td><span class="sira-status-ok">OK</span> '
+            '<span class="sira-status-meta">a demanda</span></td></tr>'
+        )
+        if OPENWEATHER_API_KEY:
+            owm_estado = (
                 '<span class="sira-status-ok">OK</span> '
-                '<span class="sira-status-meta">configurado (con fallback a WeatherNext 2)</span>'
+                '<span class="sira-status-meta">tiles</span>'
             )
         else:
-            wn_etiqueta = "Google WeatherNext 2 (temporal)"
-            wn_desc = (
-                "Previsión Google WeatherNext 2 vía Open-Meteo (media del ensemble), a demanda "
-                "al abrir /weathernext (no en la ingesta programada). Es un respaldo temporal "
-                "mientras se espera el acceso a WeatherNext 3 (BigQuery, allowlist de Google)."
-            )
-            wn_estado = (
-                '<span class="sira-status-warn">activo (a demanda)</span> '
-                '<span class="sira-status-meta">de momento, hasta acceso a WeatherNext 3</span>'
-            )
+            owm_estado = '<span class="sira-status-warn">sin API key</span>'
         filas.append(
-            f'<tr><td>{wn_etiqueta}</td><td class="sira-status-desc">{wn_desc}</td><td>{wn_estado}</td></tr>'
+            '<tr><td>LAB — precipitación</td>'
+            '<td class="sira-status-desc">OpenWeather</td>'
+            f'<td>{owm_estado}</td></tr>'
         )
         for clave in sorted(fuentes.keys()):
             if clave in vistos:
@@ -368,7 +435,7 @@ def register_routes(
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=36">
+  <link rel="stylesheet" href="/assets/sira.css?v=37">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">
