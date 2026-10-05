@@ -57,10 +57,8 @@ from charts.figures import (
     fig_corrientes as _fig_corrientes,
     fig_linea as _fig_linea,
     fig_historial as _fig_historial_impl,
-    fig_weathernext_mapa as _fig_weathernext_mapa,
 )
 from sira.infrastructure.sources.meteo.weathernext import (
-    construir_weathernext_ccaa_cache,
     weathernext_localidad_cache,
     weathernext_resumen_actual,
     weathernext_sst_cache,
@@ -92,13 +90,13 @@ app.index_string = f"""
         <title>{{%title%}}</title>
         {{%favicon%}}
         {{%css%}}
-        <link rel="stylesheet" href="/assets/sira.css?v=38">
+        <link rel="stylesheet" href="/assets/sira.css?v=39">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
-        <script src="/assets/aemet-radar.js?v=1"></script>
+        <script src="/assets/aemet-radar.js?v=3"></script>
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>
@@ -286,37 +284,23 @@ app.layout = html.Div(className="sira-page", children=[
                 ),
                 html.Div(className="sira-charts", children=[
                     html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
-                        bloque(
-                            "wn_mapa", "LAB — temperatura máxima prevista (24 h)",
-                            f"{_AYUDA_LAB} · toda España, resaltando la comunidad y "
-                            "provincia seleccionadas.",
-                            map_chart=True, accent=C_ORANGE,
-                        ),
-                    ]),
-                    html.Div(className="sira-charts-row sira-charts-row--map-full", children=[
                         html.Div(
                             className="sira-bloque",
-                            style={"borderTopColor": C_CYAN},
+                            style={"borderTopColor": C_ORANGE},
                             children=[
                                 html.H4(
-                                    "Radar — reflectividad (precipitación)",
+                                    "LAB — temperatura máxima y radar",
                                     className="sira-bloque-title",
                                 ),
                                 html.P(
-                                    "Mosaico radar AEMET (dBZ) cuando OpenData lo sirve; "
-                                    "si no hay mosaico nacional, capa radar RainViewer.",
+                                    "Provincias coloreadas por T.máx prevista (24 h). "
+                                    "Encima, radar de precipitación (manchas). "
+                                    "Base cartográfica Esri (sin API key).",
                                     className="sira-bloque-help",
                                 ),
-                                html.Img(
-                                    id="wn_radar_img",
-                                    className="sira-radar-img",
-                                    alt="Radar de precipitación",
-                                    style={"display": "none", "width": "100%", "height": "auto"},
-                                ),
                                 html.Div(
-                                    id="wn_radar_map",
+                                    id="wn_lab_map",
                                     className="sira-graph-wrap sira-graph-wrap--map sira-owm-radar",
-                                    style={"display": "none"},
                                 ),
                                 html.P(
                                     id="wn_radar_status",
@@ -579,7 +563,6 @@ def refresh_historial(pathname, municipio_id, theme):
 
 @callback(
     Output("wn_card_tiempo", "children"),
-    Output("wn_mapa", "figure"),
     Output("wn_sst_med", "figure"),
     Output("wn_sst_cant", "figure"),
     Output("wn_sst_atl", "figure"),
@@ -598,45 +581,8 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
         raise PreventUpdate
     t = theme_val(theme)
     geo = geo_resuelto(geo)
-    provincia_id = geo.get("provincia_id")
     municipio_id = geo.get("municipio_id")
     localidad = geo.get("localidad")
-    d = _load()
-
-    # Mapa térmico: ingesta (rápido) primero; WN en background vía cache SWR.
-    termico_ing = d.get("termico_ccaa") if isinstance(d.get("termico_ccaa"), dict) else {}
-    try:
-        wn_ccaa = construir_weathernext_ccaa_cache()
-    except Exception:  # noqa: BLE001
-        log.exception("construir_weathernext_ccaa_cache falló")
-        wn_ccaa = {"generado_en": None, "provincias": [], "ccaa": []}
-    n_wn = sum(
-        1 for p in (wn_ccaa.get("provincias") or [])
-        if isinstance(p, dict) and p.get("temp_max_c") is not None
-    )
-    n_ing = sum(
-        1 for p in (termico_ing.get("provincias") or [])
-        if isinstance(p, dict) and p.get("temp_max_c") is not None
-    )
-    termico_mapa = wn_ccaa if n_wn >= max(20, n_ing) else (termico_ing or wn_ccaa)
-
-    # SST mapa: solo CMEMS de la ingesta. No construir rejilla WN (minutos → 502).
-    def _sst_capa(clave_dash: str) -> dict:
-        cmems = d.get(clave_dash) if isinstance(d.get(clave_dash), dict) else {}
-        return cmems if cmems.get("celdas") else {}
-
-    try:
-        mapa = _fig_weathernext_mapa(
-            provincia_id, termico_mapa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
-            sst_med_grid=_sst_capa("sst_med_grid"),
-            sst_cant_grid=_sst_capa("sst_cant_grid"),
-            sst_atl_grid=_sst_capa("sst_atl_grid"),
-        )
-    except Exception:  # noqa: BLE001
-        log.exception("fig_weathernext_mapa falló")
-        mapa = _fig_weathernext_mapa(
-            provincia_id, termico_mapa, uirev="sira-wn-mapa", theme=t, map_aspect=map_aspect,
-        )
 
     try:
         punto = weathernext_localidad_cache(municipio_id, localidad)
@@ -666,7 +612,6 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
 
     return (
         [card_tiempo],
-        mapa,
         _fig_linea(sst_med, "sst_c", C_ORANGE, "°C", "sira-wn-sst-med", con_semaforo_sst=True, theme=t),
         _fig_linea(sst_cant, "sst_c", C_GREEN, "°C", "sira-wn-sst-cant", con_semaforo_sst=True, theme=t),
         _fig_linea(sst_atl, "sst_c", C_CYAN, "°C", "sira-wn-sst-atl", con_semaforo_sst=True, theme=t),
@@ -680,8 +625,10 @@ def refresh_weathernext(pathname, geo, theme, map_aspect):
 
 clientside_callback(
     """
-    function(pathname) {
-        if (window.SiraAemetRadar && typeof window.SiraAemetRadar.onPage === "function") {
+    function(pathname, geo) {
+        if (window.SiraLabMap && typeof window.SiraLabMap.onPage === "function") {
+            window.SiraLabMap.onPage(pathname, geo);
+        } else if (window.SiraAemetRadar && typeof window.SiraAemetRadar.onPage === "function") {
             window.SiraAemetRadar.onPage(pathname);
         }
         return window.dash_clientside.no_update;
@@ -689,6 +636,7 @@ clientside_callback(
     """,
     Output("wn_radar_hook", "data"),
     Input("url", "pathname"),
+    Input("geo-store", "data"),
 )
 
 

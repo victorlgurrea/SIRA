@@ -240,6 +240,19 @@ def register_routes(
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return resp
 
+    @server.route("/api/lab/mapa")
+    def _lab_mapa():
+        """GeoJSON provincias (T.máx) + frame RainViewer para el mapa Leaflet LAB."""
+        from lab_mapa import lab_mapa_geojson
+
+        pid = (request.args.get("provincia") or "").strip() or None
+        try:
+            payload = lab_mapa_geojson(provincia_id=pid)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("lab_mapa falló")
+            return jsonify({"ok": False, "detail": str(exc)}), 500
+        return jsonify(payload)
+
     @server.route("/api/aemet/radar/status")
     def _aemet_radar_status():
         """Estado del radar LAB: AEMET nacional si hay imagen; si no, RainViewer."""
@@ -465,35 +478,11 @@ def register_routes(
             filas.append(
                 f'<tr><td>{etiqueta}</td><td class="sira-status-desc">{desc}</td><td>{estado}</td></tr>'
             )
-        # LAB: radar a demanda + previsión Open-Meteo.
         filas.append(
-            '<tr><td>LAB — mapa térmico</td>'
-            '<td class="sira-status-desc">Open-Meteo (T.máx 24 h)</td>'
+            '<tr><td>LAB — mapa</td>'
+            '<td class="sira-status-desc">Open-Meteo (T.máx) + RainViewer (radar)</td>'
             '<td><span class="sira-status-ok">OK</span> '
             '<span class="sira-status-meta">a demanda</span></td></tr>'
-        )
-        try:
-            from sira.infrastructure.sources.meteo.aemet_radar import radar_nacional_estado
-
-            rad = radar_nacional_estado()
-            if rad.get("ok"):
-                rad_estado = (
-                    '<span class="sira-status-ok">OK</span> '
-                    '<span class="sira-status-meta">AEMET nacional</span>'
-                )
-            elif aemet_radar_configurado():
-                rad_estado = (
-                    '<span class="sira-status-warn">AEMET sin mosaico</span> '
-                    '<span class="sira-status-meta">fallback RainViewer</span>'
-                )
-            else:
-                rad_estado = '<span class="sira-status-warn">sin AEMET_API_KEY</span>'
-        except Exception:  # noqa: BLE001
-            rad_estado = '<span class="sira-status-warn">error</span>'
-        filas.append(
-            '<tr><td>LAB — radar</td>'
-            '<td class="sira-status-desc">AEMET reflectividad (dBZ); RainViewer si falla</td>'
-            f'<td>{rad_estado}</td></tr>'
         )
         for clave in sorted(fuentes.keys()):
             if clave in vistos:

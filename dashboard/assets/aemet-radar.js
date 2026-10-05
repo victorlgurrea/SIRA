@@ -1,6 +1,6 @@
 /**
- * Radar LAB: muestra GIF AEMET nacional si está disponible;
- * si no, tiles RainViewer (manchas tipo radar) en Leaflet.
+ * Mapa LAB unificado: provincias por T.máx + radar precipitación (RainViewer).
+ * Base Esri (Carto libre ya exige API key).
  */
 (function () {
   "use strict";
@@ -12,7 +12,9 @@
 
   var state = {
     map: null,
-    layer: null,
+    base: null,
+    prov: null,
+    radar: null,
     loading: false,
   };
 
@@ -61,112 +63,150 @@
     el.classList.toggle("sira-owm-radar-status--err", !!isErr);
   }
 
-  function destroyMap() {
+  function destroy() {
     if (state.map) {
       try {
         state.map.remove();
       } catch (_e) {}
     }
     state.map = null;
-    state.layer = null;
+    state.base = null;
+    state.prov = null;
+    state.radar = null;
   }
 
-  function showAemet(url) {
-    var img = document.getElementById("wn_radar_img");
-    var mapEl = document.getElementById("wn_radar_map");
-    if (mapEl) mapEl.style.display = "none";
-    destroyMap();
-    if (img) {
-      img.style.display = "block";
-      img.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "t=" + Date.now();
-    }
+  function ensureMap(el) {
+    if (state.map) return state.map;
+    state.map = L.map(el, { zoomControl: true, preferCanvas: true }).setView(
+      [40.0, -3.5],
+      6
+    );
+    // Sin API key: Esri Dark Gray Canvas.
+    state.base = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "Tiles &copy; Esri",
+        maxZoom: 16,
+      }
+    ).addTo(state.map);
+    return state.map;
   }
 
-  function showRainViewer(meta) {
-    var img = document.getElementById("wn_radar_img");
-    var mapEl = document.getElementById("wn_radar_map");
-    if (img) {
-      img.removeAttribute("src");
-      img.style.display = "none";
-    }
-    if (mapEl) mapEl.style.display = "block";
+  function styleProv(feature) {
+    var p = (feature && feature.properties) || {};
+    return {
+      fillColor: p.color || "rgba(100,116,139,0.35)",
+      fillOpacity: 0.52,
+      color: p.activa ? "#22d3ee" : "rgba(15,23,42,0.55)",
+      weight: p.activa ? 2.2 : 0.7,
+      opacity: 1,
+    };
+  }
 
-    loadLeaflet(function () {
-      if (!mapEl || !window.L) return;
-      if (!state.map) {
-        state.map = L.map(mapEl, { zoomControl: true }).setView([40.0, -3.5], 6);
-        L.tileLayer(
-          "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-          {
-            attribution:
-              '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO',
-            maxZoom: 18,
-            subdomains: "abcd",
-          }
-        ).addTo(state.map);
-      }
-      if (state.layer) {
-        try {
-          state.map.removeLayer(state.layer);
-        } catch (_e) {}
-        state.layer = null;
-      }
-      var host = (meta && meta.host) || "https://tilecache.rainviewer.com";
-      var path = (meta && meta.path) || "";
-      if (!path) {
-        setStatus("RainViewer sin frame de radar.", true);
-        return;
-      }
-      var tmpl = host + path + "/256/{z}/{x}/{y}/2/1_1.png";
-      state.layer = L.tileLayer(tmpl, {
-        opacity: 0.75,
+  function onEachProv(feature, layer) {
+    var p = feature.properties || {};
+    var t =
+      p.temp_max_c == null ? "—" : Number(p.temp_max_c).toFixed(1) + " °C";
+    var pr =
+      p.precip_24h_mm == null
+        ? "—"
+        : Number(p.precip_24h_mm).toFixed(1) + " mm";
+    layer.bindPopup(
+      "<b>" +
+        (p.nombre || p.id) +
+        "</b><br>T.máx 24 h: " +
+        t +
+        "<br>Precip 24 h: " +
+        pr +
+        "<br>Fuente: " +
+        (p.fuente || "—")
+    );
+  }
+
+  function render(data) {
+    var el = document.getElementById("wn_lab_map");
+    if (!el || !window.L) return;
+    el.style.display = "block";
+    var map = ensureMap(el);
+
+    if (state.prov) {
+      try {
+        map.removeLayer(state.prov);
+      } catch (_e) {}
+      state.prov = null;
+    }
+    if (state.radar) {
+      try {
+        map.removeLayer(state.radar);
+      } catch (_e) {}
+      state.radar = null;
+    }
+
+    if (data && data.features && data.features.length) {
+      state.prov = L.geoJSON(
+        { type: "FeatureCollection", features: data.features },
+        { style: styleProv, onEachFeature: onEachProv }
+      ).addTo(map);
+    }
+
+    var rv = data && data.rainviewer;
+    if (rv && rv.host && rv.path) {
+      var tmpl = rv.host + rv.path + "/256/{z}/{x}/{y}/2/1_1.png";
+      state.radar = L.tileLayer(tmpl, {
+        opacity: 0.68,
         maxZoom: 12,
         attribution:
           'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
-      }).addTo(state.map);
-      setTimeout(function () {
-        if (state.map) state.map.invalidateSize();
-      }, 120);
+      }).addTo(map);
+    }
+
+    setTimeout(function () {
+      if (state.map) state.map.invalidateSize();
+    }, 100);
+
+    var bits = [];
+    bits.push("T.máx por provincia (Open-Meteo)");
+    if (rv) bits.push("radar precipitación (RainViewer)");
+    else bits.push("sin capa radar");
+    setStatus(bits.join(" · "), !rv);
+  }
+
+  function onPage(pathname, geo) {
+    if (pathname !== "/lab" && pathname !== "/weathernext") {
+      destroy();
+      return;
+    }
+    var pid =
+      geo && geo.provincia_id != null ? String(geo.provincia_id) : "";
+    loadLeaflet(function () {
+      fetch(
+        "/api/lab/mapa" + (pid ? "?provincia=" + encodeURIComponent(pid) : ""),
+        { credentials: "same-origin" }
+      )
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || !data.ok) {
+            setStatus(
+              (data && data.detail) || "No hay datos para el mapa LAB.",
+              true
+            );
+            return;
+          }
+          render(data);
+        })
+        .catch(function () {
+          setStatus("Error al cargar el mapa LAB.", true);
+        });
     });
   }
 
-  function onPage(pathname) {
-    if (pathname !== "/lab" && pathname !== "/weathernext") {
-      destroyMap();
-      return;
-    }
-    fetch("/api/aemet/radar/status", { credentials: "same-origin" })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (st) {
-        if (!st) {
-          setStatus("Sin respuesta del radar.", true);
-          return;
-        }
-        if (st.mode === "aemet" && st.image_url) {
-          showAemet(st.image_url);
-          setStatus(
-            (st.fuente || "AEMET") + " · reflectividad (dBZ)",
-            false
-          );
-          return;
-        }
-        if (st.rainviewer) {
-          showRainViewer(st.rainviewer);
-          setStatus(
-            (st.detail || "AEMET nacional no disponible") +
-              " · respaldo RainViewer",
-            false
-          );
-          return;
-        }
-        setStatus(st.detail || "Radar no disponible.", true);
-      })
-      .catch(function () {
-        setStatus("Error al cargar el radar.", true);
-      });
-  }
-
-  window.SiraAemetRadar = { onPage: onPage };
+  window.SiraLabMap = { onPage: onPage };
+  // Compatibilidad con callback anterior.
+  window.SiraAemetRadar = {
+    onPage: function (pathname) {
+      onPage(pathname, null);
+    },
+  };
 })();

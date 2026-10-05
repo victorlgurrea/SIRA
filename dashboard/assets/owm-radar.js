@@ -104,13 +104,12 @@
       attributionControl: true,
     }).setView([c.lat, c.lon], c.zoom);
 
+    // CARTO basemaps ahora exigen API key; Esri Dark Gray no.
     L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
       {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO',
-        maxZoom: 18,
-        subdomains: "abcd",
+        attribution: "Tiles &copy; Esri",
+        maxZoom: 16,
       }
     ).addTo(state.map);
 
