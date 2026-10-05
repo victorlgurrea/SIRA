@@ -90,13 +90,13 @@ app.index_string = f"""
         <title>{{%title%}}</title>
         {{%favicon%}}
         {{%css%}}
-        <link rel="stylesheet" href="/assets/sira.css?v=39">
+        <link rel="stylesheet" href="/assets/sira.css?v=40">
         <meta name="theme-color" content="#0a1628">
         <script src="/assets/theme.js"></script>
         <link rel="icon" href="/assets/logo-sira_4.png?v=8" type="image/png">
         <link rel="manifest" href="/manifest.webmanifest">
         <script src="/assets/geo.js"></script>
-        <script src="/assets/aemet-radar.js?v=3"></script>
+        <script src="/assets/aemet-radar.js?v=4"></script>
         <script charset="utf-8" src="{_PLOTLY_JS_CDN}"></script>
     </head>
     <body>

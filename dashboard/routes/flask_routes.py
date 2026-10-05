@@ -512,7 +512,7 @@ def register_routes(
   <title>SIRA — Estado del sistema</title>
   <meta name="theme-color" content="#0a1628">
   <script src="/assets/theme.js"></script>
-  <link rel="stylesheet" href="/assets/sira.css?v=38">
+  <link rel="stylesheet" href="/assets/sira.css?v=40">
 </head>
 <body class="sira-page sira-status-page">
   <main class="sira-main">

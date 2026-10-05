@@ -1256,6 +1256,19 @@ body {
 .sira-owm-radar-status--err {
   color: var(--sira-orange, #e07a3d);
 }
+.sira-lab-tooltip {
+  background: rgba(10, 22, 40, 0.92);
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  color: #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.sira-lab-tooltip::before {
+  border-top-color: rgba(10, 22, 40, 0.92);
+}
 
 /* Plotly: el contenedor SVG sí puede ir al 100%; .geolayer es un <g> interno
    y su “ancho” lo marca la relación de aspecto del encuadre (viewport_fit_contenedor). */

@@ -111,16 +111,35 @@
       p.precip_24h_mm == null
         ? "—"
         : Number(p.precip_24h_mm).toFixed(1) + " mm";
-    layer.bindPopup(
+    var html =
       "<b>" +
-        (p.nombre || p.id) +
-        "</b><br>T.máx 24 h: " +
-        t +
-        "<br>Precip 24 h: " +
-        pr +
-        "<br>Fuente: " +
-        (p.fuente || "—")
-    );
+      (p.nombre || p.id) +
+      "</b><br>T.máx 24 h: <b>" +
+      t +
+      "</b><br>Precip 24 h: " +
+      pr;
+    layer.bindTooltip(html, {
+      sticky: true,
+      direction: "top",
+      opacity: 0.95,
+      className: "sira-lab-tooltip",
+    });
+    layer.on({
+      mouseover: function (e) {
+        var ly = e.target;
+        ly.setStyle({
+          weight: 2.4,
+          color: "#22d3ee",
+          fillOpacity: 0.62,
+        });
+        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+          ly.bringToFront();
+        }
+      },
+      mouseout: function (e) {
+        if (state.prov) state.prov.resetStyle(e.target);
+      },
+    });
   }
 
   function render(data) {
